@@ -1,0 +1,254 @@
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+
+from app.agent.policy import PolicyInput, decide_next_action
+from app.domain.events import (
+    AgentDecision,
+    AgentEvent,
+    LearningEvent,
+    LearningEventType,
+    utc_now_iso,
+)
+from app.domain.learner import EvidenceWeight
+from app.domain.memory import BoundedAction, Episode, outcome_component_score
+from app.domain.sessions import SessionState
+from app.infrastructure.event_store import EventStore
+from app.infrastructure.learner_store import LearnerStore
+from app.memory.episode_builder import EpisodeBuilder
+from app.memory.sqlite_backend import SQLiteMemory
+
+MISCONCEPTION_MAP_FIELD = "misconception_map"
+
+
+@dataclass
+class ContentItem:
+    content_id: str
+    version: int
+    skill: str
+    subskill: str
+    difficulty: int
+    answer_choice_id: str
+    misconception_map: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class DecisionOutcome:
+    decision: AgentDecision
+    next_state: SessionState
+    agent_event: AgentEvent
+    episode: Episode | None = None
+
+
+class SessionOrchestrator:
+    """Ties immutable events, projections, memory, and the bounded policy into
+    one explainable decision per interaction."""
+
+    def __init__(self, database_path: Path) -> None:
+        self.db = database_path
+        self.events = EventStore(database_path)
+        self.learner = LearnerStore(database_path)
+        self.memory = SQLiteMemory(database_path)
+        self.episodes = EpisodeBuilder(database_path)
+
+    def _content_version(self, item: ContentItem) -> str:
+        return f"{item.content_id}.v{item.version}"
+
+    def evaluate_answer(
+        self,
+        *,
+        student_id: str,
+        session_id: str,
+        item: ContentItem,
+        selected_choice_id: str,
+        hint_level: int,
+        minutes_remaining: int,
+        device_id: str | None = None,
+        origin: str = "online",
+    ) -> DecisionOutcome:
+        correct = selected_choice_id == item.answer_choice_id
+        weight = EvidenceWeight(
+            difficulty=item.difficulty,
+            hint_level=hint_level,
+        ).weight()
+        now = utc_now_iso()
+
+        eval_event = LearningEvent(
+            event_id=f"evt_{uuid.uuid4().hex[:16]}",
+            student_id=student_id,
+            session_id=session_id,
+            event_type=LearningEventType.ANSWER_EVALUATED,
+            payload={
+                "content_id": item.content_id,
+                "version": item.version,
+                "selected_choice_id": selected_choice_id,
+                "correct": correct,
+                "hint_level": hint_level,
+            },
+            content_version=self._content_version(item),
+            occurred_at=now,
+            received_at=now,
+            device_id=device_id,
+            origin=origin,
+        ).with_integrity()
+
+        misconception = None
+        if not correct:
+            misconception = item.misconception_map.get(selected_choice_id)
+
+        evidence, skill_state = self.learner.record_answer_evaluation(
+            student_id=student_id,
+            session_id=session_id,
+            event=eval_event,
+            content_id=item.content_id,
+            content_version=item.version,
+            skill=item.skill,
+            subskill=item.subskill,
+            difficulty=item.difficulty,
+            sequence=0,
+            selected_choice_id=selected_choice_id,
+            correct=correct,
+            hint_level=hint_level,
+            weight=weight,
+            validity="valid",
+            misconception=misconception,
+            misconception_source_label="distractor_mapping",
+            misconception_confidence_label="high",
+            session_state=SessionState.ANSWER_EVALUATED,
+        )
+
+        obs_count, distinct_items = (
+            self.learner.count_misconception_evidence(student_id, item.skill, misconception)
+            if misconception
+            else (0, 0)
+        )
+
+        recalled = self._recall_successful_episodes(student_id, item.skill, misconception)
+        inputs = PolicyInput(
+            student_id=student_id,
+            session_id=session_id,
+            skill=item.skill,
+            subskill=item.subskill,
+            difficulty=item.difficulty,
+            mastery=skill_state.mastery if skill_state else 0.5,
+            confidence=skill_state.confidence if skill_state else 0.0,
+            consecutive_errors=skill_state.incorrect_streak if skill_state else 0,
+            correct_streak=skill_state.correct_streak if skill_state else 0,
+            active_misconception=misconception,
+            misconception_observation_count=obs_count,
+            misconception_distinct_items=distinct_items,
+            minutes_remaining=minutes_remaining,
+            recalled_successful_episode=bool(recalled),
+            recalled_episode_ids=[e.episode_id for e in recalled],
+        )
+        result = decide_next_action(inputs)
+
+        agent_event = AgentEvent(
+            event_id=f"agt_{uuid.uuid4().hex[:16]}",
+            student_id=student_id,
+            session_id=session_id,
+            source_event_id=eval_event.event_id,
+            state_before=SessionState.QUESTION_ACTIVE.value,
+            state_after=result.next_state.value,
+            action=result.decision.action,
+            action_payload=result.decision.action_payload,
+            reason_code=result.decision.reason_code,
+            reason_text=result.decision.reason_text,
+            policy_version=result.decision.policy_version,
+            content_version=self._content_version(item),
+            referenced_content=[item.content_id],
+            episode_ids=result.decision.episode_ids,
+            source=origin,
+            created_at=now,
+        )
+        self.events.append_agent_event(agent_event)
+
+        self.learner.transition_session(session_id, result.next_state)
+
+        return DecisionOutcome(
+            decision=result.decision,
+            next_state=result.next_state,
+            agent_event=agent_event,
+        )
+
+    def _recall_successful_episodes(self, student_id: str, skill: str, misconception: str | None):
+        return self.memory.recall_episodes(
+            student_id=student_id,
+            skill=skill,
+            misconception=misconception,
+            limit=3,
+        )
+
+    def build_episode(
+        self,
+        *,
+        student_id: str,
+        session_id: str,
+        skill: str,
+        misconception: str | None,
+        intervention: str,
+        teaching_content_id: str,
+        outcome_item: ContentItem,
+        outcome_correct: bool,
+        outcome_hint_level: int,
+        summary: str,
+        evidence_event_ids: list[str] | None = None,
+        context_event_id: str | None = None,
+        outcome_event_id: str | None = None,
+    ) -> Episode | None:
+        """Build and validate an episode from a teaching event and a distinct
+        transfer outcome. Evidence event IDs default to the session's
+        ANSWER_EVALUATED events when not supplied."""
+        if evidence_event_ids is None or context_event_id is None or outcome_event_id is None:
+            events = self.events.get_learning_events(session_id=session_id)
+            evidence_event_ids = [e.event_id for e in events]
+            context_event_id = events[0].event_id if events else None
+            outcome_event_id = events[-1].event_id if events else None
+        episode = self.episodes.build_candidate(
+            student_id=student_id,
+            session_id=session_id,
+            skill=skill,
+            misconception=misconception,
+            intervention=intervention,
+            context_event=self._dummy_context_event(student_id, session_id, context_event_id),
+            evidence_events=[
+                self._dummy_outcome_event(student_id, session_id, eid)
+                for eid in evidence_event_ids
+            ],
+            outcome_event=self._dummy_outcome_event(student_id, session_id, outcome_event_id),
+            outcome_correct=outcome_correct,
+            outcome_hint_level=outcome_hint_level,
+            outcome_content_id=outcome_item.content_id,
+            teaching_content_id=teaching_content_id,
+            summary=summary,
+        )
+        return self.episodes.validate(episode)
+
+    def _dummy_context_event(
+        self, student_id: str, session_id: str, event_id: str | None = None
+    ) -> LearningEvent:
+        return LearningEvent(
+            event_id=event_id or f"ctx_{uuid.uuid4().hex[:16]}",
+            student_id=student_id,
+            session_id=session_id,
+            event_type=LearningEventType.CONTENT_PRESENTED,
+            payload={},
+            occurred_at=utc_now_iso(),
+            received_at=utc_now_iso(),
+        )
+
+    def _dummy_outcome_event(
+        self, student_id: str, session_id: str, event_id: str | None = None
+    ) -> LearningEvent:
+        return LearningEvent(
+            event_id=event_id or f"out_{uuid.uuid4().hex[:16]}",
+            student_id=student_id,
+            session_id=session_id,
+            event_type=LearningEventType.ANSWER_EVALUATED,
+            payload={},
+            occurred_at=utc_now_iso(),
+            received_at=utc_now_iso(),
+        )
