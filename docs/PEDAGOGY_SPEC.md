@@ -15,6 +15,17 @@ The purpose of this specification is to prevent the system from becoming a techn
 
 The MVP supports eight skill groups. The scope is intentionally narrow enough to review completely before submission.
 
+### 2.0 Competition delivery scope (math closed-loop first)
+
+Per `COMPETITION_MVP_EXECUTION_PLAN.md`, the competition MVP delivers **four math
+skills only**: `linear_equations`, `systems_equations`, `ratios_percentages`,
+`functions_models`, with 55 human-approved original items (12/12/13/18),
+at least 2 micro-lessons and 2 worked examples per delivered skill. Reading and
+writing skills and the remaining taxonomy entries below are **extension scope
+for future releases** and are not claimed as delivered capabilities in the
+competition demo. The full taxonomy is retained here as the reviewed extension
+target.
+
 ### 2.1 Mathematics
 
 | Skill ID | Display name | Subskills | Prerequisites |

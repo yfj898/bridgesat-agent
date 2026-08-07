@@ -1,0 +1,9 @@
+{
+  "id": "skeleton-test",
+  "name": "Skeleton test fixture",
+  "version": "0.1.0",
+  "status": "published",
+  "allowed_item_schema_versions": ["v1"],
+  "item_count": 6,
+  "source": "project-original (skeleton fixtures, for legacy engine tests only)"
+}

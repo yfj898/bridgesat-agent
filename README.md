@@ -70,6 +70,28 @@ pytest
 
 The core learning policy must continue working without an external LLM. A model may later improve explanations, classify free-form mistakes, or translate content, but it must not be required for question selection, mastery updates, progress storage, or offline practice.
 
+## Competition scope (math closed-loop first)
+
+The competition MVP implements a **math closed loop**: 55 human-approved original
+four-choice math items covering four math skills (`linear_equations`,
+`systems_equations`, `ratios_percentages`, `functions_models`), each skill with
+at least 2 micro-lessons and 2 worked examples, all human-reviewed before
+publication.
+
+- Reading and writing skills, and the full eight-skill taxonomy, are **future
+  extension scope**, not delivered capabilities. The competition demo does not
+  imply reading support.
+- The original skeleton questions are quarantined in `content/quarantined/` and
+  are never loaded by the production API or PWA. Only items in a published
+  content pack under `content/packs/` are student-facing.
+- GSM8K data is evaluation-only and never enters the student content path.
+- The core learning loop (diagnose → plan → teach → observe → diagnose
+  misconception → recall learner memory → retrieve approved content → choose
+  and explain the next action → record outcome) must complete without an
+  external model, Mnemis, or network access.
+
 ## Status
 
-This repository is a new, independent competition project. The included content is starter data for development and must be expanded and reviewed before submission.
+This repository is a new, independent competition project executing the plan in
+`docs/COMPETITION_MVP_EXECUTION_PLAN.md`; normative contracts live in the six
+specification documents listed above.

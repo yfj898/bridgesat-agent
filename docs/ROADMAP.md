@@ -1,6 +1,14 @@
 # BridgeSAT Competition Roadmap
 
-Detailed contracts and acceptance gates are in `IMPLEMENTATION_PLAN.md` and the six normative specifications in `docs/`. This file is the execution checklist. A gate is complete only when its implementation and corresponding acceptance tests pass.
+Detailed contracts and acceptance gates are in `IMPLEMENTATION_PLAN.md`,
+`COMPETITION_MVP_EXECUTION_PLAN.md`, and the six normative specifications in
+`docs/`. This file is the execution checklist. A gate is complete only when its
+implementation and corresponding acceptance tests pass.
+
+**Competition scope: math closed-loop first.** The submitted MVP delivers 55
+human-approved original math items across four math skills (and supporting
+micro-lessons/worked examples); the reading domain and the full eight-skill
+taxonomy are extension scope and are not claimed as delivered in the demo.
 
 ## Gate 0 — frozen design
 
