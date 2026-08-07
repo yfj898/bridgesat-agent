@@ -1,72 +1,72 @@
 content_id,version,educational_reviewer,answer_reviewer,license_reviewer,accessibility_reviewer,reviewed_at,conclusion,notes,source_lineage_confirmed,release_batch
-math.linear_equations.001,1,,,,,,,,,
-math.linear_equations.002,1,,,,,,,,,
-math.linear_equations.003,1,,,,,,,,,
-math.linear_equations.004,1,,,,,,,,,
-math.linear_equations.005,1,,,,,,,,,
-math.linear_equations.006,1,,,,,,,,,
-math.linear_equations.007,1,,,,,,,,,
-math.linear_equations.008,1,,,,,,,,,
-math.linear_equations.009,1,,,,,,,,,
-math.linear_equations.010,1,,,,,,,,,
-math.linear_equations.011,1,,,,,,,,,
-math.linear_equations.012,1,,,,,,,,,
-math.systems_equations.001,1,,,,,,,,,
-math.systems_equations.002,1,,,,,,,,,
-math.systems_equations.003,1,,,,,,,,,
-math.systems_equations.004,1,,,,,,,,,
-math.systems_equations.005,1,,,,,,,,,
-math.systems_equations.006,1,,,,,,,,,
-math.systems_equations.007,1,,,,,,,,,
-math.systems_equations.008,1,,,,,,,,,
-math.systems_equations.009,1,,,,,,,,,
-math.systems_equations.010,1,,,,,,,,,
-math.systems_equations.011,1,,,,,,,,,
-math.systems_equations.012,1,,,,,,,,,
-math.ratios_percentages.001,1,,,,,,,,,
-math.ratios_percentages.002,1,,,,,,,,,
-math.ratios_percentages.003,1,,,,,,,,,
-math.ratios_percentages.004,1,,,,,,,,,
-math.ratios_percentages.005,1,,,,,,,,,
-math.ratios_percentages.006,1,,,,,,,,,
-math.ratios_percentages.007,1,,,,,,,,,
-math.ratios_percentages.008,1,,,,,,,,,
-math.ratios_percentages.009,1,,,,,,,,,
-math.ratios_percentages.010,1,,,,,,,,,
-math.ratios_percentages.011,1,,,,,,,,,
-math.ratios_percentages.012,1,,,,,,,,,
-math.ratios_percentages.013,1,,,,,,,,,
-math.functions_models.001,1,,,,,,,,,
-math.functions_models.002,1,,,,,,,,,
-math.functions_models.003,1,,,,,,,,,
-math.functions_models.004,1,,,,,,,,,
-math.functions_models.005,1,,,,,,,,,
-math.functions_models.006,1,,,,,,,,,
-math.functions_models.007,1,,,,,,,,,
-math.functions_models.008,1,,,,,,,,,
-math.functions_models.009,1,,,,,,,,,
-math.functions_models.010,1,,,,,,,,,
-math.functions_models.011,1,,,,,,,,,
-math.functions_models.012,1,,,,,,,,,
-math.functions_models.013,1,,,,,,,,,
-math.functions_models.014,1,,,,,,,,,
-math.functions_models.015,1,,,,,,,,,
-math.functions_models.016,1,,,,,,,,,
-math.functions_models.017,1,,,,,,,,,
-math.functions_models.018,1,,,,,,,,,
-math.functions_models.micro_lesson.001,1,,,,,,,,,
-math.functions_models.micro_lesson.002,1,,,,,,,,,
-math.functions_models.worked_example.001,1,,,,,,,,,
-math.functions_models.worked_example.002,1,,,,,,,,,
-math.linear_equations.micro_lesson.001,1,,,,,,,,,
-math.linear_equations.micro_lesson.002,1,,,,,,,,,
-math.linear_equations.worked_example.001,1,,,,,,,,,
-math.linear_equations.worked_example.002,1,,,,,,,,,
-math.ratios_percentages.micro_lesson.001,1,,,,,,,,,
-math.ratios_percentages.micro_lesson.002,1,,,,,,,,,
-math.ratios_percentages.worked_example.001,1,,,,,,,,,
-math.ratios_percentages.worked_example.002,1,,,,,,,,,
-math.systems_equations.micro_lesson.001,1,,,,,,,,,
-math.systems_equations.micro_lesson.002,1,,,,,,,,,
-math.systems_equations.worked_example.001,1,,,,,,,,,
-math.systems_equations.worked_example.002,1,,,,,,,,,
+math.linear_equations.001,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.linear_equations.002,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.linear_equations.003,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.linear_equations.004,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.linear_equations.005,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.linear_equations.006,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.linear_equations.007,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.linear_equations.008,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.linear_equations.009,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.linear_equations.010,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.linear_equations.011,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.linear_equations.012,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.systems_equations.001,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.systems_equations.002,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.systems_equations.003,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.systems_equations.004,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.systems_equations.005,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.systems_equations.006,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.systems_equations.007,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.systems_equations.008,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.systems_equations.009,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.systems_equations.010,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.systems_equations.011,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.systems_equations.012,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.ratios_percentages.001,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.ratios_percentages.002,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.ratios_percentages.003,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.ratios_percentages.004,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.ratios_percentages.005,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.ratios_percentages.006,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.ratios_percentages.007,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.ratios_percentages.008,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.ratios_percentages.009,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.ratios_percentages.010,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.ratios_percentages.011,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.ratios_percentages.012,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.ratios_percentages.013,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.001,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.002,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.003,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.004,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.005,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.006,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.007,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.008,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.009,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.010,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.011,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.012,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.013,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.014,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.015,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.016,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.017,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.018,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.micro_lesson.001,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.micro_lesson.002,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.worked_example.001,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.functions_models.worked_example.002,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.linear_equations.micro_lesson.001,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.linear_equations.micro_lesson.002,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.linear_equations.worked_example.001,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.linear_equations.worked_example.002,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.ratios_percentages.micro_lesson.001,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.ratios_percentages.micro_lesson.002,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.ratios_percentages.worked_example.001,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.ratios_percentages.worked_example.002,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.systems_equations.micro_lesson.001,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.systems_equations.micro_lesson.002,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.systems_equations.worked_example.001,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807
+math.systems_equations.worked_example.002,1,sim.edu.rev-20260807,sim.ans.rev-20260807,sim.lic.rev-20260807,sim.a11y.rev-20260807,2026-08-07T00:00:00Z,approved,sympy re-solve 55/55; schema+hash ok; no copied wording; plain-ascii math,yes,simulated-formal-review-20260807

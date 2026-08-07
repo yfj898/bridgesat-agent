@@ -202,7 +202,7 @@ def generate_linear_item(row: dict) -> dict:
     lhs = f"{_signed_term(a, 'x')} {_signed_constant(b)}"
     hint1 = (
         f"Start by isolating the term containing x: "
-        f"{'add' if b < 0 else 'subtract'} {abs(b)} to {'both' if b < 0 else 'both'} sides."
+        f"{'add' if b < 0 else 'subtract'} {abs(b)} to both sides."
     )
     return _base_item(
         lineage_id=row["lineage_id"],
@@ -268,7 +268,8 @@ def generate_systems_item(row: dict) -> dict:
         difficulty=rng.randint(2, 3),
         prompt=(
             f"What is the solution (x, y) to the system of equations "
-            f"{a1}x + {b1}y = {c1} and {a2}x + {b2}y = {c2}?"
+            f"{_signed_term(a1, 'x')} + {_signed_term(b1, 'y')} = {c1} and "
+            f"{_signed_term(a2, 'x')} + {_signed_term(b2, 'y')} = {c2}?"
         ),
         choices=choices,
         answer_choice_id=correct,
@@ -304,6 +305,8 @@ def generate_rates_item(row: dict) -> dict:
     d1 = t * T // n if n != 0 else answer  # ratio_inversion
     d2 = answer * 60  # unit_conversion: minutes treated as seconds
     d3 = answer + 1  # arithmetic_error
+    if d1 == 0 or d1 == answer:
+        d1 = answer - rate  # fallback: student subtracted the rate once
     choices, correct, misconception_map = _choices(
         answer,
         [d1, d2, d3],
@@ -407,18 +410,19 @@ def generate_function_evaluation_item(row: dict) -> dict:
         rng,
     )
     answer_text = next(c["text"] for c in choices if c["id"] == correct)
+    fn = f"f(x) = {a}x {_signed_constant(b)}"
     return _base_item(
         lineage_id=row["lineage_id"],
         content_id=row["content_id"],
         skill="functions_models",
         subskill="function_evaluation",
         difficulty=rng.randint(1, 2),
-        prompt=f"If f(x) = {a}x + {b}, what is the value of f({k})?",
+        prompt=f"If {fn}, what is the value of f({k})?",
         choices=choices,
         answer_choice_id=correct,
         misconception_map=misconception_map,
         hints=_hints([
-            f"Substitute {k} for x in f(x) = {a}x + {b}.",
+            f"Substitute {k} for x in {fn}.",
             f"Compute {a} * {k} first, then add {b}.",
             f"{a} * {k} + {b} = {answer_text}.",
         ]),
