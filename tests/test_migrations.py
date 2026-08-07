@@ -46,6 +46,8 @@ def test_fresh_database_migrates_to_supported_version(tmp_path: Path) -> None:
             "learning_episodes",
             "student_memory_facts",
             "intervention_stats",
+            "knowledge_index_log",
+            "knowledge_fts",
         }
         assert required <= tables
         assert database_version(connection) == migration_runner.SCHEMA_VERSION

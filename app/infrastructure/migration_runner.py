@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .database import MIGRATION_DIR, transaction
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 class UnsupportedDatabaseError(RuntimeError):

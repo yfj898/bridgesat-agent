@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import a built content pack into the content registry.
+"""Import a built content pack into the content registry and FTS index.
 
 Usage:
     python scripts/import_content_pack.py [--db PATH] [--pack PATH]
@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT))
 
 from app.content_pipeline.contracts import PACKS_DIR
 from app.content_pipeline.importing import import_pack, verify_import
+from app.knowledge.local_backend import index_pack
 
 
 def _default_db() -> Path:
@@ -44,8 +45,10 @@ def main() -> int:
     pack = args.pack or _default_pack()
     inserted = import_pack(db, pack)
     summary = verify_import(db)
+    indexed = index_pack(db, pack)
     print(f"Imported {inserted} items from {pack.name} into {db}")
     print(f"Registry: {summary}")
+    print(f"Indexed: {indexed}")
     return 0
 
 

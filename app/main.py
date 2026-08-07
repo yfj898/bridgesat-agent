@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
 from .engine import adapt, score_diagnostic
+from .knowledge.router import router as knowledge_router
 from .models import (
     AdaptRequest,
     AdaptResponse,
@@ -69,6 +70,9 @@ def adapt_session(payload: AdaptRequest) -> AdaptResponse:
     student.mastery[payload.skill] = result.mastery
     repository.update_mastery(student.id, student.mastery)
     return result
+
+
+app.include_router(knowledge_router)
 
 
 WEB_DIR = ROOT / "web"

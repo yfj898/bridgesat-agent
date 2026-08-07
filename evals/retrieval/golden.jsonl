@@ -1,0 +1,8 @@
+{"query": "isolate x when there is a constant on the same side", "skill": "linear_equations", "expected_ids": ["math.linear_equations.micro_lesson.001"], "note": "lesson recall, no exact prompt words"}
+{"query": "solve system where coefficients do not match directly", "skill": "systems_equations", "expected_ids": ["math.systems_equations.micro_lesson.001"], "note": "elimination lesson recall; prerequisite expansion to linear lessons follows"}
+{"query": "work out parts produced at same rate over longer time", "skill": "ratios_percentages", "expected_ids": ["math.ratios_percentages.001", "math.ratios_percentages.worked_example.001"], "note": "exact item plus the demonstrated unit-rate computation"}
+{"query": "evaluate 7x - 6 at negative four", "skill": "functions_models", "expected_ids": ["math.functions_models.010"], "note": "exact canonical item"}
+{"query": "linear model cost per mile plus flat fee", "skill": "functions_models", "expected_ids": ["math.functions_models.001", "math.functions_models.micro_lesson.001"], "note": "model item plus linear-models lesson"}
+{"query": "sign error student kept the sign wrong when isolating", "skill": "linear_equations", "misconception": "sign_error", "expected_ids": ["math.linear_equations.001", "math.linear_equations.002", "math.linear_equations.003"], "note": "misconception-filtered"}
+{"query": "inverse operation divide instead of multiply when solving", "skill": "linear_equations", "misconception": "inverse_operation_error", "expected_ids": ["math.linear_equations.001"], "note": "misconception-filtered recall"}
+{"query": "unknown algebra topic completely outside the pack", "skill": null, "expected_ids": [], "note": "explicit no-result required"}
