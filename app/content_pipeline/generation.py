@@ -467,40 +467,140 @@ def generate_item(manifest_row: dict) -> dict:
     return item
 
 
-def _lesson_body(skill: str, rng: random.Random, kind: str) -> tuple[str, str, str]:
+# Per-skill lesson content. The two micro_lessons and two worked_examples
+# per skill are deliberately distinct (plan section 8.2: lessons remediate
+# misconceptions, worked examples demonstrate subskills); the pair must
+# never be byte-identical duplicates.
+def _lesson_content(skill: str, kind: str, index: int) -> tuple[str, str, str]:
     if skill == "linear_equations":
-        title = "Solving Linear Equations"
-        body = (
-            "To solve ax + b = c, isolate the variable term by subtracting b "
-            "from both sides, then divide both sides by a. Check by substituting "
-            "the solution back into the original equation."
+        if kind == "micro_lesson":
+            if index == 1:
+                return (
+                    "Solving Linear Equations",
+                    (
+                        "To solve ax + b = c, isolate the variable term by subtracting b "
+                        "from both sides, then divide both sides by a. Check by substituting "
+                        "the solution back into the original equation."
+                    ),
+                    "isolate_variables",
+                )
+            return (
+                "Avoiding Sign Errors When Isolating",
+                (
+                    "A sign error happens when a term crosses the equals sign with the wrong "
+                    "sign. For 8x - 1 = 87, add 1 to both sides so the left side becomes 8x "
+                    "only: 8x = 88, not 8x = 86. Always state which inverse operation you "
+                    "apply before rewriting the line."
+                ),
+                "isolate_variables",
+            )
+        if index == 1:
+            return (
+                "Solving a Linear Equation — Worked Example",
+                "For 3x + 5 = 17: subtract 5 from both sides to get 3x = 12, then x = 4.",
+                "isolate_variables",
+            )
+        return (
+            "Solving with a Negative Constant — Worked Example",
+            "For 8x - 1 = 87: add 1 to both sides to get 8x = 88, then x = 11.",
+            "isolate_variables",
         )
-        example = "For 3x + 5 = 17: 3x = 12, then x = 4."
-    elif skill == "systems_equations":
-        title = "Solving Systems of Equations"
-        body = (
-            "A system of two linear equations can be solved by elimination: "
-            "multiply one equation so a variable matches, subtract to eliminate "
-            "it, solve for one variable, then substitute back."
+    if skill == "systems_equations":
+        if kind == "micro_lesson":
+            if index == 1:
+                return (
+                    "Solving Systems of Equations",
+                    (
+                        "A system of two linear equations can be solved by elimination: "
+                        "multiply one equation so a variable matches, subtract to eliminate "
+                        "it, solve for one variable, then substitute back."
+                    ),
+                    "solve_systems",
+                )
+            return (
+                "Eliminating When Coefficients Do Not Match",
+                (
+                    "When neither variable has matching coefficients, multiply one equation "
+                    "first so a variable matches, then subtract. For 4x + y = 30 and "
+                    "4x + 3y = 42 the x coefficients already match: subtract the first "
+                    "equation from the second to get 2y = 12, so y = 6, then x = 6."
+                ),
+                "solve_systems",
+            )
+        if index == 1:
+            return (
+                "Solving a System — Worked Example",
+                "For x + y = 5 and x - y = 1: adding gives 2x = 6, so x = 3, then y = 2.",
+                "solve_systems",
+            )
+        return (
+            "System with Matching Coefficient — Worked Example",
+            "For 4x + y = 30 and 4x + 3y = 42: subtract to eliminate x, giving 2y = 12, "
+            "so y = 6, then x = 6.",
+            "solve_systems",
         )
-        example = "For x + y = 5 and x - y = 1: adding gives 2x = 6, so x = 3, y = 2."
-    elif skill == "ratios_percentages":
-        title = "Unit Rates and Proportional Reasoning"
-        body = (
-            "A unit rate expresses a quantity per one unit of another quantity. "
-            "Set up a proportion so the units match, then solve for the unknown."
+    if skill == "ratios_percentages":
+        if kind == "micro_lesson":
+            if index == 1:
+                return (
+                    "Unit Rates and Proportional Reasoning",
+                    (
+                        "A unit rate expresses a quantity per one unit of another quantity. "
+                        "Set up a proportion so the units match, then solve for the unknown."
+                    ),
+                    "unit_rates",
+                )
+            return (
+                "Avoiding Ratio Inversion",
+                (
+                    "Keep the same quantity in the numerator of both ratios. If 20 parts "
+                    "take 2 minutes, write 20/2 = 10 parts per minute; in 8 minutes the "
+                    "machine makes 10 * 8 = 80 parts. Swapping the units inverts the ratio."
+                ),
+                "unit_rates",
+            )
+        if index == 1:
+            return (
+                "Unit Rate — Worked Example",
+                "At 30 miles per 2 hours, the unit rate is 30 / 2 = 15 miles per hour.",
+                "unit_rates",
+            )
+        return (
+            "Parts per Minute — Worked Example",
+            "A machine makes 20 parts in 2 minutes: 20 / 2 = 10 parts per minute, so in "
+            "8 minutes it makes 10 * 8 = 80 parts.",
+            "unit_rates",
         )
-        example = "At 30 miles per 2 hours, the unit rate is 15 miles per hour."
-    else:
-        title = "Modeling Situations with Functions"
-        body = (
-            "Linear models have the form f(x) = mx + b. The slope m is the rate "
-            "of change and b is the starting value. Evaluate f(x) by substituting."
+    # functions_models
+    if kind == "micro_lesson":
+        if index == 1:
+            return (
+                "Modeling Situations with Functions",
+                (
+                    "Linear models have the form f(x) = mx + b. The slope m is the rate "
+                    "of change and b is the starting value."
+                ),
+                "algebraic_models",
+            )
+        return (
+            "Evaluating Functions by Substitution",
+            (
+                "To evaluate a function, replace x with the given value everywhere it "
+                "appears, then simplify. For f(x) = 7x - 6, f(-4) = 7(-4) - 6 = -34."
+            ),
+            "function_evaluation",
         )
-        example = "For f(x) = 2x + 3, f(5) = 2(5) + 3 = 13."
-    if kind == "worked_example":
-        return title + " — Worked Example", example, "worked_example"
-    return title, body, "micro_lesson"
+    if index == 1:
+        return (
+            "Function Evaluation — Worked Example",
+            "For f(x) = 2x + 3, f(5) = 2(5) + 3 = 13.",
+            "function_evaluation",
+        )
+    return (
+        "Evaluating at a Negative Value — Worked Example",
+        "For f(x) = 7x - 6, f(-4) = 7(-4) - 6 = -34.",
+        "function_evaluation",
+    )
 
 
 def generate_lessons(
@@ -512,17 +612,16 @@ def generate_lessons(
     for skill in seen_skills:
         for kind in ["micro_lesson", "worked_example"]:
             for index in range(1, 3):
-                rng = rng_for(f"{skill}:{kind}:{index}")
-                title, body, content_type = _lesson_body(skill, rng, kind)
-                content_id = f"math.{skill}.{content_type}.{index:03d}"
+                title, body, subskill = _lesson_content(skill, kind, index)
+                content_id = f"math.{skill}.{kind}.{index:03d}"
                 lesson = {
                     "id": content_id,
-                    "version": 1,
+                    "version": 2,
                     "schema_version": SCHEMA_VERSION,
                     "domain": "math",
-                    "content_type": content_type,
+                    "content_type": kind,
                     "target_skill": skill,
-                    "target_subskill": "",
+                    "target_subskill": subskill,
                     "required_prerequisites": PREREQUISITES[skill],
                     "difficulty": 1,
                     "title": title,
