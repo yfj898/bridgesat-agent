@@ -1,0 +1,494 @@
+"""Tests for the offline synchronization protocol (SYNC_PROTOCOL.md).
+
+Covers: device registration/revocation, idempotent dedup, version-bound
+scoring, integrity verification, dependency checks, repeated attempts,
+parallel branches, late events after session completion, refresh/restart
+recovery, throttled-network batching, and snapshot delivery.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+import pytest
+
+from app.infrastructure.migration_runner import apply_migrations
+from app.sync.service import SyncService
+from app.sync.versioned_scoring import QuestionVersionError, VersionedAnswerKey
+
+PACK_VERSION = "0.1.0"
+Q_LINEAR = "sync.linear.001"
+Q_RATIOS = "sync.ratios.001"
+
+STUDENT_ID = "student_01"
+DEVICE_A = "device_a"
+DEVICE_B = "device_b"
+SESSION_ID = "session_01"
+
+
+def _integrity(event_type: str, payload: dict) -> str:
+    digest = hashlib.sha256()
+    digest.update(event_type.encode("utf-8"))
+    digest.update(b"\x00")
+    digest.update(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    return f"sha256:{digest.hexdigest()}"
+
+
+def _envelope(
+    *,
+    event_id: str,
+    device_id: str = DEVICE_A,
+    device_sequence: int = 1,
+    event_type: str = "ANSWER_SUBMITTED",
+    payload: dict | None = None,
+    session_id: str = SESSION_ID,
+    question_id: str | None = Q_LINEAR,
+    question_version: int | None = 1,
+    depends_on: list[str] | None = None,
+    include_hash: bool = True,
+) -> dict:
+    payload = payload or {
+        "question_id": question_id,
+        "question_version": question_version,
+        "selected_choice_id": "A",
+        "hint_level": 0,
+        "attempt_id": event_id,
+    }
+    envelope = {
+        "event_id": event_id,
+        "student_id": STUDENT_ID,
+        "session_id": session_id,
+        "session_branch_id": "branch_" + device_id,
+        "device_id": device_id,
+        "device_sequence": device_sequence,
+        "event_type": event_type,
+        "payload": payload,
+        "content_pack_version": PACK_VERSION,
+        "question_id": question_id,
+        "question_version": question_version,
+        "policy_version": "offline-policy-v1",
+        "depends_on_event_ids": depends_on or [],
+        "device_occurred_at": "2026-08-07T16:00:00+08:00",
+    }
+    if include_hash:
+        envelope["integrity_hash"] = _integrity(event_type, payload)
+    return envelope
+
+
+@pytest.fixture()
+def service(tmp_path: Path) -> SyncService:
+    apply_migrations(tmp_path / "test.db")
+    return SyncService(tmp_path / "test.db")
+
+
+@pytest.fixture()
+def registered(service: SyncService) -> SyncService:
+    service.register_device(STUDENT_ID, "device a", device_id=DEVICE_A)
+    service.register_device(STUDENT_ID, "device b", device_id=DEVICE_B)
+    return service
+
+
+def _seed_student(service: SyncService, student_id: str = STUDENT_ID) -> None:
+    from app.domain.events import compute_integrity_hash, utc_now_iso
+    from app.infrastructure.database import transaction
+
+    now = utc_now_iso()
+    event = {
+        "event_id": f"evt_seed_{student_id}",
+        "student_id": student_id,
+        "session_id": "",
+        "event_type": "STUDENT_CREATED",
+        "payload": {"name": "Test Student", "daily_minutes": 20, "target_score": 1200},
+        "policy_version": "policy-0.1.0",
+        "content_version": None,
+        "occurred_at": now,
+        "received_at": now,
+        "device_id": None,
+        "device_sequence": None,
+        "origin": "online",
+        "integrity_hash": compute_integrity_hash(
+            "STUDENT_CREATED",
+            {"name": "Test Student", "daily_minutes": 20, "target_score": 1200},
+        ),
+    }
+    with connect(service.db) as connection:
+        with transaction(connection):
+            connection.execute(
+                """
+                INSERT INTO students (
+                    id, name, daily_minutes, target_score, mastery_json,
+                    status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, '{}', 'active', ?, ?)
+                """,
+                (student_id, "Test Student", 20, 1200, now, now),
+            )
+            connection.execute(
+                """
+                INSERT INTO learning_events (
+                    event_id, student_id, session_id, event_type, payload_json,
+                    policy_version, content_version, occurred_at, received_at,
+                    device_id, device_sequence, origin, integrity_hash
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event["event_id"], event["student_id"], event["session_id"],
+                    event["event_type"], json.dumps(event["payload"]),
+                    event["policy_version"], event["content_version"],
+                    event["occurred_at"], event["received_at"],
+                    event["device_id"], event["device_sequence"],
+                    event["origin"], event["integrity_hash"],
+                ),
+            )
+
+
+def _process(service: SyncService, events: list[dict], device_id: str = DEVICE_A):
+    from app.sync.protocol import SyncRequest
+
+    return service.process_batch(
+        SyncRequest(
+            device_id=device_id,
+            student_id=STUDENT_ID,
+            events=[SyncEnvelope(**e) for e in events],
+        )
+    )
+
+
+from app.sync.protocol import SyncEventEnvelope as SyncEnvelope  # noqa: E402
+
+
+# ----------------------------------------------------------------------
+# Device lifecycle
+# ----------------------------------------------------------------------
+
+def test_register_device(service: SyncService) -> None:
+    _seed_student(service)
+    registration = service.register_device(STUDENT_ID, "laptop")
+    assert registration.device_id.startswith("dev_")
+    assert registration.status == "active"
+    assert registration.student_id == STUDENT_ID
+
+
+def test_register_unknown_student_rejected(service: SyncService) -> None:
+    with pytest.raises(KeyError):
+        service.register_device("nobody", "x")
+
+
+def test_revoke_device(service: SyncService) -> None:
+    _seed_student(service)
+    registration = service.register_device(STUDENT_ID, "laptop", device_id=DEVICE_A)
+    service.revoke_device(registration.device_id, STUDENT_ID)
+    with pytest.raises(DeviceRevokedError):
+        _process(service, [_envelope(event_id="evt_1", device_id=DEVICE_A)])
+
+
+from app.sync.service import DeviceRevokedError  # noqa: E402
+
+
+def test_unregistered_device_rejected(service: SyncService) -> None:
+    _seed_student(service)
+    with pytest.raises(DeviceNotFoundError):
+        _process(service, [_envelope(event_id="evt_1")])
+
+
+from app.sync.service import DeviceNotFoundError  # noqa: E402
+
+
+# ----------------------------------------------------------------------
+# Idempotent event synchronization
+# ----------------------------------------------------------------------
+
+def test_duplicate_event_is_acknowledged_not_reapplied(service: SyncService) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
+    first = _process(service, [_envelope(event_id="evt_1")])
+    assert first.accepted_event_ids == ["evt_1"]
+
+    second = _process(service, [_envelope(event_id="evt_1")])
+    assert second.duplicate_event_ids == ["evt_1"]
+    assert second.accepted_event_ids == []
+
+    with connect(service.db) as connection:
+        count = connection.execute(
+            "SELECT COUNT(*) AS total FROM learning_events WHERE event_id = 'evt_1'"
+        ).fetchone()["total"]
+    assert count == 1
+
+
+from app.infrastructure.database import connect  # noqa: E402
+
+
+def test_partial_batch_resumed_after_throttle(service: SyncService) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
+    first = _process(service, [_envelope(event_id="evt_1"), _envelope(event_id="evt_2", device_sequence=2)])
+    assert first.accepted_event_ids == ["evt_1", "evt_2"]
+
+    resume = _process(service, [_envelope(event_id="evt_2", device_sequence=2)])
+    assert resume.duplicate_event_ids == ["evt_2"]
+
+
+# ----------------------------------------------------------------------
+# Version-bound answer scoring
+# ----------------------------------------------------------------------
+
+def test_version_bound_correct_answer(service: SyncService) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
+    response = _process(service, [_envelope(event_id="evt_1")])
+    assert response.accepted_event_ids == ["evt_1"]
+    with connect(service.db) as connection:
+        row = connection.execute(
+            "SELECT correct, validity FROM answer_attempts WHERE event_id = 'evt_1'"
+        ).fetchone()
+    assert row["correct"] == 1
+    assert row["validity"] == "valid"
+
+
+def test_version_bound_wrong_answer_maps_misconception(service: SyncService) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
+    envelope = _envelope(
+        event_id="evt_1",
+        payload={
+            "question_id": Q_LINEAR,
+            "question_version": 1,
+            "selected_choice_id": "B",
+            "hint_level": 0,
+            "attempt_id": "evt_1",
+        },
+    )
+    _process(service, [envelope])
+    with connect(service.db) as connection:
+        evidence = connection.execute(
+            "SELECT misconception FROM misconception_evidence WHERE event_id = 'evt_1'"
+        ).fetchone()
+    assert evidence["misconception"] == "sign_error"
+
+
+def test_unknown_question_version_rejected(service: SyncService) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
+    envelope = _envelope(event_id="evt_1", question_version=99)
+    response = _process(service, [envelope])
+    assert response.accepted_event_ids == []
+    assert response.rejected_events[0].code == "QUESTION_VERSION_UNKNOWN"
+    assert response.rejected_events[0].retryable is False
+
+
+def test_old_attempt_never_scored_with_newer_key(service: SyncService) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
+    old = _envelope(event_id="evt_old", question_id=Q_RATIOS, question_version=1)
+    response = _process(service, [old])
+    assert response.rejected_events[0].code == "QUESTION_VERSION_UNKNOWN"
+
+
+def test_unknown_pack_version_rejected(service: SyncService) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
+    envelope = _envelope(event_id="evt_1")
+    envelope["content_pack_version"] = "9.9.9"
+    response = _process(service, [envelope])
+    assert response.rejected_events[0].code == "QUESTION_VERSION_UNKNOWN"
+
+
+# ----------------------------------------------------------------------
+# Integrity verification
+# ----------------------------------------------------------------------
+
+def test_tampered_integrity_hash_rejected(service: SyncService) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
+    envelope = _envelope(event_id="evt_1")
+    envelope["payload"]["selected_choice_id"] = "C"
+    envelope["integrity_hash"] = _integrity("ANSWER_SUBMITTED", {"original": "payload"})
+    response = _process(service, [envelope])
+    assert response.rejected_events[0].code == "INVALID_SCHEMA"
+
+
+# ----------------------------------------------------------------------
+# Dependencies
+# ----------------------------------------------------------------------
+
+def test_missing_dependency_queued_as_retryable(service: SyncService) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
+    envelope = _envelope(event_id="evt_2", depends_on=["evt_1"])
+    response = _process(service, [envelope])
+    assert response.rejected_events[0].code == "MISSING_DEPENDENCY"
+    assert response.rejected_events[0].retryable is True
+
+
+def test_dependency_satisfied_in_same_batch(service: SyncService) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
+    presented = _envelope(
+        event_id="evt_1",
+        event_type="CONTENT_PRESENTED",
+        payload={"question_id": Q_LINEAR},
+        question_id=None,
+        question_version=None,
+    )
+    submitted = _envelope(event_id="evt_2", device_sequence=2, depends_on=["evt_1"])
+    response = _process(service, [presented, submitted])
+    assert "evt_1" in response.accepted_event_ids
+    assert "evt_2" in response.accepted_event_ids
+
+
+# ----------------------------------------------------------------------
+# Repeated attempts and parallel branches
+# ----------------------------------------------------------------------
+
+def test_repeated_attempt_id_non_scoring(service: SyncService) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
+    first = _envelope(
+        event_id="evt_1",
+        payload={"question_id": Q_LINEAR, "question_version": 1,
+                 "selected_choice_id": "A", "hint_level": 0, "attempt_id": "att_1"},
+    )
+    second = _envelope(
+        event_id="evt_2",
+        device_sequence=2,
+        payload={"question_id": Q_LINEAR, "question_version": 1,
+                 "selected_choice_id": "B", "hint_level": 0, "attempt_id": "att_1"},
+    )
+    response = _process(service, [first, second])
+    assert response.accepted_event_ids == ["evt_1", "evt_2"]
+    with connect(service.db) as connection:
+        rows = connection.execute(
+            "SELECT event_id, attempt_id, validity, weight FROM answer_attempts "
+            "WHERE attempt_id = 'att_1' OR attempt_id LIKE 'att_1#%' ORDER BY event_id"
+        ).fetchall()
+    assert [row["validity"] for row in rows] == ["valid", "non_scoring_duplicate"]
+    assert rows[1]["weight"] == 0.0
+    assert rows[1]["attempt_id"].startswith("att_1#dup")
+    conflict_types = {c.conflict_type for c in response.conflicts}
+    assert "ATTEMPT_ALREADY_SCORED" in conflict_types
+
+
+def test_parallel_branch_same_question_reduced_weight(service: SyncService) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "device a", device_id=DEVICE_A)
+    service.register_device(STUDENT_ID, "device b", device_id=DEVICE_B)
+    session = SESSION_ID
+    device_a = _envelope(event_id="evt_1", device_id=DEVICE_A, question_id=Q_RATIOS, question_version=2)
+    device_b = _envelope(event_id="evt_2", device_id=DEVICE_B, device_sequence=1, question_id=Q_RATIOS, question_version=2)
+    first = _process(service, [device_a], device_id=DEVICE_A)
+    second = _process(service, [device_b], device_id=DEVICE_B)
+    assert first.accepted_event_ids == ["evt_1"]
+    assert second.accepted_event_ids == ["evt_2"]
+    with connect(service.db) as connection:
+        rows = connection.execute(
+            "SELECT event_id, weight FROM answer_attempts WHERE session_id = ? AND content_id = ? ORDER BY event_id",
+            (session, Q_RATIOS),
+        ).fetchall()
+    assert rows[0]["weight"] == pytest.approx(1.0)
+    assert rows[1]["weight"] == pytest.approx(0.5)
+    assert any(c.conflict_type == "PARALLEL_ATTEMPT_DETECTED" for c in second.conflicts)
+
+
+# ----------------------------------------------------------------------
+# Late events after session summary
+# ----------------------------------------------------------------------
+
+def test_late_event_after_completion_revises_summary(service: SyncService) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
+    answer = _envelope(event_id="evt_1", device_sequence=1)
+    completed = _envelope(
+        event_id="evt_2",
+        device_sequence=2,
+        event_type="SESSION_COMPLETED",
+        payload={},
+        question_id=None,
+        question_version=None,
+    )
+    late = _envelope(event_id="evt_3", device_sequence=3, question_id=Q_RATIOS, question_version=2)
+    _process(service, [answer])
+    _process(service, [completed])
+    response = _process(service, [late])
+    assert response.accepted_event_ids == ["evt_3"]
+    assert any(c.conflict_type == "SUMMARY_REVISED" for c in response.conflicts)
+    with connect(service.db) as connection:
+        state = connection.execute(
+            "SELECT session_state FROM study_sessions WHERE session_id = ?",
+            (SESSION_ID,),
+        ).fetchone()
+    assert state["session_state"] == "SESSION_COMPLETED"
+    with connect(service.db) as connection:
+        conflicts = connection.execute(
+            "SELECT conflict_type FROM sync_conflicts WHERE event_id = 'evt_3'"
+        ).fetchall()
+    assert [c["conflict_type"] for c in conflicts] == ["SUMMARY_REVISED"]
+
+
+# ----------------------------------------------------------------------
+# Refresh/restart recovery and snapshots
+# ----------------------------------------------------------------------
+
+def test_refresh_restart_recovery(service: SyncService) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
+    _process(service, [_envelope(event_id="evt_1")])
+    restarted = SyncService(service.db)
+    snapshot = restarted.build_snapshot(STUDENT_ID)
+    assert snapshot.snapshot_version >= 1
+    assert snapshot.server_cursor.startswith("cursor_")
+    assert snapshot.student["id"] == STUDENT_ID
+    linear = [s for s in snapshot.skill_states if s["skill"] == "linear_equations"]
+    assert len(linear) == 1
+    assert linear[0]["evidence_count"] == 1
+
+
+def test_snapshot_includes_strategy_memory(service: SyncService) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
+    _process(service, [_envelope(event_id="evt_1")])
+    snapshot = service.build_snapshot(STUDENT_ID)
+    assert "intervention_stats" in snapshot.strategy_memory
+    assert "facts" in snapshot.strategy_memory
+
+
+def test_mastery_projection_never_trusts_client(service: SyncService) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
+    envelope = _envelope(
+        event_id="evt_1",
+        payload={"question_id": Q_LINEAR, "question_version": 1,
+                 "selected_choice_id": "A", "hint_level": 0,
+                 "attempt_id": "evt_1", "mastery_claimed": 0.99},
+    )
+    _process(service, [envelope])
+    snapshot = service.build_snapshot(STUDENT_ID)
+    linear = [s for s in snapshot.skill_states if s["skill"] == "linear_equations"][0]
+    assert linear["mastery"] != 0.99
+
+
+# ----------------------------------------------------------------------
+# Payload bounds
+# ----------------------------------------------------------------------
+
+def test_batch_over_100_rejected(service: SyncService) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
+    events = [_envelope(event_id=f"evt_{i}") for i in range(101)]
+    response = _process(service, events)
+    assert response.rejected_events[0].code == "PAYLOAD_TOO_LARGE"
+
+
+# ----------------------------------------------------------------------
+# VersionedAnswerKey direct behavior
+# ----------------------------------------------------------------------
+
+def test_versioned_answer_key_lists_fixture_packs() -> None:
+    key = VersionedAnswerKey()
+    assert "0.1.0" in key.list_versions()
+
+
+def test_versioned_answer_key_version_mismatch() -> None:
+    key = VersionedAnswerKey()
+    with pytest.raises(QuestionVersionError):
+        key.pack(PACK_VERSION).answer_choice_id(Q_LINEAR, 5)

@@ -70,16 +70,16 @@ taxonomy are extension scope and are not claimed as delivered in the demo.
 
 ## Gate 4 — offline-first proof
 
-- [ ] Versioned content pack
-- [ ] IndexedDB schema
-- [ ] Offline objective-answer evaluation
-- [ ] Offline bounded adaptation policy
-- [ ] Pending-event queue
-- [ ] Idempotent event synchronization
-- [ ] Parallel branch and late-event handling
-- [ ] Version-bound answer scoring
-- [ ] Refresh/restart recovery
-- [ ] Throttled-network and fully offline tests
+- [x] Versioned content pack (published packs served via GET /v1/content-packs/{version})
+- [x] IndexedDB schema (web/offline.js: 7 stores per SYNC_PROTOCOL)
+- [x] Offline objective-answer evaluation (web/offline-core.js evaluateAnswer, version-bound)
+- [x] Offline bounded adaptation policy (pickNextQuestion + updateTemporaryMastery, offline-policy-v1)
+- [x] Pending-event queue (IndexedDB pending_events, retry schedule per SYNC_PROTOCOL)
+- [x] Idempotent event synchronization (event_id dedup + integrity hash, verified E2E)
+- [x] Parallel branch and late-event handling (session_branches, SYNC_PROTOCOL conflicts)
+- [x] Version-bound answer scoring (QUESTION_VERSION_UNKNOWN, never newer key)
+- [x] Refresh/restart recovery (in_flight restore, snapshot rebuild, second sync empty)
+- [x] Throttled-network and fully offline tests (23 Python sync tests, 15 Node offline-core tests, live E2E)
 
 ## Gate 5 — content, quality, and evidence
 

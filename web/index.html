@@ -13,11 +13,12 @@
       <header>
         <p class="eyebrow">Offline-first learning agent</p>
         <h1>BridgeSAT</h1>
-        <p>Build a focused SAT study plan from a short diagnostic.</p>
+        <p>Adaptive SAT practice that keeps working without a connection.</p>
         <div id="network-status" class="status" role="status">Checking connection…</div>
+        <div id="sync-status" class="status" role="status"></div>
       </header>
 
-      <section class="card" aria-labelledby="profile-title">
+      <section id="profile-card" class="card" aria-labelledby="profile-title">
         <h2 id="profile-title">Create a learner profile</h2>
         <form id="profile-form">
           <label>
@@ -28,23 +29,35 @@
             Minutes available today
             <input id="minutes" type="number" min="5" max="120" value="20" />
           </label>
-          <button type="submit">Start diagnostic</button>
+          <button type="submit">Start practicing</button>
         </form>
       </section>
 
-      <section id="diagnostic-card" class="card hidden" aria-labelledby="diagnostic-title">
-        <h2 id="diagnostic-title">Quick diagnostic</h2>
-        <div id="question-list"></div>
-        <button id="submit-diagnostic" type="button">Build my plan</button>
-      </section>
+      <section id="session-card" class="card hidden" aria-labelledby="session-title">
+        <h2 id="session-title">Practice session</h2>
+        <div id="mastery-list" class="mastery-list"></div>
+        <div class="status" role="status">
+          Pending sync: <strong id="pending-count">0</strong>
+        </div>
 
-      <section id="result-card" class="card hidden" aria-labelledby="result-title">
-        <h2 id="result-title">Agent plan</h2>
-        <p id="agent-explanation"></p>
-        <div id="mastery-list"></div>
-        <ol id="plan-list"></ol>
+        <div id="question-area">
+          <p class="question-prompt"></p>
+          <div class="question-choices"></div>
+          <button id="hint-button" type="button">Show hint</button>
+          <p id="hint-label" class="hint"></p>
+          <p class="feedback"></p>
+          <button type="button" class="next-button hidden">Next question</button>
+        </div>
+
+        <div id="session-summary" class="hidden">
+          <h3>Session complete</h3>
+          <p class="summary-text"></p>
+          <button type="button" id="new-session-button">Start a new session</button>
+        </div>
       </section>
     </main>
+    <script src="/offline.js" defer></script>
+    <script src="/offline-core.js" defer></script>
     <script src="/app.js" defer></script>
   </body>
 </html>

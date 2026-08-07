@@ -19,6 +19,8 @@ from .models import (
 )
 from .question_bank import load_questions
 from .repository import StudentRepository
+from .sync.content_packs import router as content_packs_router
+from .sync.router import router as sync_router
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -73,6 +75,8 @@ def adapt_session(payload: AdaptRequest) -> AdaptResponse:
 
 
 app.include_router(knowledge_router)
+app.include_router(sync_router)
+app.include_router(content_packs_router)
 
 
 WEB_DIR = ROOT / "web"

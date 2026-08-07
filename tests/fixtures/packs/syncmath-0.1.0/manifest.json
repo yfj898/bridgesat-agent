@@ -1,0 +1,10 @@
+{
+  "pack_id": "syncmath",
+  "name": "Sync protocol test fixture",
+  "pack_version": "0.1.0",
+  "version": "0.1.0",
+  "status": "published",
+  "allowed_item_schema_versions": ["v1"],
+  "item_count": 2,
+  "source": "project-original (sync protocol fixtures)"
+}
