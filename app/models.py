@@ -10,6 +10,9 @@ class Skill(StrEnum):
     LINEAR_EQUATIONS = "linear_equations"
     RATIOS = "ratios"
     READING_INFERENCE = "reading_inference"
+    SYSTEMS_EQUATIONS = "systems_equations"
+    RATIOS_PERCENTAGES = "ratios_percentages"
+    FUNCTIONS_MODELS = "functions_models"
 
 
 class StudentCreate(BaseModel):

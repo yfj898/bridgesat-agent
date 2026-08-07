@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://bridgesat.example/schemas/lesson-v1.json",
+  "title": "BridgeSAT lesson (micro-lesson or worked example) v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "version",
+    "schema_version",
+    "domain",
+    "content_type",
+    "target_skill",
+    "target_subskill",
+    "required_prerequisites",
+    "difficulty",
+    "title",
+    "body",
+    "estimated_seconds",
+    "source_lineage",
+    "license",
+    "review_status",
+    "reviewers",
+    "content_hash"
+  ],
+  "properties": {
+    "id": { "type": "string", "pattern": "^math\\.[a-z_]+\\.[a-z_]+\\.[0-9]{3}$" },
+    "version": { "type": "integer", "minimum": 1 },
+    "schema_version": { "const": "v1" },
+    "domain": { "const": "math" },
+    "content_type": { "enum": ["micro_lesson", "worked_example"] },
+    "target_skill": { "type": "string" },
+    "target_subskill": { "type": "string" },
+    "required_prerequisites": { "type": "array", "items": { "type": "string" } },
+    "difficulty": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "title": { "type": "string", "minLength": 1 },
+    "body": { "type": "string", "minLength": 1 },
+    "estimated_seconds": { "type": "integer", "minimum": 1 },
+    "source_lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "lineage_id", "role"],
+      "properties": {
+        "source_id": { "type": "string" },
+        "lineage_id": { "type": "string" },
+        "role": { "const": "concept_source_only" }
+      }
+    },
+    "license": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" }
+      }
+    },
+    "review_status": { "type": "string", "enum": ["draft", "schema_validated", "educational_review", "license_review", "approved", "published"] },
+    "reviewers": { "type": "object" },
+    "content_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

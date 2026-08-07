@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BridgeSAT math prerequisite graph v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "edges"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["skill_id", "prerequisite_skill_id", "max_hops"],
+        "properties": {
+          "skill_id": { "type": "string" },
+          "prerequisite_skill_id": { "type": "string" },
+          "max_hops": { "type": "integer", "minimum": 1, "maximum": 2 }
+        }
+      }
+    }
+  }
+}

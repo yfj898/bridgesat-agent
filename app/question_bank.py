@@ -5,7 +5,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-from .models import Question
+from .models import Question, Skill
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -37,8 +37,28 @@ def _read_pack_directory(pack_dir: Path) -> list[Question]:
         item = json.loads(line)
         if item.get("schema_version") not in allowed_versions:
             continue
-        questions.append(Question.model_validate(item))
+        questions.append(_to_question(item))
     return questions
+
+
+def _to_question(item: dict) -> Question:
+    """Translate a v1 content-pack item into the student-facing Question."""
+    if "answer" in item and isinstance(item.get("choices", []) and item["choices"][0], str):
+        return Question.model_validate(item)
+    choice_texts = [choice["text"] for choice in item["choices"]]
+    answer_text = next(
+        choice["text"] for choice in item["choices"] if choice["id"] == item["answer_choice_id"]
+    )
+    return Question(
+        id=item["id"],
+        skill=Skill(item["target_skill"]),
+        difficulty=item["difficulty"],
+        prompt=item["prompt"],
+        choices=choice_texts,
+        answer=answer_text,
+        hints=[hint["text"] for hint in item["hints"]],
+        explanation=item["worked_explanation"],
+    )
 
 
 @lru_cache(maxsize=4)

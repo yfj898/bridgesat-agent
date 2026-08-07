@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BridgeSAT math skills taxonomy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "skills"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["skill_id", "display_name", "domain", "subskills"],
+        "properties": {
+          "skill_id": { "type": "string" },
+          "display_name": { "type": "string" },
+          "domain": { "const": "math" },
+          "subskills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["subskill_id", "display_name"],
+              "properties": {
+                "subskill_id": { "type": "string" },
+                "display_name": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
