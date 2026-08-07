@@ -1,0 +1,495 @@
+schema_version: "1.0"
+registry_version: "0.1.0"
+last_verified: "2026-08-06"
+human_registry: "docs/DATA_SOURCE_REGISTRY.md"
+
+policy:
+  default_decision: deny
+  require_source_approval: true
+  require_item_review_for_student_content: true
+  require_license_snapshot: true
+  require_content_hash: true
+  require_attribution_record: true
+  fail_closed_on_unknown_license: true
+  fail_closed_on_expired_review: true
+  review_validity_days: 180
+  statuses:
+    - approved
+    - approved_with_item_review
+    - candidate_generation_only
+    - evaluation_only
+    - manual_license_review_required
+    - reference_only
+    - prohibited
+  actions:
+    - external_link
+    - taxonomy_reference
+    - manual_reference
+    - download
+    - generate_candidates
+    - transform
+    - product_rag
+    - offline_pack
+    - redistribute
+    - internal_evaluation
+    - public_benchmark_reporting
+    - model_training
+    - model_testing
+
+review_workflow:
+  states:
+    - discovered
+    - source_review_pending
+    - source_approved
+    - item_review_pending
+    - educational_review_pending
+    - approved
+    - rejected
+    - withdrawn
+  student_content_required_state: approved
+  required_item_fields:
+    - source_id
+    - upstream_id
+    - canonical_url
+    - title
+    - creator
+    - rights_statement
+    - license_id
+    - fetched_at
+    - content_hash
+    - review_status
+    - reviewer_id
+    - attribution_text
+    - content_version
+
+sources:
+  - id: bridgesat_original
+    name: BridgeSAT original content
+    category: first_party
+    status: approved
+    official_url: null
+    last_verified: "2026-08-06"
+    review_expires: null
+    license:
+      id: project-original
+      name: BridgeSAT project-owned content
+      url: null
+      item_level_check: true
+      attribution_required: false
+    allowed_actions:
+      - generate_candidates
+      - transform
+      - product_rag
+      - offline_pack
+      - redistribute
+      - internal_evaluation
+      - model_training
+      - model_testing
+    prohibited_actions: []
+    acquisition:
+      enabled: true
+      method: local_authoring
+      crawler_enabled: false
+      robots_required: false
+      rate_limit_seconds: null
+    governance:
+      human_review_required: true
+      educational_review_required: true
+      legal_review_required: false
+      age_suitability_review_required: true
+      isolate_evaluation_split: true
+
+  - id: deepmind_mathematics_dataset
+    name: DeepMind Mathematics Dataset
+    category: candidate_generator
+    status: candidate_generation_only
+    official_url: "https://github.com/google-deepmind/mathematics_dataset"
+    last_verified: "2026-08-06"
+    review_expires: "2027-02-02"
+    license:
+      id: Apache-2.0
+      name: Apache License 2.0
+      url: "https://github.com/google-deepmind/mathematics_dataset/blob/master/LICENSE"
+      item_level_check: false
+      attribution_required: true
+    allowed_actions:
+      - download
+      - generate_candidates
+      - transform
+      - internal_evaluation
+      - model_testing
+    prohibited_actions:
+      - product_rag
+      - offline_pack
+      - redistribute
+    acquisition:
+      enabled: true
+      method: git_or_python_package
+      crawler_enabled: false
+      robots_required: false
+      rate_limit_seconds: null
+    governance:
+      human_review_required: true
+      educational_review_required: true
+      legal_review_required: false
+      age_suitability_review_required: true
+      rewrite_before_product_use: true
+      deterministic_answer_validation: true
+    filters:
+      include_modules:
+        - algebra
+        - arithmetic
+        - comparison
+        - measurement
+        - numbers
+        - polynomials
+        - probability
+      exclude_modules:
+        - calculus
+
+  - id: project_gutenberg
+    name: Project Gutenberg
+    category: public_domain_reading
+    status: approved_with_item_review
+    official_url: "https://www.gutenberg.org/"
+    evidence_urls:
+      - "https://dev.gutenberg.org/policy/robot_access.html"
+      - "https://www.gutenberg.org/policy/permission"
+    last_verified: "2026-08-06"
+    review_expires: "2027-02-02"
+    license:
+      id: item-specific-public-domain-review
+      name: Item-specific rights statement
+      url: "https://www.gutenberg.org/policy/permission"
+      item_level_check: true
+      attribution_required: true
+      jurisdiction_check_required: true
+    allowed_actions:
+      - download
+      - transform
+      - product_rag
+      - offline_pack
+      - redistribute
+      - internal_evaluation
+    prohibited_actions: []
+    acquisition:
+      enabled: true
+      method: official_catalog_or_robot_harvest
+      crawler_enabled: false
+      ordinary_website_crawling_blocked: true
+      robots_required: true
+      rate_limit_seconds: 2
+      endpoints:
+        catalog: "https://www.gutenberg.org/ebooks/offline_catalogs.html"
+        robot_harvest: "https://www.gutenberg.org/robot/harvest"
+    governance:
+      human_review_required: true
+      educational_review_required: true
+      legal_review_required: true
+      age_suitability_review_required: true
+      item_rights_statement_required: true
+      deployment_jurisdiction_review_required: true
+
+  - id: library_of_congress_free_to_use
+    name: Library of Congress Free to Use and Reuse
+    category: public_domain_multimodal
+    status: approved_with_item_review
+    official_url: "https://www.loc.gov/free-to-use/"
+    evidence_urls:
+      - "https://data.labs.loc.gov/free-to-use/"
+    last_verified: "2026-08-06"
+    review_expires: "2027-02-02"
+    license:
+      id: item-specific-loc-rights-review
+      name: Collection and item-specific rights statement
+      url: "https://www.loc.gov/free-to-use/"
+      item_level_check: true
+      attribution_required: true
+    allowed_actions:
+      - download
+      - transform
+      - product_rag
+      - offline_pack
+      - redistribute
+      - internal_evaluation
+    prohibited_actions: []
+    acquisition:
+      enabled: true
+      method: official_api_or_data_package
+      crawler_enabled: false
+      robots_required: false
+      rate_limit_seconds: 2
+      endpoints:
+        api: "https://www.loc.gov/apis/"
+        data_package: "https://data.labs.loc.gov/free-to-use/"
+    governance:
+      human_review_required: true
+      educational_review_required: true
+      legal_review_required: true
+      age_suitability_review_required: true
+      item_rights_statement_required: true
+      credit_line_required: true
+      third_party_material_check_required: true
+      accessibility_metadata_required: true
+
+  - id: gsm8k
+    name: GSM8K
+    category: evaluation
+    status: evaluation_only
+    official_url: "https://github.com/openai/grade-school-math"
+    last_verified: "2026-08-06"
+    review_expires: "2027-02-02"
+    upstream_state:
+      archived: true
+      archived_on: "2026-04-08"
+      maintenance_expected: false
+    license:
+      id: MIT
+      name: MIT License
+      url: "https://github.com/openai/grade-school-math/blob/master/LICENSE"
+      item_level_check: false
+      attribution_required: true
+    allowed_actions:
+      - download
+      - internal_evaluation
+      - model_testing
+      - public_benchmark_reporting
+    prohibited_actions:
+      - product_rag
+      - offline_pack
+      - redistribute
+      - model_training
+    acquisition:
+      enabled: true
+      method: git_or_dataset_download
+      crawler_enabled: false
+      robots_required: false
+      rate_limit_seconds: null
+    governance:
+      isolate_from_product_content: true
+      isolate_from_training_prompts: true
+      revision_pin_required: true
+
+  - id: belebele
+    name: Belebele
+    category: evaluation
+    status: evaluation_only
+    official_url: "https://github.com/facebookresearch/belebele"
+    last_verified: "2026-08-06"
+    review_expires: "2027-02-02"
+    license:
+      id: CC-BY-SA-4.0
+      name: Creative Commons Attribution-ShareAlike 4.0
+      url: "https://github.com/facebookresearch/belebele/blob/main/LICENSE_CC-BY-SA4.0"
+      item_level_check: false
+      attribution_required: true
+      share_alike_required: true
+    allowed_actions:
+      - download
+      - internal_evaluation
+      - model_testing
+      - public_benchmark_reporting
+    prohibited_actions:
+      - product_rag
+      - offline_pack
+      - model_training
+    acquisition:
+      enabled: true
+      method: git_or_dataset_download
+      crawler_enabled: false
+      robots_required: false
+      rate_limit_seconds: null
+    governance:
+      isolate_from_product_content: true
+      isolate_from_training_prompts: true
+      assembled_training_data_excluded: true
+
+  - id: quality
+    name: QuALITY
+    category: conditional_evaluation
+    status: manual_license_review_required
+    official_url: "https://github.com/nyu-mll/quality"
+    last_verified: "2026-08-06"
+    review_expires: "2027-02-02"
+    license:
+      id: article-specific
+      name: Article-level license plus annotation-rights review
+      url: "https://github.com/nyu-mll/quality"
+      item_level_check: true
+      attribution_required: true
+    allowed_actions:
+      - manual_reference
+    prohibited_actions:
+      - product_rag
+      - offline_pack
+      - redistribute
+      - model_training
+      - model_testing
+      - public_benchmark_reporting
+    acquisition:
+      enabled: false
+      method: disabled_importer_pending_item_review
+      crawler_enabled: false
+      robots_required: false
+      rate_limit_seconds: null
+    governance:
+      human_review_required: true
+      educational_review_required: true
+      legal_review_required: true
+      article_license_field_required: true
+      annotation_rights_review_required: true
+      redistribution_review_required: true
+      ai_ingestion_review_required: true
+
+  - id: college_board_sat
+    name: College Board SAT resources
+    category: restricted_reference
+    status: reference_only
+    official_url: "https://satsuite.collegeboard.org/"
+    evidence_urls:
+      - "https://satsuite.collegeboard.org/k12-educators/educator-experience/student-data-privacy-agreement"
+    last_verified: "2026-08-06"
+    review_expires: "2027-02-02"
+    license:
+      id: proprietary-limited-classroom-license
+      name: College Board proprietary content with limited classroom/internal use
+      url: "https://satsuite.collegeboard.org/k12-educators/educator-experience/student-data-privacy-agreement"
+      item_level_check: true
+      attribution_required: true
+    allowed_actions:
+      - external_link
+      - taxonomy_reference
+      - manual_reference
+    prohibited_actions:
+      - download
+      - generate_candidates
+      - transform
+      - product_rag
+      - offline_pack
+      - redistribute
+      - internal_evaluation
+      - model_training
+      - model_testing
+    acquisition:
+      enabled: false
+      method: none
+      crawler_enabled: false
+      robots_required: true
+      rate_limit_seconds: null
+    governance:
+      legal_review_required: true
+      copied_question_detection_required: true
+
+  - id: khan_academy
+    name: Khan Academy
+    category: restricted_reference
+    status: reference_only
+    official_url: "https://www.khanacademy.org/"
+    evidence_urls:
+      - "https://support.khanacademy.org/hc/en-us/articles/42929097425037-What-s-allowed-and-not-allowed-on-Khan-Academy"
+    last_verified: "2026-08-06"
+    review_expires: "2027-02-02"
+    license:
+      id: site-terms-restricted
+      name: Khan Academy site policy
+      url: "https://support.khanacademy.org/hc/en-us/articles/42929097425037-What-s-allowed-and-not-allowed-on-Khan-Academy"
+      item_level_check: true
+      attribution_required: true
+    allowed_actions:
+      - external_link
+      - manual_reference
+    prohibited_actions:
+      - download
+      - generate_candidates
+      - transform
+      - product_rag
+      - offline_pack
+      - redistribute
+      - internal_evaluation
+      - model_training
+      - model_testing
+    acquisition:
+      enabled: false
+      method: none
+      crawler_enabled: false
+      robots_required: true
+      rate_limit_seconds: null
+    governance:
+      legal_review_required: true
+
+  - id: openstax
+    name: OpenStax
+    category: permission_required_reference
+    status: reference_only
+    official_url: "https://openstax.org/"
+    last_verified: "2026-08-06"
+    review_expires: "2027-02-02"
+    license:
+      id: work-specific-cc-plus-ai-restriction
+      name: Work-specific Creative Commons terms plus AI-ingestion restriction
+      url: "https://openstax.org/"
+      item_level_check: true
+      attribution_required: true
+      written_ai_ingestion_permission_required: true
+    allowed_actions:
+      - external_link
+      - manual_reference
+    prohibited_actions:
+      - download
+      - generate_candidates
+      - transform
+      - product_rag
+      - offline_pack
+      - redistribute
+      - internal_evaluation
+      - model_training
+      - model_testing
+    acquisition:
+      enabled: false
+      method: none_without_written_permission
+      crawler_enabled: false
+      robots_required: true
+      rate_limit_seconds: null
+    governance:
+      legal_review_required: true
+      written_permission_required_to_enable: true
+      per_book_license_review_required: true
+
+source_template:
+  id: replace_me
+  name: Replace me
+  category: proposed
+  status: manual_license_review_required
+  official_url: null
+  evidence_urls: []
+  last_verified: null
+  review_expires: null
+  license:
+    id: unknown
+    name: Unknown
+    url: null
+    item_level_check: true
+    attribution_required: true
+  allowed_actions:
+    - manual_reference
+  prohibited_actions:
+    - download
+    - generate_candidates
+    - transform
+    - product_rag
+    - offline_pack
+    - redistribute
+    - internal_evaluation
+    - public_benchmark_reporting
+    - model_training
+    - model_testing
+  acquisition:
+    enabled: false
+    method: none
+    crawler_enabled: false
+    robots_required: true
+    rate_limit_seconds: null
+  governance:
+    human_review_required: true
+    educational_review_required: true
+    legal_review_required: true

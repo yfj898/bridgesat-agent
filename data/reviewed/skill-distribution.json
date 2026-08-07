@@ -1,0 +1,24 @@
+{
+  "skills": {
+    "arithmetic_operations": 118,
+    "evidence_selection": 45,
+    "functions_models": 18,
+    "linear_equations": 12,
+    "main_idea_inference": 59,
+    "ratios_percentages": 29,
+    "sentence_boundaries": 1,
+    "systems_equations": 12,
+    "unmapped": 101,
+    "words_in_context": 1
+  },
+  "mvp_skills": [
+    "evidence_selection",
+    "functions_models",
+    "linear_equations",
+    "main_idea_inference",
+    "ratios_percentages",
+    "sentence_boundaries",
+    "systems_equations",
+    "words_in_context"
+  ]
+}

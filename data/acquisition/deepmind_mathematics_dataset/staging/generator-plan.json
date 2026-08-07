@@ -1,0 +1,21 @@
+{
+  "source_id": "deepmind_mathematics_dataset",
+  "mode": "candidate_generator",
+  "include_modules": [
+    "algebra",
+    "arithmetic",
+    "comparison",
+    "measurement",
+    "numbers",
+    "polynomials",
+    "probability"
+  ],
+  "exclude_modules": [
+    "calculus"
+  ],
+  "generation_status": "candidates_generated",
+  "product_use": "rewrite_and_human_review_required",
+  "candidate_count": 96,
+  "candidate_path": "/media/bili-guo/1235578e-e896-4ce5-9fdc-6318e4960f4c2/any/bridgesat-agent/data/acquisition/deepmind_mathematics_dataset/staging/candidates.jsonl",
+  "generated_at": "2026-08-06T09:29:55Z"
+}

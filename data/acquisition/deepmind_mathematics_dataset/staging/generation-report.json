@@ -1,0 +1,104 @@
+{
+  "source_id": "deepmind_mathematics_dataset",
+  "generated_at": "2026-08-06T09:29:55Z",
+  "archive": "/media/bili-guo/1235578e-e896-4ce5-9fdc-6318e4960f4c2/any/bridgesat-agent/data/acquisition/deepmind_mathematics_dataset/raw/mathematics_dataset-master.zip",
+  "output": "/media/bili-guo/1235578e-e896-4ce5-9fdc-6318e4960f4c2/any/bridgesat-agent/data/acquisition/deepmind_mathematics_dataset/staging/candidates.jsonl",
+  "candidate_count": 96,
+  "filters": [
+    "algebra__linear_1d",
+    "algebra__linear_2d",
+    "arithmetic__add_or_sub",
+    "arithmetic__mul",
+    "arithmetic__div",
+    "measurement__conversion",
+    "measurement__time",
+    "probability__swr_p_sequence",
+    "polynomials__evaluate",
+    "polynomials__expand"
+  ],
+  "per_train_module": 5,
+  "per_test_module": 1,
+  "commands": [
+    [
+      "/home/bili-guo/.local/share/pipx/venvs/notebook/bin/python",
+      "-m",
+      "mathematics_dataset.generate",
+      "--filter=algebra__linear_1d",
+      "--per_train_module=5",
+      "--per_test_module=1"
+    ],
+    [
+      "/home/bili-guo/.local/share/pipx/venvs/notebook/bin/python",
+      "-m",
+      "mathematics_dataset.generate",
+      "--filter=algebra__linear_2d",
+      "--per_train_module=5",
+      "--per_test_module=1"
+    ],
+    [
+      "/home/bili-guo/.local/share/pipx/venvs/notebook/bin/python",
+      "-m",
+      "mathematics_dataset.generate",
+      "--filter=arithmetic__add_or_sub",
+      "--per_train_module=5",
+      "--per_test_module=1"
+    ],
+    [
+      "/home/bili-guo/.local/share/pipx/venvs/notebook/bin/python",
+      "-m",
+      "mathematics_dataset.generate",
+      "--filter=arithmetic__mul",
+      "--per_train_module=5",
+      "--per_test_module=1"
+    ],
+    [
+      "/home/bili-guo/.local/share/pipx/venvs/notebook/bin/python",
+      "-m",
+      "mathematics_dataset.generate",
+      "--filter=arithmetic__div",
+      "--per_train_module=5",
+      "--per_test_module=1"
+    ],
+    [
+      "/home/bili-guo/.local/share/pipx/venvs/notebook/bin/python",
+      "-m",
+      "mathematics_dataset.generate",
+      "--filter=measurement__conversion",
+      "--per_train_module=5",
+      "--per_test_module=1"
+    ],
+    [
+      "/home/bili-guo/.local/share/pipx/venvs/notebook/bin/python",
+      "-m",
+      "mathematics_dataset.generate",
+      "--filter=measurement__time",
+      "--per_train_module=5",
+      "--per_test_module=1"
+    ],
+    [
+      "/home/bili-guo/.local/share/pipx/venvs/notebook/bin/python",
+      "-m",
+      "mathematics_dataset.generate",
+      "--filter=probability__swr_p_sequence",
+      "--per_train_module=5",
+      "--per_test_module=1"
+    ],
+    [
+      "/home/bili-guo/.local/share/pipx/venvs/notebook/bin/python",
+      "-m",
+      "mathematics_dataset.generate",
+      "--filter=polynomials__evaluate",
+      "--per_train_module=5",
+      "--per_test_module=1"
+    ],
+    [
+      "/home/bili-guo/.local/share/pipx/venvs/notebook/bin/python",
+      "-m",
+      "mathematics_dataset.generate",
+      "--filter=polynomials__expand",
+      "--per_train_module=5",
+      "--per_test_module=1"
+    ]
+  ],
+  "review_status": "rewrite_and_educational_review_required"
+}

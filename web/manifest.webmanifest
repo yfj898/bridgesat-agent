@@ -1,0 +1,9 @@
+{
+  "name": "BridgeSAT Agent",
+  "short_name": "BridgeSAT",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f9",
+  "theme_color": "#ffffff",
+  "description": "Offline-first adaptive SAT learning agent"
+}

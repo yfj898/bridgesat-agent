@@ -1,0 +1,68 @@
+{
+  "review_schema_version": "1.0",
+  "generated_at": "2026-08-06T09:42:48.479607+00:00",
+  "registry": "/media/bili-guo/1235578e-e896-4ce5-9fdc-6318e4960f4c2/any/bridgesat-agent/config/sources.yaml",
+  "acquisition_root": "/media/bili-guo/1235578e-e896-4ce5-9fdc-6318e4960f4c2/any/bridgesat-agent/data/acquisition",
+  "output_root": "/media/bili-guo/1235578e-e896-4ce5-9fdc-6318e4960f4c2/any/bridgesat-agent/data/reviewed",
+  "input_count": 396,
+  "unique_count": 396,
+  "duplicate_count": 0,
+  "route_counts": {
+    "evaluation_only": 100,
+    "hold_out_of_scope": 7,
+    "manual_review_required": 156,
+    "priority_manual_review": 19,
+    "ready_for_rewrite": 89,
+    "sensitive_context_review": 25
+  },
+  "source_counts": {
+    "deepmind_mathematics_dataset": 96,
+    "gsm8k": 100,
+    "library_of_congress_free_to_use": 100,
+    "project_gutenberg": 100
+  },
+  "skill_counts": {
+    "arithmetic_operations": 118,
+    "evidence_selection": 45,
+    "functions_models": 18,
+    "linear_equations": 12,
+    "main_idea_inference": 59,
+    "ratios_percentages": 29,
+    "sentence_boundaries": 1,
+    "systems_equations": 12,
+    "unmapped": 101,
+    "words_in_context": 1
+  },
+  "license_decisions": {
+    "clear_for_candidate_generation": 96,
+    "clear_for_isolated_evaluation": 100,
+    "insufficient_item_rights_evidence": 101,
+    "manual_rights_review_required": 80,
+    "provisionally_clear_requires_human_confirmation": 19
+  },
+  "age_decisions": {
+    "clear_for_candidate_review": 96,
+    "context_review_required": 36,
+    "insufficient_content_for_age_review": 87,
+    "no_automated_flags": 177
+  },
+  "quality": {
+    "mean": 68.74,
+    "minimum": 42,
+    "maximum": 88,
+    "bands": {
+      "high": 96,
+      "low": 111,
+      "medium": 189
+    }
+  },
+  "student_content_approved_count": 0,
+  "important_limitations": [
+    "Automated license checks are pre-screening, not legal approval.",
+    "Gutenberg candidates currently contain catalog metadata, not selected passage text.",
+    "LOC candidates contain descriptive metadata and media links; educational and accessibility review remains manual.",
+    "DeepMind output must be rewritten and reviewed before student use.",
+    "GSM8K remains isolated from product RAG and offline packs."
+  ],
+  "run_fingerprint": "0a2b7ec958e8bf4a14078562ae1f5d92e3efbae217a036e5df3f9ad301ef813c"
+}

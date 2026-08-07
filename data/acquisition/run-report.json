@@ -1,0 +1,56 @@
+{
+  "registry": "/media/bili-guo/1235578e-e896-4ce5-9fdc-6318e4960f4c2/any/bridgesat-agent/config/sources.yaml",
+  "output_root": "/media/bili-guo/1235578e-e896-4ce5-9fdc-6318e4960f4c2/any/bridgesat-agent/data/acquisition",
+  "source_ids": [
+    "deepmind_mathematics_dataset",
+    "project_gutenberg",
+    "library_of_congress_free_to_use",
+    "gsm8k"
+  ],
+  "artifact_count": 11,
+  "artifact_bytes": 6945190,
+  "summaries": [
+    {
+      "source_id": "deepmind_mathematics_dataset",
+      "mode": "candidate_generator",
+      "include_modules": [
+        "algebra",
+        "arithmetic",
+        "comparison",
+        "measurement",
+        "numbers",
+        "polynomials",
+        "probability"
+      ],
+      "exclude_modules": [
+        "calculus"
+      ],
+      "generation_status": "candidates_generated",
+      "product_use": "rewrite_and_human_review_required",
+      "candidate_count": 96,
+      "candidate_path": "/media/bili-guo/1235578e-e896-4ce5-9fdc-6318e4960f4c2/any/bridgesat-agent/data/acquisition/deepmind_mathematics_dataset/staging/candidates.jsonl",
+      "generated_at": "2026-08-06T09:29:55Z"
+    },
+    {
+      "source_id": "project_gutenberg",
+      "candidate_count": 100,
+      "candidate_path": "/media/bili-guo/1235578e-e896-4ce5-9fdc-6318e4960f4c2/any/bridgesat-agent/data/acquisition/project_gutenberg/staging/candidates.jsonl",
+      "review_status": "item_rights_educational_and_age_review_pending"
+    },
+    {
+      "source_id": "library_of_congress_free_to_use",
+      "downloaded_metadata_rows": 100,
+      "candidate_count": 100,
+      "candidate_path": "/media/bili-guo/1235578e-e896-4ce5-9fdc-6318e4960f4c2/any/bridgesat-agent/data/acquisition/library_of_congress_free_to_use/staging/candidates.jsonl",
+      "review_status": "rights_educational_age_and_accessibility_review_pending"
+    },
+    {
+      "source_id": "gsm8k",
+      "evaluation_sample_count": 100,
+      "sample_path": "/media/bili-guo/1235578e-e896-4ce5-9fdc-6318e4960f4c2/any/bridgesat-agent/data/acquisition/gsm8k/staging/evaluation-sample.jsonl",
+      "separation_rule": "must_not_enter_product_rag_or_offline_pack"
+    }
+  ],
+  "errors": [],
+  "run_fingerprint": "b8f66907a6e68f2ac99eede23890730c1530fbefce3582ed81e3adea5215250f"
+}
