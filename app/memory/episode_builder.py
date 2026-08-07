@@ -16,6 +16,8 @@ from app.domain.memory import (
 
 from app.infrastructure.database import connect, transaction
 
+from .outbox import OutboxRepository
+
 DEFAULT_FACT_STATUS = "observation"
 
 
@@ -33,6 +35,7 @@ class EpisodeBuilder:
 
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
+        self.outbox = OutboxRepository(database_path)
 
     def build_candidate(
         self,
@@ -50,8 +53,9 @@ class EpisodeBuilder:
         outcome_content_id: str,
         teaching_content_id: str,
         summary: str,
+        episode_id: str | None = None,
     ) -> Episode:
-        episode_id = f"ep_{uuid.uuid4().hex[:12]}"
+        episode_id = episode_id or f"ep_{uuid.uuid4().hex[:12]}"
         now = utc_now_iso()
         score = outcome_component_score(outcome_correct, outcome_hint_level)
         outcome = {
@@ -109,6 +113,17 @@ class EpisodeBuilder:
                     "UPDATE learning_episodes SET status = ?, updated_at = ? WHERE episode_id = ?",
                     (status, updated.updated_at, episode.episode_id),
                 )
+                if status == "validated":
+                    self.outbox.enqueue(
+                        connection,
+                        student_id=episode.student_id,
+                        aggregate_type="episode",
+                        aggregate_id=episode.episode_id,
+                        operation="upsert_episode",
+                        payload=updated.model_dump(),
+                        version=1,
+                        now=updated.updated_at,
+                    )
         return updated
 
     def _insert_episode(self, connection: sqlite3.Connection, episode: Episode) -> None:

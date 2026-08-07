@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0",
+  "label": "controlled internal test (on-device latency, this machine)",
+  "results": {
+    "local_policy": {
+      "samples": 2000,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "max_ms": 0.04,
+      "target_p95_ms": 150.0,
+      "passed": true
+    },
+    "fts5": {
+      "samples": 200,
+      "p50_ms": 1.42,
+      "p95_ms": 2.19,
+      "max_ms": 5.59,
+      "target_p95_ms": 200.0,
+      "passed": true
+    },
+    "session_restore": {
+      "samples": 100,
+      "p50_ms": 1.17,
+      "p95_ms": 3.29,
+      "max_ms": 6.01,
+      "target_p95_ms": 500.0,
+      "passed": true
+    }
+  },
+  "sync_throughput_events_per_sec": 923.2,
+  "max_rss_mb": 79.6,
+  "mnemis_timeout_nonblocking": "covered by tests: tests/test_memory*",
+  "targets": {
+    "local_policy_p95_ms": 150.0,
+    "fts5_p95_ms": 200.0,
+    "session_restore_p95_ms": 500.0
+  },
+  "all_gates_passed": true
+}

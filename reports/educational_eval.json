@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "label": "synthetic simulation",
+  "disclaimer": "Simulated learner model; not real student improvement.",
+  "seed": 42,
+  "n_learners": 120,
+  "sessions": 4,
+  "items_per_session": 6,
+  "arms": {
+    "control": {
+      "items": 2880,
+      "correct": 1783,
+      "hints_used": 1603,
+      "max_hint_level": 2,
+      "interventions": 0,
+      "transfer_items": 178,
+      "transfer_correct": 0.6292134831460674,
+      "short_term_items": 255,
+      "short_term_correct": 0.611764705882353,
+      "retention_items": 120,
+      "retention_correct": 0.675,
+      "mastery_start": 0.5,
+      "mastery_end": 0.602083333333333,
+      "confidence_start": 0.0,
+      "confidence_end": 1.0,
+      "n_learners": 120,
+      "correctness": 0.6190972222222222,
+      "mastery_change": 0.10208333333333297,
+      "confidence_change": 1.0
+    },
+    "intervention": {
+      "items": 2880,
+      "correct": 1948,
+      "hints_used": 1343,
+      "max_hint_level": 2,
+      "interventions": 199,
+      "transfer_items": 199,
+      "transfer_correct": 0.8542713567839196,
+      "short_term_items": 223,
+      "short_term_correct": 0.7130044843049327,
+      "retention_items": 120,
+      "retention_correct": 0.7416666666666667,
+      "mastery_start": 0.5,
+      "mastery_end": 0.6511904761904763,
+      "confidence_start": 0.0,
+      "confidence_end": 1.0,
+      "n_learners": 120,
+      "correctness": 0.6763888888888889,
+      "mastery_change": 0.15119047619047632,
+      "confidence_change": 1.0
+    }
+  },
+  "targets": {
+    "intervention >= control correctness": true,
+    "intervention <= control hint usage": true
+  },
+  "metrics": {
+    "correctness_delta": 0.05729166666666674,
+    "hint_delta": -260,
+    "mastery_change_delta": 0.04910714285714335,
+    "confidence_change_delta": 0.0,
+    "transfer_correct_delta": 0.22505787363785223,
+    "retention_correct_delta": 0.06666666666666665,
+    "interventions_deployed": 199
+  }
+}

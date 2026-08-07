@@ -216,7 +216,7 @@ def test_duplicate_event_is_acknowledged_not_reapplied(service: SyncService) -> 
     assert count == 1
 
 
-from app.infrastructure.database import connect  # noqa: E402
+from app.infrastructure.database import connect, transaction  # noqa: E402
 
 
 def test_partial_batch_resumed_after_throttle(service: SyncService) -> None:
@@ -492,3 +492,103 @@ def test_versioned_answer_key_version_mismatch() -> None:
     key = VersionedAnswerKey()
     with pytest.raises(QuestionVersionError):
         key.pack(PACK_VERSION).answer_choice_id(Q_LINEAR, 5)
+
+
+# ----------------------------------------------------------------------
+# Projection rebuild from the immutable event log (API_AND_OPERATIONS §7)
+# ----------------------------------------------------------------------
+
+def _projection_snapshot(db: Path) -> dict[str, list[tuple]]:
+    def rows(sql: str, params: tuple = ()) -> list[tuple]:
+        with connect(db) as connection:
+            return [tuple(r) for r in connection.execute(sql, params).fetchall()]
+
+    return {
+        "sessions": rows(
+            "SELECT session_id, student_id, session_state FROM study_sessions "
+            "WHERE student_id = ? ORDER BY session_id",
+            (STUDENT_ID,),
+        ),
+        "attempts": rows(
+            "SELECT attempt_id, event_id, session_id, content_id, version, sequence, "
+            "selected_choice_id, correct, hint_level, weight, validity, occurred_at "
+            "FROM answer_attempts WHERE student_id = ? ORDER BY event_id",
+            (STUDENT_ID,),
+        ),
+        "skills": rows(
+            "SELECT skill, alpha, beta, mastery, confidence, evidence_count, "
+            "correct_streak, incorrect_streak, projection_origin "
+            "FROM student_skill_states WHERE student_id = ? ORDER BY skill",
+            (STUDENT_ID,),
+        ),
+        "evidence": rows(
+            "SELECT event_id, session_id, skill, subskill, misconception, "
+            "source_label, confidence_label, state, item_id, item_version "
+            "FROM misconception_evidence WHERE student_id = ? ORDER BY event_id",
+            (STUDENT_ID,),
+        ),
+    }
+
+
+def test_rebuild_projection_from_events_restores_state(service: SyncService) -> None:
+    from scripts.rebuild_learner_projections import rebuild_student
+
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
+    events = [
+        _envelope(
+            event_id="evt_c_1", event_type="CONTENT_PRESENTED",
+            payload={"question_id": Q_LINEAR},
+        ),
+        _envelope(event_id="evt_a_1", depends_on=["evt_c_1"]),
+        _envelope(
+            event_id="evt_c_2", event_type="CONTENT_PRESENTED",
+            payload={"question_id": Q_LINEAR}, depends_on=["evt_a_1"],
+        ),
+        _envelope(
+            event_id="evt_a_2",
+            payload={
+                "question_id": Q_LINEAR,
+                "question_version": 1,
+                "selected_choice_id": "B",
+                "hint_level": 0,
+                "attempt_id": "evt_a_2",
+            },
+            depends_on=["evt_c_2"],
+        ),
+        _envelope(
+            event_id="evt_s_1", event_type="SESSION_COMPLETED",
+            payload={"summary": "s"}, depends_on=["evt_a_2"],
+        ),
+    ]
+    response = _process(service, events)
+    assert response.rejected_events == []
+    assert len(response.accepted_event_ids) == 5
+
+    original = _projection_snapshot(service.db)
+    assert original["attempts"]
+    assert original["evidence"]
+
+    with connect(service.db) as connection:
+        with transaction(connection):
+            connection.execute(
+                "DELETE FROM answer_attempts WHERE student_id = ?", (STUDENT_ID,)
+            )
+            connection.execute(
+                "DELETE FROM misconception_evidence WHERE student_id = ?", (STUDENT_ID,)
+            )
+            connection.execute(
+                "DELETE FROM study_sessions WHERE student_id = ?", (STUDENT_ID,)
+            )
+            connection.execute(
+                "UPDATE student_skill_states SET mastery = 0.99, confidence = 0.99 "
+                "WHERE student_id = ?",
+                (STUDENT_ID,),
+            )
+
+    report = rebuild_student(service.db, STUDENT_ID, service)
+    assert report["rejected"] == []
+    assert report["events_replayed"] == 5
+    assert report["skipped_server_events"] == 1  # STUDENT_CREATED is not a sync event
+
+    assert _projection_snapshot(service.db) == original

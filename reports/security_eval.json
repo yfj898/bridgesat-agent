@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0",
+  "label": "controlled internal test",
+  "command": "pytest tests/security tests/test_sync_protocol.py -q",
+  "passed": 74,
+  "tail": "........................................................................ [ 97%]\n..                                                                       [100%]\n74 passed in 10.37s\n"
+}

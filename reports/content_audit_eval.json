@@ -1,0 +1,5351 @@
+{
+  "schema_version": "1.0",
+  "label": "controlled internal test",
+  "pack": "/media/bili-guo/1235578e-e896-4ce5-9fdc-6318e4960f4c2/any/bridgesat-agent/content/packs/bridgesat-math-0.1.0",
+  "checks": 889,
+  "passed": 889,
+  "pass_rate": 1.0,
+  "targets": {
+    "published_content_gate": "100%",
+    "restricted_source_recall": "0"
+  },
+  "findings": [
+    {
+      "check": "manifest_published",
+      "description": "pack status is published",
+      "passed": true,
+      "detail": "published"
+    },
+    {
+      "check": "manifest_reviewers",
+      "description": "reviewers present in manifest",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "manifest_version_dir",
+      "description": "pack_version matches directory name",
+      "passed": true,
+      "detail": "0.1.0"
+    },
+    {
+      "check": "manifest_schema",
+      "description": "manifest schema_version is v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "manifest_min_app",
+      "description": "minimum_app_version present",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "manifest_allowed_schemas",
+      "description": "allowed_item_schema_versions contains v1",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "manifest_licenses",
+      "description": "source_licenses documented",
+      "passed": true,
+      "detail": "{\"deepmind_mathematics_dataset\": \"bridgesat_original\"}"
+    },
+    {
+      "check": "manifest_hashes_complete",
+      "description": "item_hashes cover every item",
+      "passed": true,
+      "detail": "55/55"
+    },
+    {
+      "check": "manifest_hashes_no_extra",
+      "description": "no stale hash entries",
+      "passed": true,
+      "detail": "[]"
+    },
+    {
+      "check": "item_math.linear_equations.001_schema",
+      "description": "math.linear_equations.001 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.linear_equations.001_type",
+      "description": "math.linear_equations.001 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.linear_equations.001_four_choices",
+      "description": "math.linear_equations.001 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.linear_equations.001_unique_choices",
+      "description": "math.linear_equations.001 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.001_answer_valid",
+      "description": "math.linear_equations.001 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.linear_equations.001_difficulty",
+      "description": "math.linear_equations.001 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.linear_equations.001_prompt",
+      "description": "math.linear_equations.001 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.001_hints",
+      "description": "math.linear_equations.001 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.001_explanation",
+      "description": "math.linear_equations.001 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.001_approved",
+      "description": "math.linear_equations.001 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.linear_equations.001_reviewers",
+      "description": "math.linear_equations.001 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.linear_equations.001_license",
+      "description": "math.linear_equations.001 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.linear_equations.001_skill_known",
+      "description": "math.linear_equations.001 target_skill known",
+      "passed": true,
+      "detail": "linear_equations"
+    },
+    {
+      "check": "item_math.linear_equations.001_hash",
+      "description": "math.linear_equations.001 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.001_no_prohibited_lineage",
+      "description": "math.linear_equations.001 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-09426149bc9ea4e1', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.linear_equations.002_schema",
+      "description": "math.linear_equations.002 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.linear_equations.002_type",
+      "description": "math.linear_equations.002 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.linear_equations.002_four_choices",
+      "description": "math.linear_equations.002 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.linear_equations.002_unique_choices",
+      "description": "math.linear_equations.002 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.002_answer_valid",
+      "description": "math.linear_equations.002 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.linear_equations.002_difficulty",
+      "description": "math.linear_equations.002 difficulty in 1..3",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "check": "item_math.linear_equations.002_prompt",
+      "description": "math.linear_equations.002 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.002_hints",
+      "description": "math.linear_equations.002 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.002_explanation",
+      "description": "math.linear_equations.002 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.002_approved",
+      "description": "math.linear_equations.002 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.linear_equations.002_reviewers",
+      "description": "math.linear_equations.002 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.linear_equations.002_license",
+      "description": "math.linear_equations.002 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.linear_equations.002_skill_known",
+      "description": "math.linear_equations.002 target_skill known",
+      "passed": true,
+      "detail": "linear_equations"
+    },
+    {
+      "check": "item_math.linear_equations.002_hash",
+      "description": "math.linear_equations.002 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.002_no_prohibited_lineage",
+      "description": "math.linear_equations.002 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-0a43f86d17301661', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.linear_equations.003_schema",
+      "description": "math.linear_equations.003 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.linear_equations.003_type",
+      "description": "math.linear_equations.003 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.linear_equations.003_four_choices",
+      "description": "math.linear_equations.003 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.linear_equations.003_unique_choices",
+      "description": "math.linear_equations.003 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.003_answer_valid",
+      "description": "math.linear_equations.003 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.linear_equations.003_difficulty",
+      "description": "math.linear_equations.003 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.linear_equations.003_prompt",
+      "description": "math.linear_equations.003 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.003_hints",
+      "description": "math.linear_equations.003 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.003_explanation",
+      "description": "math.linear_equations.003 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.003_approved",
+      "description": "math.linear_equations.003 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.linear_equations.003_reviewers",
+      "description": "math.linear_equations.003 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.linear_equations.003_license",
+      "description": "math.linear_equations.003 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.linear_equations.003_skill_known",
+      "description": "math.linear_equations.003 target_skill known",
+      "passed": true,
+      "detail": "linear_equations"
+    },
+    {
+      "check": "item_math.linear_equations.003_hash",
+      "description": "math.linear_equations.003 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.003_no_prohibited_lineage",
+      "description": "math.linear_equations.003 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-1f352031d8704b63', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.linear_equations.004_schema",
+      "description": "math.linear_equations.004 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.linear_equations.004_type",
+      "description": "math.linear_equations.004 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.linear_equations.004_four_choices",
+      "description": "math.linear_equations.004 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.linear_equations.004_unique_choices",
+      "description": "math.linear_equations.004 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.004_answer_valid",
+      "description": "math.linear_equations.004 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.linear_equations.004_difficulty",
+      "description": "math.linear_equations.004 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.linear_equations.004_prompt",
+      "description": "math.linear_equations.004 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.004_hints",
+      "description": "math.linear_equations.004 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.004_explanation",
+      "description": "math.linear_equations.004 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.004_approved",
+      "description": "math.linear_equations.004 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.linear_equations.004_reviewers",
+      "description": "math.linear_equations.004 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.linear_equations.004_license",
+      "description": "math.linear_equations.004 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.linear_equations.004_skill_known",
+      "description": "math.linear_equations.004 target_skill known",
+      "passed": true,
+      "detail": "linear_equations"
+    },
+    {
+      "check": "item_math.linear_equations.004_hash",
+      "description": "math.linear_equations.004 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.004_no_prohibited_lineage",
+      "description": "math.linear_equations.004 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-2e17bd554c486c4c', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.linear_equations.005_schema",
+      "description": "math.linear_equations.005 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.linear_equations.005_type",
+      "description": "math.linear_equations.005 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.linear_equations.005_four_choices",
+      "description": "math.linear_equations.005 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.linear_equations.005_unique_choices",
+      "description": "math.linear_equations.005 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.005_answer_valid",
+      "description": "math.linear_equations.005 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.linear_equations.005_difficulty",
+      "description": "math.linear_equations.005 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.linear_equations.005_prompt",
+      "description": "math.linear_equations.005 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.005_hints",
+      "description": "math.linear_equations.005 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.005_explanation",
+      "description": "math.linear_equations.005 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.005_approved",
+      "description": "math.linear_equations.005 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.linear_equations.005_reviewers",
+      "description": "math.linear_equations.005 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.linear_equations.005_license",
+      "description": "math.linear_equations.005 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.linear_equations.005_skill_known",
+      "description": "math.linear_equations.005 target_skill known",
+      "passed": true,
+      "detail": "linear_equations"
+    },
+    {
+      "check": "item_math.linear_equations.005_hash",
+      "description": "math.linear_equations.005 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.005_no_prohibited_lineage",
+      "description": "math.linear_equations.005 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-493fe2179bae70ec', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.linear_equations.006_schema",
+      "description": "math.linear_equations.006 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.linear_equations.006_type",
+      "description": "math.linear_equations.006 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.linear_equations.006_four_choices",
+      "description": "math.linear_equations.006 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.linear_equations.006_unique_choices",
+      "description": "math.linear_equations.006 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.006_answer_valid",
+      "description": "math.linear_equations.006 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.linear_equations.006_difficulty",
+      "description": "math.linear_equations.006 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.linear_equations.006_prompt",
+      "description": "math.linear_equations.006 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.006_hints",
+      "description": "math.linear_equations.006 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.006_explanation",
+      "description": "math.linear_equations.006 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.006_approved",
+      "description": "math.linear_equations.006 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.linear_equations.006_reviewers",
+      "description": "math.linear_equations.006 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.linear_equations.006_license",
+      "description": "math.linear_equations.006 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.linear_equations.006_skill_known",
+      "description": "math.linear_equations.006 target_skill known",
+      "passed": true,
+      "detail": "linear_equations"
+    },
+    {
+      "check": "item_math.linear_equations.006_hash",
+      "description": "math.linear_equations.006 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.006_no_prohibited_lineage",
+      "description": "math.linear_equations.006 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-4fcf1f56f804fe53', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.linear_equations.007_schema",
+      "description": "math.linear_equations.007 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.linear_equations.007_type",
+      "description": "math.linear_equations.007 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.linear_equations.007_four_choices",
+      "description": "math.linear_equations.007 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.linear_equations.007_unique_choices",
+      "description": "math.linear_equations.007 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.007_answer_valid",
+      "description": "math.linear_equations.007 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.linear_equations.007_difficulty",
+      "description": "math.linear_equations.007 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.linear_equations.007_prompt",
+      "description": "math.linear_equations.007 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.007_hints",
+      "description": "math.linear_equations.007 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.007_explanation",
+      "description": "math.linear_equations.007 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.007_approved",
+      "description": "math.linear_equations.007 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.linear_equations.007_reviewers",
+      "description": "math.linear_equations.007 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.linear_equations.007_license",
+      "description": "math.linear_equations.007 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.linear_equations.007_skill_known",
+      "description": "math.linear_equations.007 target_skill known",
+      "passed": true,
+      "detail": "linear_equations"
+    },
+    {
+      "check": "item_math.linear_equations.007_hash",
+      "description": "math.linear_equations.007 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.007_no_prohibited_lineage",
+      "description": "math.linear_equations.007 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-5e6cfe8066af6008', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.linear_equations.008_schema",
+      "description": "math.linear_equations.008 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.linear_equations.008_type",
+      "description": "math.linear_equations.008 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.linear_equations.008_four_choices",
+      "description": "math.linear_equations.008 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.linear_equations.008_unique_choices",
+      "description": "math.linear_equations.008 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.008_answer_valid",
+      "description": "math.linear_equations.008 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.linear_equations.008_difficulty",
+      "description": "math.linear_equations.008 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.linear_equations.008_prompt",
+      "description": "math.linear_equations.008 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.008_hints",
+      "description": "math.linear_equations.008 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.008_explanation",
+      "description": "math.linear_equations.008 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.008_approved",
+      "description": "math.linear_equations.008 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.linear_equations.008_reviewers",
+      "description": "math.linear_equations.008 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.linear_equations.008_license",
+      "description": "math.linear_equations.008 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.linear_equations.008_skill_known",
+      "description": "math.linear_equations.008 target_skill known",
+      "passed": true,
+      "detail": "linear_equations"
+    },
+    {
+      "check": "item_math.linear_equations.008_hash",
+      "description": "math.linear_equations.008 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.008_no_prohibited_lineage",
+      "description": "math.linear_equations.008 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-872b0776e6388f78', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.linear_equations.009_schema",
+      "description": "math.linear_equations.009 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.linear_equations.009_type",
+      "description": "math.linear_equations.009 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.linear_equations.009_four_choices",
+      "description": "math.linear_equations.009 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.linear_equations.009_unique_choices",
+      "description": "math.linear_equations.009 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.009_answer_valid",
+      "description": "math.linear_equations.009 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.linear_equations.009_difficulty",
+      "description": "math.linear_equations.009 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.linear_equations.009_prompt",
+      "description": "math.linear_equations.009 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.009_hints",
+      "description": "math.linear_equations.009 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.009_explanation",
+      "description": "math.linear_equations.009 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.009_approved",
+      "description": "math.linear_equations.009 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.linear_equations.009_reviewers",
+      "description": "math.linear_equations.009 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.linear_equations.009_license",
+      "description": "math.linear_equations.009 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.linear_equations.009_skill_known",
+      "description": "math.linear_equations.009 target_skill known",
+      "passed": true,
+      "detail": "linear_equations"
+    },
+    {
+      "check": "item_math.linear_equations.009_hash",
+      "description": "math.linear_equations.009 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.009_no_prohibited_lineage",
+      "description": "math.linear_equations.009 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-a1246abb6609d94a', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.linear_equations.010_schema",
+      "description": "math.linear_equations.010 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.linear_equations.010_type",
+      "description": "math.linear_equations.010 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.linear_equations.010_four_choices",
+      "description": "math.linear_equations.010 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.linear_equations.010_unique_choices",
+      "description": "math.linear_equations.010 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.010_answer_valid",
+      "description": "math.linear_equations.010 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.linear_equations.010_difficulty",
+      "description": "math.linear_equations.010 difficulty in 1..3",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "check": "item_math.linear_equations.010_prompt",
+      "description": "math.linear_equations.010 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.010_hints",
+      "description": "math.linear_equations.010 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.010_explanation",
+      "description": "math.linear_equations.010 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.010_approved",
+      "description": "math.linear_equations.010 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.linear_equations.010_reviewers",
+      "description": "math.linear_equations.010 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.linear_equations.010_license",
+      "description": "math.linear_equations.010 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.linear_equations.010_skill_known",
+      "description": "math.linear_equations.010 target_skill known",
+      "passed": true,
+      "detail": "linear_equations"
+    },
+    {
+      "check": "item_math.linear_equations.010_hash",
+      "description": "math.linear_equations.010 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.010_no_prohibited_lineage",
+      "description": "math.linear_equations.010 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-b6b44be34991e554', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.linear_equations.011_schema",
+      "description": "math.linear_equations.011 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.linear_equations.011_type",
+      "description": "math.linear_equations.011 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.linear_equations.011_four_choices",
+      "description": "math.linear_equations.011 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.linear_equations.011_unique_choices",
+      "description": "math.linear_equations.011 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.011_answer_valid",
+      "description": "math.linear_equations.011 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.linear_equations.011_difficulty",
+      "description": "math.linear_equations.011 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.linear_equations.011_prompt",
+      "description": "math.linear_equations.011 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.011_hints",
+      "description": "math.linear_equations.011 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.011_explanation",
+      "description": "math.linear_equations.011 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.011_approved",
+      "description": "math.linear_equations.011 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.linear_equations.011_reviewers",
+      "description": "math.linear_equations.011 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.linear_equations.011_license",
+      "description": "math.linear_equations.011 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.linear_equations.011_skill_known",
+      "description": "math.linear_equations.011 target_skill known",
+      "passed": true,
+      "detail": "linear_equations"
+    },
+    {
+      "check": "item_math.linear_equations.011_hash",
+      "description": "math.linear_equations.011 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.011_no_prohibited_lineage",
+      "description": "math.linear_equations.011 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-bb121dd2e9e6e479', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.linear_equations.012_schema",
+      "description": "math.linear_equations.012 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.linear_equations.012_type",
+      "description": "math.linear_equations.012 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.linear_equations.012_four_choices",
+      "description": "math.linear_equations.012 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.linear_equations.012_unique_choices",
+      "description": "math.linear_equations.012 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.012_answer_valid",
+      "description": "math.linear_equations.012 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.linear_equations.012_difficulty",
+      "description": "math.linear_equations.012 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.linear_equations.012_prompt",
+      "description": "math.linear_equations.012 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.012_hints",
+      "description": "math.linear_equations.012 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.012_explanation",
+      "description": "math.linear_equations.012 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.012_approved",
+      "description": "math.linear_equations.012 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.linear_equations.012_reviewers",
+      "description": "math.linear_equations.012 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.linear_equations.012_license",
+      "description": "math.linear_equations.012 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.linear_equations.012_skill_known",
+      "description": "math.linear_equations.012 target_skill known",
+      "passed": true,
+      "detail": "linear_equations"
+    },
+    {
+      "check": "item_math.linear_equations.012_hash",
+      "description": "math.linear_equations.012 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.linear_equations.012_no_prohibited_lineage",
+      "description": "math.linear_equations.012 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-c26f807f6e0c7047', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.systems_equations.001_schema",
+      "description": "math.systems_equations.001 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.systems_equations.001_type",
+      "description": "math.systems_equations.001 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.systems_equations.001_four_choices",
+      "description": "math.systems_equations.001 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.systems_equations.001_unique_choices",
+      "description": "math.systems_equations.001 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.001_answer_valid",
+      "description": "math.systems_equations.001 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.systems_equations.001_difficulty",
+      "description": "math.systems_equations.001 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.systems_equations.001_prompt",
+      "description": "math.systems_equations.001 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.001_hints",
+      "description": "math.systems_equations.001 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.001_explanation",
+      "description": "math.systems_equations.001 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.001_approved",
+      "description": "math.systems_equations.001 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.systems_equations.001_reviewers",
+      "description": "math.systems_equations.001 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.systems_equations.001_license",
+      "description": "math.systems_equations.001 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.systems_equations.001_skill_known",
+      "description": "math.systems_equations.001 target_skill known",
+      "passed": true,
+      "detail": "systems_equations"
+    },
+    {
+      "check": "item_math.systems_equations.001_hash",
+      "description": "math.systems_equations.001 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.001_no_prohibited_lineage",
+      "description": "math.systems_equations.001 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-04546a2f35606c7f', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.systems_equations.002_schema",
+      "description": "math.systems_equations.002 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.systems_equations.002_type",
+      "description": "math.systems_equations.002 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.systems_equations.002_four_choices",
+      "description": "math.systems_equations.002 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.systems_equations.002_unique_choices",
+      "description": "math.systems_equations.002 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.002_answer_valid",
+      "description": "math.systems_equations.002 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.systems_equations.002_difficulty",
+      "description": "math.systems_equations.002 difficulty in 1..3",
+      "passed": true,
+      "detail": "3"
+    },
+    {
+      "check": "item_math.systems_equations.002_prompt",
+      "description": "math.systems_equations.002 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.002_hints",
+      "description": "math.systems_equations.002 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.002_explanation",
+      "description": "math.systems_equations.002 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.002_approved",
+      "description": "math.systems_equations.002 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.systems_equations.002_reviewers",
+      "description": "math.systems_equations.002 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.systems_equations.002_license",
+      "description": "math.systems_equations.002 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.systems_equations.002_skill_known",
+      "description": "math.systems_equations.002 target_skill known",
+      "passed": true,
+      "detail": "systems_equations"
+    },
+    {
+      "check": "item_math.systems_equations.002_hash",
+      "description": "math.systems_equations.002 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.002_no_prohibited_lineage",
+      "description": "math.systems_equations.002 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-47d4ab203d3afcf3', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.systems_equations.003_schema",
+      "description": "math.systems_equations.003 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.systems_equations.003_type",
+      "description": "math.systems_equations.003 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.systems_equations.003_four_choices",
+      "description": "math.systems_equations.003 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.systems_equations.003_unique_choices",
+      "description": "math.systems_equations.003 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.003_answer_valid",
+      "description": "math.systems_equations.003 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.systems_equations.003_difficulty",
+      "description": "math.systems_equations.003 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.systems_equations.003_prompt",
+      "description": "math.systems_equations.003 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.003_hints",
+      "description": "math.systems_equations.003 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.003_explanation",
+      "description": "math.systems_equations.003 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.003_approved",
+      "description": "math.systems_equations.003 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.systems_equations.003_reviewers",
+      "description": "math.systems_equations.003 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.systems_equations.003_license",
+      "description": "math.systems_equations.003 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.systems_equations.003_skill_known",
+      "description": "math.systems_equations.003 target_skill known",
+      "passed": true,
+      "detail": "systems_equations"
+    },
+    {
+      "check": "item_math.systems_equations.003_hash",
+      "description": "math.systems_equations.003 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.003_no_prohibited_lineage",
+      "description": "math.systems_equations.003 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-5cf9084a101f658d', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.systems_equations.004_schema",
+      "description": "math.systems_equations.004 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.systems_equations.004_type",
+      "description": "math.systems_equations.004 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.systems_equations.004_four_choices",
+      "description": "math.systems_equations.004 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.systems_equations.004_unique_choices",
+      "description": "math.systems_equations.004 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.004_answer_valid",
+      "description": "math.systems_equations.004 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.systems_equations.004_difficulty",
+      "description": "math.systems_equations.004 difficulty in 1..3",
+      "passed": true,
+      "detail": "3"
+    },
+    {
+      "check": "item_math.systems_equations.004_prompt",
+      "description": "math.systems_equations.004 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.004_hints",
+      "description": "math.systems_equations.004 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.004_explanation",
+      "description": "math.systems_equations.004 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.004_approved",
+      "description": "math.systems_equations.004 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.systems_equations.004_reviewers",
+      "description": "math.systems_equations.004 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.systems_equations.004_license",
+      "description": "math.systems_equations.004 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.systems_equations.004_skill_known",
+      "description": "math.systems_equations.004 target_skill known",
+      "passed": true,
+      "detail": "systems_equations"
+    },
+    {
+      "check": "item_math.systems_equations.004_hash",
+      "description": "math.systems_equations.004 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.004_no_prohibited_lineage",
+      "description": "math.systems_equations.004 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-5fe544a7eb1e765f', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.systems_equations.005_schema",
+      "description": "math.systems_equations.005 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.systems_equations.005_type",
+      "description": "math.systems_equations.005 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.systems_equations.005_four_choices",
+      "description": "math.systems_equations.005 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.systems_equations.005_unique_choices",
+      "description": "math.systems_equations.005 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.005_answer_valid",
+      "description": "math.systems_equations.005 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.systems_equations.005_difficulty",
+      "description": "math.systems_equations.005 difficulty in 1..3",
+      "passed": true,
+      "detail": "3"
+    },
+    {
+      "check": "item_math.systems_equations.005_prompt",
+      "description": "math.systems_equations.005 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.005_hints",
+      "description": "math.systems_equations.005 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.005_explanation",
+      "description": "math.systems_equations.005 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.005_approved",
+      "description": "math.systems_equations.005 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.systems_equations.005_reviewers",
+      "description": "math.systems_equations.005 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.systems_equations.005_license",
+      "description": "math.systems_equations.005 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.systems_equations.005_skill_known",
+      "description": "math.systems_equations.005 target_skill known",
+      "passed": true,
+      "detail": "systems_equations"
+    },
+    {
+      "check": "item_math.systems_equations.005_hash",
+      "description": "math.systems_equations.005 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.005_no_prohibited_lineage",
+      "description": "math.systems_equations.005 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-619a3ef6393d9b53', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.systems_equations.006_schema",
+      "description": "math.systems_equations.006 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.systems_equations.006_type",
+      "description": "math.systems_equations.006 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.systems_equations.006_four_choices",
+      "description": "math.systems_equations.006 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.systems_equations.006_unique_choices",
+      "description": "math.systems_equations.006 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.006_answer_valid",
+      "description": "math.systems_equations.006 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.systems_equations.006_difficulty",
+      "description": "math.systems_equations.006 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.systems_equations.006_prompt",
+      "description": "math.systems_equations.006 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.006_hints",
+      "description": "math.systems_equations.006 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.006_explanation",
+      "description": "math.systems_equations.006 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.006_approved",
+      "description": "math.systems_equations.006 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.systems_equations.006_reviewers",
+      "description": "math.systems_equations.006 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.systems_equations.006_license",
+      "description": "math.systems_equations.006 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.systems_equations.006_skill_known",
+      "description": "math.systems_equations.006 target_skill known",
+      "passed": true,
+      "detail": "systems_equations"
+    },
+    {
+      "check": "item_math.systems_equations.006_hash",
+      "description": "math.systems_equations.006 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.006_no_prohibited_lineage",
+      "description": "math.systems_equations.006 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-8c6111f2ea2a6965', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.systems_equations.007_schema",
+      "description": "math.systems_equations.007 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.systems_equations.007_type",
+      "description": "math.systems_equations.007 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.systems_equations.007_four_choices",
+      "description": "math.systems_equations.007 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.systems_equations.007_unique_choices",
+      "description": "math.systems_equations.007 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.007_answer_valid",
+      "description": "math.systems_equations.007 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.systems_equations.007_difficulty",
+      "description": "math.systems_equations.007 difficulty in 1..3",
+      "passed": true,
+      "detail": "3"
+    },
+    {
+      "check": "item_math.systems_equations.007_prompt",
+      "description": "math.systems_equations.007 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.007_hints",
+      "description": "math.systems_equations.007 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.007_explanation",
+      "description": "math.systems_equations.007 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.007_approved",
+      "description": "math.systems_equations.007 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.systems_equations.007_reviewers",
+      "description": "math.systems_equations.007 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.systems_equations.007_license",
+      "description": "math.systems_equations.007 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.systems_equations.007_skill_known",
+      "description": "math.systems_equations.007 target_skill known",
+      "passed": true,
+      "detail": "systems_equations"
+    },
+    {
+      "check": "item_math.systems_equations.007_hash",
+      "description": "math.systems_equations.007 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.007_no_prohibited_lineage",
+      "description": "math.systems_equations.007 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-8d9786114d1e010c', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.systems_equations.008_schema",
+      "description": "math.systems_equations.008 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.systems_equations.008_type",
+      "description": "math.systems_equations.008 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.systems_equations.008_four_choices",
+      "description": "math.systems_equations.008 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.systems_equations.008_unique_choices",
+      "description": "math.systems_equations.008 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.008_answer_valid",
+      "description": "math.systems_equations.008 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.systems_equations.008_difficulty",
+      "description": "math.systems_equations.008 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.systems_equations.008_prompt",
+      "description": "math.systems_equations.008 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.008_hints",
+      "description": "math.systems_equations.008 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.008_explanation",
+      "description": "math.systems_equations.008 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.008_approved",
+      "description": "math.systems_equations.008 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.systems_equations.008_reviewers",
+      "description": "math.systems_equations.008 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.systems_equations.008_license",
+      "description": "math.systems_equations.008 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.systems_equations.008_skill_known",
+      "description": "math.systems_equations.008 target_skill known",
+      "passed": true,
+      "detail": "systems_equations"
+    },
+    {
+      "check": "item_math.systems_equations.008_hash",
+      "description": "math.systems_equations.008 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.008_no_prohibited_lineage",
+      "description": "math.systems_equations.008 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-996b6fd21f37ccaf', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.systems_equations.009_schema",
+      "description": "math.systems_equations.009 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.systems_equations.009_type",
+      "description": "math.systems_equations.009 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.systems_equations.009_four_choices",
+      "description": "math.systems_equations.009 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.systems_equations.009_unique_choices",
+      "description": "math.systems_equations.009 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.009_answer_valid",
+      "description": "math.systems_equations.009 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.systems_equations.009_difficulty",
+      "description": "math.systems_equations.009 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.systems_equations.009_prompt",
+      "description": "math.systems_equations.009 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.009_hints",
+      "description": "math.systems_equations.009 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.009_explanation",
+      "description": "math.systems_equations.009 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.009_approved",
+      "description": "math.systems_equations.009 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.systems_equations.009_reviewers",
+      "description": "math.systems_equations.009 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.systems_equations.009_license",
+      "description": "math.systems_equations.009 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.systems_equations.009_skill_known",
+      "description": "math.systems_equations.009 target_skill known",
+      "passed": true,
+      "detail": "systems_equations"
+    },
+    {
+      "check": "item_math.systems_equations.009_hash",
+      "description": "math.systems_equations.009 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.009_no_prohibited_lineage",
+      "description": "math.systems_equations.009 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-c79aa6e857d9a736', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.systems_equations.010_schema",
+      "description": "math.systems_equations.010 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.systems_equations.010_type",
+      "description": "math.systems_equations.010 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.systems_equations.010_four_choices",
+      "description": "math.systems_equations.010 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.systems_equations.010_unique_choices",
+      "description": "math.systems_equations.010 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.010_answer_valid",
+      "description": "math.systems_equations.010 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.systems_equations.010_difficulty",
+      "description": "math.systems_equations.010 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.systems_equations.010_prompt",
+      "description": "math.systems_equations.010 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.010_hints",
+      "description": "math.systems_equations.010 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.010_explanation",
+      "description": "math.systems_equations.010 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.010_approved",
+      "description": "math.systems_equations.010 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.systems_equations.010_reviewers",
+      "description": "math.systems_equations.010 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.systems_equations.010_license",
+      "description": "math.systems_equations.010 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.systems_equations.010_skill_known",
+      "description": "math.systems_equations.010 target_skill known",
+      "passed": true,
+      "detail": "systems_equations"
+    },
+    {
+      "check": "item_math.systems_equations.010_hash",
+      "description": "math.systems_equations.010 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.010_no_prohibited_lineage",
+      "description": "math.systems_equations.010 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-d241f4c1a88a0997', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.systems_equations.011_schema",
+      "description": "math.systems_equations.011 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.systems_equations.011_type",
+      "description": "math.systems_equations.011 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.systems_equations.011_four_choices",
+      "description": "math.systems_equations.011 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.systems_equations.011_unique_choices",
+      "description": "math.systems_equations.011 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.011_answer_valid",
+      "description": "math.systems_equations.011 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.systems_equations.011_difficulty",
+      "description": "math.systems_equations.011 difficulty in 1..3",
+      "passed": true,
+      "detail": "3"
+    },
+    {
+      "check": "item_math.systems_equations.011_prompt",
+      "description": "math.systems_equations.011 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.011_hints",
+      "description": "math.systems_equations.011 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.011_explanation",
+      "description": "math.systems_equations.011 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.011_approved",
+      "description": "math.systems_equations.011 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.systems_equations.011_reviewers",
+      "description": "math.systems_equations.011 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.systems_equations.011_license",
+      "description": "math.systems_equations.011 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.systems_equations.011_skill_known",
+      "description": "math.systems_equations.011 target_skill known",
+      "passed": true,
+      "detail": "systems_equations"
+    },
+    {
+      "check": "item_math.systems_equations.011_hash",
+      "description": "math.systems_equations.011 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.011_no_prohibited_lineage",
+      "description": "math.systems_equations.011 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-d25c9bbc4e0f7400', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.systems_equations.012_schema",
+      "description": "math.systems_equations.012 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.systems_equations.012_type",
+      "description": "math.systems_equations.012 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.systems_equations.012_four_choices",
+      "description": "math.systems_equations.012 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.systems_equations.012_unique_choices",
+      "description": "math.systems_equations.012 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.012_answer_valid",
+      "description": "math.systems_equations.012 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.systems_equations.012_difficulty",
+      "description": "math.systems_equations.012 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.systems_equations.012_prompt",
+      "description": "math.systems_equations.012 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.012_hints",
+      "description": "math.systems_equations.012 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.012_explanation",
+      "description": "math.systems_equations.012 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.012_approved",
+      "description": "math.systems_equations.012 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.systems_equations.012_reviewers",
+      "description": "math.systems_equations.012 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.systems_equations.012_license",
+      "description": "math.systems_equations.012 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.systems_equations.012_skill_known",
+      "description": "math.systems_equations.012 target_skill known",
+      "passed": true,
+      "detail": "systems_equations"
+    },
+    {
+      "check": "item_math.systems_equations.012_hash",
+      "description": "math.systems_equations.012 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.systems_equations.012_no_prohibited_lineage",
+      "description": "math.systems_equations.012 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-efdc1ec72e6c0218', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.ratios_percentages.001_schema",
+      "description": "math.ratios_percentages.001 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.ratios_percentages.001_type",
+      "description": "math.ratios_percentages.001 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.ratios_percentages.001_four_choices",
+      "description": "math.ratios_percentages.001 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.ratios_percentages.001_unique_choices",
+      "description": "math.ratios_percentages.001 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.001_answer_valid",
+      "description": "math.ratios_percentages.001 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.ratios_percentages.001_difficulty",
+      "description": "math.ratios_percentages.001 difficulty in 1..3",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "check": "item_math.ratios_percentages.001_prompt",
+      "description": "math.ratios_percentages.001 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.001_hints",
+      "description": "math.ratios_percentages.001 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.001_explanation",
+      "description": "math.ratios_percentages.001 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.001_approved",
+      "description": "math.ratios_percentages.001 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.ratios_percentages.001_reviewers",
+      "description": "math.ratios_percentages.001 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.ratios_percentages.001_license",
+      "description": "math.ratios_percentages.001 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.ratios_percentages.001_skill_known",
+      "description": "math.ratios_percentages.001 target_skill known",
+      "passed": true,
+      "detail": "ratios_percentages"
+    },
+    {
+      "check": "item_math.ratios_percentages.001_hash",
+      "description": "math.ratios_percentages.001 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.001_no_prohibited_lineage",
+      "description": "math.ratios_percentages.001 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-0792a20c0b670455', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.ratios_percentages.002_schema",
+      "description": "math.ratios_percentages.002 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.ratios_percentages.002_type",
+      "description": "math.ratios_percentages.002 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.ratios_percentages.002_four_choices",
+      "description": "math.ratios_percentages.002 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.ratios_percentages.002_unique_choices",
+      "description": "math.ratios_percentages.002 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.002_answer_valid",
+      "description": "math.ratios_percentages.002 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.ratios_percentages.002_difficulty",
+      "description": "math.ratios_percentages.002 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.ratios_percentages.002_prompt",
+      "description": "math.ratios_percentages.002 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.002_hints",
+      "description": "math.ratios_percentages.002 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.002_explanation",
+      "description": "math.ratios_percentages.002 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.002_approved",
+      "description": "math.ratios_percentages.002 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.ratios_percentages.002_reviewers",
+      "description": "math.ratios_percentages.002 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.ratios_percentages.002_license",
+      "description": "math.ratios_percentages.002 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.ratios_percentages.002_skill_known",
+      "description": "math.ratios_percentages.002 target_skill known",
+      "passed": true,
+      "detail": "ratios_percentages"
+    },
+    {
+      "check": "item_math.ratios_percentages.002_hash",
+      "description": "math.ratios_percentages.002 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.002_no_prohibited_lineage",
+      "description": "math.ratios_percentages.002 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-15d9571b0d8ae88a', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.ratios_percentages.003_schema",
+      "description": "math.ratios_percentages.003 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.ratios_percentages.003_type",
+      "description": "math.ratios_percentages.003 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.ratios_percentages.003_four_choices",
+      "description": "math.ratios_percentages.003 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.ratios_percentages.003_unique_choices",
+      "description": "math.ratios_percentages.003 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.003_answer_valid",
+      "description": "math.ratios_percentages.003 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.ratios_percentages.003_difficulty",
+      "description": "math.ratios_percentages.003 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.ratios_percentages.003_prompt",
+      "description": "math.ratios_percentages.003 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.003_hints",
+      "description": "math.ratios_percentages.003 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.003_explanation",
+      "description": "math.ratios_percentages.003 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.003_approved",
+      "description": "math.ratios_percentages.003 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.ratios_percentages.003_reviewers",
+      "description": "math.ratios_percentages.003 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.ratios_percentages.003_license",
+      "description": "math.ratios_percentages.003 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.ratios_percentages.003_skill_known",
+      "description": "math.ratios_percentages.003 target_skill known",
+      "passed": true,
+      "detail": "ratios_percentages"
+    },
+    {
+      "check": "item_math.ratios_percentages.003_hash",
+      "description": "math.ratios_percentages.003 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.003_no_prohibited_lineage",
+      "description": "math.ratios_percentages.003 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-1f526c2e0676b707', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.ratios_percentages.004_schema",
+      "description": "math.ratios_percentages.004 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.ratios_percentages.004_type",
+      "description": "math.ratios_percentages.004 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.ratios_percentages.004_four_choices",
+      "description": "math.ratios_percentages.004 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.ratios_percentages.004_unique_choices",
+      "description": "math.ratios_percentages.004 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.004_answer_valid",
+      "description": "math.ratios_percentages.004 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.ratios_percentages.004_difficulty",
+      "description": "math.ratios_percentages.004 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.ratios_percentages.004_prompt",
+      "description": "math.ratios_percentages.004 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.004_hints",
+      "description": "math.ratios_percentages.004 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.004_explanation",
+      "description": "math.ratios_percentages.004 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.004_approved",
+      "description": "math.ratios_percentages.004 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.ratios_percentages.004_reviewers",
+      "description": "math.ratios_percentages.004 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.ratios_percentages.004_license",
+      "description": "math.ratios_percentages.004 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.ratios_percentages.004_skill_known",
+      "description": "math.ratios_percentages.004 target_skill known",
+      "passed": true,
+      "detail": "ratios_percentages"
+    },
+    {
+      "check": "item_math.ratios_percentages.004_hash",
+      "description": "math.ratios_percentages.004 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.004_no_prohibited_lineage",
+      "description": "math.ratios_percentages.004 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-239e3693aacbcfea', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.ratios_percentages.005_schema",
+      "description": "math.ratios_percentages.005 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.ratios_percentages.005_type",
+      "description": "math.ratios_percentages.005 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.ratios_percentages.005_four_choices",
+      "description": "math.ratios_percentages.005 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.ratios_percentages.005_unique_choices",
+      "description": "math.ratios_percentages.005 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.005_answer_valid",
+      "description": "math.ratios_percentages.005 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.ratios_percentages.005_difficulty",
+      "description": "math.ratios_percentages.005 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.ratios_percentages.005_prompt",
+      "description": "math.ratios_percentages.005 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.005_hints",
+      "description": "math.ratios_percentages.005 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.005_explanation",
+      "description": "math.ratios_percentages.005 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.005_approved",
+      "description": "math.ratios_percentages.005 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.ratios_percentages.005_reviewers",
+      "description": "math.ratios_percentages.005 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.ratios_percentages.005_license",
+      "description": "math.ratios_percentages.005 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.ratios_percentages.005_skill_known",
+      "description": "math.ratios_percentages.005 target_skill known",
+      "passed": true,
+      "detail": "ratios_percentages"
+    },
+    {
+      "check": "item_math.ratios_percentages.005_hash",
+      "description": "math.ratios_percentages.005 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.005_no_prohibited_lineage",
+      "description": "math.ratios_percentages.005 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-47b6ddc31411b3a2', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.ratios_percentages.006_schema",
+      "description": "math.ratios_percentages.006 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.ratios_percentages.006_type",
+      "description": "math.ratios_percentages.006 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.ratios_percentages.006_four_choices",
+      "description": "math.ratios_percentages.006 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.ratios_percentages.006_unique_choices",
+      "description": "math.ratios_percentages.006 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.006_answer_valid",
+      "description": "math.ratios_percentages.006 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.ratios_percentages.006_difficulty",
+      "description": "math.ratios_percentages.006 difficulty in 1..3",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "check": "item_math.ratios_percentages.006_prompt",
+      "description": "math.ratios_percentages.006 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.006_hints",
+      "description": "math.ratios_percentages.006 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.006_explanation",
+      "description": "math.ratios_percentages.006 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.006_approved",
+      "description": "math.ratios_percentages.006 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.ratios_percentages.006_reviewers",
+      "description": "math.ratios_percentages.006 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.ratios_percentages.006_license",
+      "description": "math.ratios_percentages.006 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.ratios_percentages.006_skill_known",
+      "description": "math.ratios_percentages.006 target_skill known",
+      "passed": true,
+      "detail": "ratios_percentages"
+    },
+    {
+      "check": "item_math.ratios_percentages.006_hash",
+      "description": "math.ratios_percentages.006 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.006_no_prohibited_lineage",
+      "description": "math.ratios_percentages.006 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-4ded62aa76a94e59', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.ratios_percentages.007_schema",
+      "description": "math.ratios_percentages.007 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.ratios_percentages.007_type",
+      "description": "math.ratios_percentages.007 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.ratios_percentages.007_four_choices",
+      "description": "math.ratios_percentages.007 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.ratios_percentages.007_unique_choices",
+      "description": "math.ratios_percentages.007 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.007_answer_valid",
+      "description": "math.ratios_percentages.007 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.ratios_percentages.007_difficulty",
+      "description": "math.ratios_percentages.007 difficulty in 1..3",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "check": "item_math.ratios_percentages.007_prompt",
+      "description": "math.ratios_percentages.007 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.007_hints",
+      "description": "math.ratios_percentages.007 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.007_explanation",
+      "description": "math.ratios_percentages.007 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.007_approved",
+      "description": "math.ratios_percentages.007 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.ratios_percentages.007_reviewers",
+      "description": "math.ratios_percentages.007 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.ratios_percentages.007_license",
+      "description": "math.ratios_percentages.007 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.ratios_percentages.007_skill_known",
+      "description": "math.ratios_percentages.007 target_skill known",
+      "passed": true,
+      "detail": "ratios_percentages"
+    },
+    {
+      "check": "item_math.ratios_percentages.007_hash",
+      "description": "math.ratios_percentages.007 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.007_no_prohibited_lineage",
+      "description": "math.ratios_percentages.007 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-a2d0503d170747c9', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.ratios_percentages.008_schema",
+      "description": "math.ratios_percentages.008 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.ratios_percentages.008_type",
+      "description": "math.ratios_percentages.008 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.ratios_percentages.008_four_choices",
+      "description": "math.ratios_percentages.008 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.ratios_percentages.008_unique_choices",
+      "description": "math.ratios_percentages.008 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.008_answer_valid",
+      "description": "math.ratios_percentages.008 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.ratios_percentages.008_difficulty",
+      "description": "math.ratios_percentages.008 difficulty in 1..3",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "check": "item_math.ratios_percentages.008_prompt",
+      "description": "math.ratios_percentages.008 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.008_hints",
+      "description": "math.ratios_percentages.008 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.008_explanation",
+      "description": "math.ratios_percentages.008 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.008_approved",
+      "description": "math.ratios_percentages.008 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.ratios_percentages.008_reviewers",
+      "description": "math.ratios_percentages.008 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.ratios_percentages.008_license",
+      "description": "math.ratios_percentages.008 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.ratios_percentages.008_skill_known",
+      "description": "math.ratios_percentages.008 target_skill known",
+      "passed": true,
+      "detail": "ratios_percentages"
+    },
+    {
+      "check": "item_math.ratios_percentages.008_hash",
+      "description": "math.ratios_percentages.008 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.008_no_prohibited_lineage",
+      "description": "math.ratios_percentages.008 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-b04d7d7faa587244', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.ratios_percentages.009_schema",
+      "description": "math.ratios_percentages.009 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.ratios_percentages.009_type",
+      "description": "math.ratios_percentages.009 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.ratios_percentages.009_four_choices",
+      "description": "math.ratios_percentages.009 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.ratios_percentages.009_unique_choices",
+      "description": "math.ratios_percentages.009 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.009_answer_valid",
+      "description": "math.ratios_percentages.009 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.ratios_percentages.009_difficulty",
+      "description": "math.ratios_percentages.009 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.ratios_percentages.009_prompt",
+      "description": "math.ratios_percentages.009 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.009_hints",
+      "description": "math.ratios_percentages.009 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.009_explanation",
+      "description": "math.ratios_percentages.009 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.009_approved",
+      "description": "math.ratios_percentages.009 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.ratios_percentages.009_reviewers",
+      "description": "math.ratios_percentages.009 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.ratios_percentages.009_license",
+      "description": "math.ratios_percentages.009 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.ratios_percentages.009_skill_known",
+      "description": "math.ratios_percentages.009 target_skill known",
+      "passed": true,
+      "detail": "ratios_percentages"
+    },
+    {
+      "check": "item_math.ratios_percentages.009_hash",
+      "description": "math.ratios_percentages.009 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.009_no_prohibited_lineage",
+      "description": "math.ratios_percentages.009 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-b1dc8a25bb35dd07', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.ratios_percentages.010_schema",
+      "description": "math.ratios_percentages.010 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.ratios_percentages.010_type",
+      "description": "math.ratios_percentages.010 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.ratios_percentages.010_four_choices",
+      "description": "math.ratios_percentages.010 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.ratios_percentages.010_unique_choices",
+      "description": "math.ratios_percentages.010 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.010_answer_valid",
+      "description": "math.ratios_percentages.010 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.ratios_percentages.010_difficulty",
+      "description": "math.ratios_percentages.010 difficulty in 1..3",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "check": "item_math.ratios_percentages.010_prompt",
+      "description": "math.ratios_percentages.010 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.010_hints",
+      "description": "math.ratios_percentages.010 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.010_explanation",
+      "description": "math.ratios_percentages.010 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.010_approved",
+      "description": "math.ratios_percentages.010 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.ratios_percentages.010_reviewers",
+      "description": "math.ratios_percentages.010 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.ratios_percentages.010_license",
+      "description": "math.ratios_percentages.010 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.ratios_percentages.010_skill_known",
+      "description": "math.ratios_percentages.010 target_skill known",
+      "passed": true,
+      "detail": "ratios_percentages"
+    },
+    {
+      "check": "item_math.ratios_percentages.010_hash",
+      "description": "math.ratios_percentages.010 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.010_no_prohibited_lineage",
+      "description": "math.ratios_percentages.010 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-b83fa80efdb0aab7', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.ratios_percentages.011_schema",
+      "description": "math.ratios_percentages.011 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.ratios_percentages.011_type",
+      "description": "math.ratios_percentages.011 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.ratios_percentages.011_four_choices",
+      "description": "math.ratios_percentages.011 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.ratios_percentages.011_unique_choices",
+      "description": "math.ratios_percentages.011 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.011_answer_valid",
+      "description": "math.ratios_percentages.011 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.ratios_percentages.011_difficulty",
+      "description": "math.ratios_percentages.011 difficulty in 1..3",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "check": "item_math.ratios_percentages.011_prompt",
+      "description": "math.ratios_percentages.011 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.011_hints",
+      "description": "math.ratios_percentages.011 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.011_explanation",
+      "description": "math.ratios_percentages.011 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.011_approved",
+      "description": "math.ratios_percentages.011 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.ratios_percentages.011_reviewers",
+      "description": "math.ratios_percentages.011 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.ratios_percentages.011_license",
+      "description": "math.ratios_percentages.011 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.ratios_percentages.011_skill_known",
+      "description": "math.ratios_percentages.011 target_skill known",
+      "passed": true,
+      "detail": "ratios_percentages"
+    },
+    {
+      "check": "item_math.ratios_percentages.011_hash",
+      "description": "math.ratios_percentages.011 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.011_no_prohibited_lineage",
+      "description": "math.ratios_percentages.011 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-bffe3753bb088a8c', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.ratios_percentages.012_schema",
+      "description": "math.ratios_percentages.012 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.ratios_percentages.012_type",
+      "description": "math.ratios_percentages.012 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.ratios_percentages.012_four_choices",
+      "description": "math.ratios_percentages.012 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.ratios_percentages.012_unique_choices",
+      "description": "math.ratios_percentages.012 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.012_answer_valid",
+      "description": "math.ratios_percentages.012 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.ratios_percentages.012_difficulty",
+      "description": "math.ratios_percentages.012 difficulty in 1..3",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "check": "item_math.ratios_percentages.012_prompt",
+      "description": "math.ratios_percentages.012 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.012_hints",
+      "description": "math.ratios_percentages.012 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.012_explanation",
+      "description": "math.ratios_percentages.012 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.012_approved",
+      "description": "math.ratios_percentages.012 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.ratios_percentages.012_reviewers",
+      "description": "math.ratios_percentages.012 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.ratios_percentages.012_license",
+      "description": "math.ratios_percentages.012 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.ratios_percentages.012_skill_known",
+      "description": "math.ratios_percentages.012 target_skill known",
+      "passed": true,
+      "detail": "ratios_percentages"
+    },
+    {
+      "check": "item_math.ratios_percentages.012_hash",
+      "description": "math.ratios_percentages.012 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.012_no_prohibited_lineage",
+      "description": "math.ratios_percentages.012 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-d5d300f0fa20e0cc', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.ratios_percentages.013_schema",
+      "description": "math.ratios_percentages.013 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.ratios_percentages.013_type",
+      "description": "math.ratios_percentages.013 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.ratios_percentages.013_four_choices",
+      "description": "math.ratios_percentages.013 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.ratios_percentages.013_unique_choices",
+      "description": "math.ratios_percentages.013 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.013_answer_valid",
+      "description": "math.ratios_percentages.013 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.ratios_percentages.013_difficulty",
+      "description": "math.ratios_percentages.013 difficulty in 1..3",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "check": "item_math.ratios_percentages.013_prompt",
+      "description": "math.ratios_percentages.013 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.013_hints",
+      "description": "math.ratios_percentages.013 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.013_explanation",
+      "description": "math.ratios_percentages.013 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.013_approved",
+      "description": "math.ratios_percentages.013 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.ratios_percentages.013_reviewers",
+      "description": "math.ratios_percentages.013 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.ratios_percentages.013_license",
+      "description": "math.ratios_percentages.013 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.ratios_percentages.013_skill_known",
+      "description": "math.ratios_percentages.013 target_skill known",
+      "passed": true,
+      "detail": "ratios_percentages"
+    },
+    {
+      "check": "item_math.ratios_percentages.013_hash",
+      "description": "math.ratios_percentages.013 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.ratios_percentages.013_no_prohibited_lineage",
+      "description": "math.ratios_percentages.013 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-dc0fd616c7f56053', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.functions_models.001_schema",
+      "description": "math.functions_models.001 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.functions_models.001_type",
+      "description": "math.functions_models.001 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.functions_models.001_four_choices",
+      "description": "math.functions_models.001 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.functions_models.001_unique_choices",
+      "description": "math.functions_models.001 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.001_answer_valid",
+      "description": "math.functions_models.001 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.functions_models.001_difficulty",
+      "description": "math.functions_models.001 difficulty in 1..3",
+      "passed": true,
+      "detail": "3"
+    },
+    {
+      "check": "item_math.functions_models.001_prompt",
+      "description": "math.functions_models.001 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.001_hints",
+      "description": "math.functions_models.001 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.001_explanation",
+      "description": "math.functions_models.001 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.001_approved",
+      "description": "math.functions_models.001 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.functions_models.001_reviewers",
+      "description": "math.functions_models.001 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.functions_models.001_license",
+      "description": "math.functions_models.001 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.functions_models.001_skill_known",
+      "description": "math.functions_models.001 target_skill known",
+      "passed": true,
+      "detail": "functions_models"
+    },
+    {
+      "check": "item_math.functions_models.001_hash",
+      "description": "math.functions_models.001 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.001_no_prohibited_lineage",
+      "description": "math.functions_models.001 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-09b278a7417942c4', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.functions_models.002_schema",
+      "description": "math.functions_models.002 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.functions_models.002_type",
+      "description": "math.functions_models.002 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.functions_models.002_four_choices",
+      "description": "math.functions_models.002 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.functions_models.002_unique_choices",
+      "description": "math.functions_models.002 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.002_answer_valid",
+      "description": "math.functions_models.002 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.functions_models.002_difficulty",
+      "description": "math.functions_models.002 difficulty in 1..3",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "check": "item_math.functions_models.002_prompt",
+      "description": "math.functions_models.002 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.002_hints",
+      "description": "math.functions_models.002 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.002_explanation",
+      "description": "math.functions_models.002 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.002_approved",
+      "description": "math.functions_models.002 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.functions_models.002_reviewers",
+      "description": "math.functions_models.002 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.functions_models.002_license",
+      "description": "math.functions_models.002 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.functions_models.002_skill_known",
+      "description": "math.functions_models.002 target_skill known",
+      "passed": true,
+      "detail": "functions_models"
+    },
+    {
+      "check": "item_math.functions_models.002_hash",
+      "description": "math.functions_models.002 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.002_no_prohibited_lineage",
+      "description": "math.functions_models.002 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-178efba72a76985b', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.functions_models.003_schema",
+      "description": "math.functions_models.003 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.functions_models.003_type",
+      "description": "math.functions_models.003 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.functions_models.003_four_choices",
+      "description": "math.functions_models.003 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.functions_models.003_unique_choices",
+      "description": "math.functions_models.003 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.003_answer_valid",
+      "description": "math.functions_models.003 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.functions_models.003_difficulty",
+      "description": "math.functions_models.003 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.functions_models.003_prompt",
+      "description": "math.functions_models.003 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.003_hints",
+      "description": "math.functions_models.003 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.003_explanation",
+      "description": "math.functions_models.003 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.003_approved",
+      "description": "math.functions_models.003 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.functions_models.003_reviewers",
+      "description": "math.functions_models.003 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.functions_models.003_license",
+      "description": "math.functions_models.003 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.functions_models.003_skill_known",
+      "description": "math.functions_models.003 target_skill known",
+      "passed": true,
+      "detail": "functions_models"
+    },
+    {
+      "check": "item_math.functions_models.003_hash",
+      "description": "math.functions_models.003 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.003_no_prohibited_lineage",
+      "description": "math.functions_models.003 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-1f6e13a2ba960f87', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.functions_models.004_schema",
+      "description": "math.functions_models.004 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.functions_models.004_type",
+      "description": "math.functions_models.004 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.functions_models.004_four_choices",
+      "description": "math.functions_models.004 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.functions_models.004_unique_choices",
+      "description": "math.functions_models.004 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.004_answer_valid",
+      "description": "math.functions_models.004 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.functions_models.004_difficulty",
+      "description": "math.functions_models.004 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.functions_models.004_prompt",
+      "description": "math.functions_models.004 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.004_hints",
+      "description": "math.functions_models.004 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.004_explanation",
+      "description": "math.functions_models.004 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.004_approved",
+      "description": "math.functions_models.004 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.functions_models.004_reviewers",
+      "description": "math.functions_models.004 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.functions_models.004_license",
+      "description": "math.functions_models.004 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.functions_models.004_skill_known",
+      "description": "math.functions_models.004 target_skill known",
+      "passed": true,
+      "detail": "functions_models"
+    },
+    {
+      "check": "item_math.functions_models.004_hash",
+      "description": "math.functions_models.004 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.004_no_prohibited_lineage",
+      "description": "math.functions_models.004 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-33fecd4175d1bf38', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.functions_models.005_schema",
+      "description": "math.functions_models.005 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.functions_models.005_type",
+      "description": "math.functions_models.005 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.functions_models.005_four_choices",
+      "description": "math.functions_models.005 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.functions_models.005_unique_choices",
+      "description": "math.functions_models.005 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.005_answer_valid",
+      "description": "math.functions_models.005 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.functions_models.005_difficulty",
+      "description": "math.functions_models.005 difficulty in 1..3",
+      "passed": true,
+      "detail": "3"
+    },
+    {
+      "check": "item_math.functions_models.005_prompt",
+      "description": "math.functions_models.005 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.005_hints",
+      "description": "math.functions_models.005 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.005_explanation",
+      "description": "math.functions_models.005 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.005_approved",
+      "description": "math.functions_models.005 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.functions_models.005_reviewers",
+      "description": "math.functions_models.005 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.functions_models.005_license",
+      "description": "math.functions_models.005 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.functions_models.005_skill_known",
+      "description": "math.functions_models.005 target_skill known",
+      "passed": true,
+      "detail": "functions_models"
+    },
+    {
+      "check": "item_math.functions_models.005_hash",
+      "description": "math.functions_models.005 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.005_no_prohibited_lineage",
+      "description": "math.functions_models.005 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-3976c4d4a62b250f', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.functions_models.006_schema",
+      "description": "math.functions_models.006 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.functions_models.006_type",
+      "description": "math.functions_models.006 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.functions_models.006_four_choices",
+      "description": "math.functions_models.006 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.functions_models.006_unique_choices",
+      "description": "math.functions_models.006 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.006_answer_valid",
+      "description": "math.functions_models.006 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.functions_models.006_difficulty",
+      "description": "math.functions_models.006 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.functions_models.006_prompt",
+      "description": "math.functions_models.006 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.006_hints",
+      "description": "math.functions_models.006 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.006_explanation",
+      "description": "math.functions_models.006 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.006_approved",
+      "description": "math.functions_models.006 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.functions_models.006_reviewers",
+      "description": "math.functions_models.006 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.functions_models.006_license",
+      "description": "math.functions_models.006 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.functions_models.006_skill_known",
+      "description": "math.functions_models.006 target_skill known",
+      "passed": true,
+      "detail": "functions_models"
+    },
+    {
+      "check": "item_math.functions_models.006_hash",
+      "description": "math.functions_models.006 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.006_no_prohibited_lineage",
+      "description": "math.functions_models.006 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-3be6d3d4b12ca739', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.functions_models.007_schema",
+      "description": "math.functions_models.007 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.functions_models.007_type",
+      "description": "math.functions_models.007 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.functions_models.007_four_choices",
+      "description": "math.functions_models.007 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.functions_models.007_unique_choices",
+      "description": "math.functions_models.007 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.007_answer_valid",
+      "description": "math.functions_models.007 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.functions_models.007_difficulty",
+      "description": "math.functions_models.007 difficulty in 1..3",
+      "passed": true,
+      "detail": "3"
+    },
+    {
+      "check": "item_math.functions_models.007_prompt",
+      "description": "math.functions_models.007 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.007_hints",
+      "description": "math.functions_models.007 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.007_explanation",
+      "description": "math.functions_models.007 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.007_approved",
+      "description": "math.functions_models.007 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.functions_models.007_reviewers",
+      "description": "math.functions_models.007 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.functions_models.007_license",
+      "description": "math.functions_models.007 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.functions_models.007_skill_known",
+      "description": "math.functions_models.007 target_skill known",
+      "passed": true,
+      "detail": "functions_models"
+    },
+    {
+      "check": "item_math.functions_models.007_hash",
+      "description": "math.functions_models.007 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.007_no_prohibited_lineage",
+      "description": "math.functions_models.007 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-48929b5da5d137e2', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.functions_models.008_schema",
+      "description": "math.functions_models.008 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.functions_models.008_type",
+      "description": "math.functions_models.008 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.functions_models.008_four_choices",
+      "description": "math.functions_models.008 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.functions_models.008_unique_choices",
+      "description": "math.functions_models.008 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.008_answer_valid",
+      "description": "math.functions_models.008 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.functions_models.008_difficulty",
+      "description": "math.functions_models.008 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.functions_models.008_prompt",
+      "description": "math.functions_models.008 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.008_hints",
+      "description": "math.functions_models.008 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.008_explanation",
+      "description": "math.functions_models.008 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.008_approved",
+      "description": "math.functions_models.008 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.functions_models.008_reviewers",
+      "description": "math.functions_models.008 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.functions_models.008_license",
+      "description": "math.functions_models.008 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.functions_models.008_skill_known",
+      "description": "math.functions_models.008 target_skill known",
+      "passed": true,
+      "detail": "functions_models"
+    },
+    {
+      "check": "item_math.functions_models.008_hash",
+      "description": "math.functions_models.008 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.008_no_prohibited_lineage",
+      "description": "math.functions_models.008 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-4ddd6eba73a6460c', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.functions_models.009_schema",
+      "description": "math.functions_models.009 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.functions_models.009_type",
+      "description": "math.functions_models.009 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.functions_models.009_four_choices",
+      "description": "math.functions_models.009 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.functions_models.009_unique_choices",
+      "description": "math.functions_models.009 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.009_answer_valid",
+      "description": "math.functions_models.009 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.functions_models.009_difficulty",
+      "description": "math.functions_models.009 difficulty in 1..3",
+      "passed": true,
+      "detail": "3"
+    },
+    {
+      "check": "item_math.functions_models.009_prompt",
+      "description": "math.functions_models.009 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.009_hints",
+      "description": "math.functions_models.009 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.009_explanation",
+      "description": "math.functions_models.009 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.009_approved",
+      "description": "math.functions_models.009 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.functions_models.009_reviewers",
+      "description": "math.functions_models.009 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.functions_models.009_license",
+      "description": "math.functions_models.009 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.functions_models.009_skill_known",
+      "description": "math.functions_models.009 target_skill known",
+      "passed": true,
+      "detail": "functions_models"
+    },
+    {
+      "check": "item_math.functions_models.009_hash",
+      "description": "math.functions_models.009 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.009_no_prohibited_lineage",
+      "description": "math.functions_models.009 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-7c610b1eb13e585a', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.functions_models.010_schema",
+      "description": "math.functions_models.010 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.functions_models.010_type",
+      "description": "math.functions_models.010 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.functions_models.010_four_choices",
+      "description": "math.functions_models.010 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.functions_models.010_unique_choices",
+      "description": "math.functions_models.010 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.010_answer_valid",
+      "description": "math.functions_models.010 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.functions_models.010_difficulty",
+      "description": "math.functions_models.010 difficulty in 1..3",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "check": "item_math.functions_models.010_prompt",
+      "description": "math.functions_models.010 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.010_hints",
+      "description": "math.functions_models.010 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.010_explanation",
+      "description": "math.functions_models.010 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.010_approved",
+      "description": "math.functions_models.010 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.functions_models.010_reviewers",
+      "description": "math.functions_models.010 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.functions_models.010_license",
+      "description": "math.functions_models.010 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.functions_models.010_skill_known",
+      "description": "math.functions_models.010 target_skill known",
+      "passed": true,
+      "detail": "functions_models"
+    },
+    {
+      "check": "item_math.functions_models.010_hash",
+      "description": "math.functions_models.010 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.010_no_prohibited_lineage",
+      "description": "math.functions_models.010 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-8bde45d25a99e138', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.functions_models.011_schema",
+      "description": "math.functions_models.011 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.functions_models.011_type",
+      "description": "math.functions_models.011 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.functions_models.011_four_choices",
+      "description": "math.functions_models.011 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.functions_models.011_unique_choices",
+      "description": "math.functions_models.011 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.011_answer_valid",
+      "description": "math.functions_models.011 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.functions_models.011_difficulty",
+      "description": "math.functions_models.011 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.functions_models.011_prompt",
+      "description": "math.functions_models.011 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.011_hints",
+      "description": "math.functions_models.011 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.011_explanation",
+      "description": "math.functions_models.011 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.011_approved",
+      "description": "math.functions_models.011 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.functions_models.011_reviewers",
+      "description": "math.functions_models.011 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.functions_models.011_license",
+      "description": "math.functions_models.011 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.functions_models.011_skill_known",
+      "description": "math.functions_models.011 target_skill known",
+      "passed": true,
+      "detail": "functions_models"
+    },
+    {
+      "check": "item_math.functions_models.011_hash",
+      "description": "math.functions_models.011 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.011_no_prohibited_lineage",
+      "description": "math.functions_models.011 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-918fcb546fe95179', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.functions_models.012_schema",
+      "description": "math.functions_models.012 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.functions_models.012_type",
+      "description": "math.functions_models.012 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.functions_models.012_four_choices",
+      "description": "math.functions_models.012 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.functions_models.012_unique_choices",
+      "description": "math.functions_models.012 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.012_answer_valid",
+      "description": "math.functions_models.012 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.functions_models.012_difficulty",
+      "description": "math.functions_models.012 difficulty in 1..3",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "check": "item_math.functions_models.012_prompt",
+      "description": "math.functions_models.012 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.012_hints",
+      "description": "math.functions_models.012 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.012_explanation",
+      "description": "math.functions_models.012 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.012_approved",
+      "description": "math.functions_models.012 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.functions_models.012_reviewers",
+      "description": "math.functions_models.012 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.functions_models.012_license",
+      "description": "math.functions_models.012 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.functions_models.012_skill_known",
+      "description": "math.functions_models.012 target_skill known",
+      "passed": true,
+      "detail": "functions_models"
+    },
+    {
+      "check": "item_math.functions_models.012_hash",
+      "description": "math.functions_models.012 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.012_no_prohibited_lineage",
+      "description": "math.functions_models.012 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-9a6be8e0e90aa37b', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.functions_models.013_schema",
+      "description": "math.functions_models.013 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.functions_models.013_type",
+      "description": "math.functions_models.013 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.functions_models.013_four_choices",
+      "description": "math.functions_models.013 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.functions_models.013_unique_choices",
+      "description": "math.functions_models.013 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.013_answer_valid",
+      "description": "math.functions_models.013 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.functions_models.013_difficulty",
+      "description": "math.functions_models.013 difficulty in 1..3",
+      "passed": true,
+      "detail": "3"
+    },
+    {
+      "check": "item_math.functions_models.013_prompt",
+      "description": "math.functions_models.013 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.013_hints",
+      "description": "math.functions_models.013 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.013_explanation",
+      "description": "math.functions_models.013 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.013_approved",
+      "description": "math.functions_models.013 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.functions_models.013_reviewers",
+      "description": "math.functions_models.013 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.functions_models.013_license",
+      "description": "math.functions_models.013 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.functions_models.013_skill_known",
+      "description": "math.functions_models.013 target_skill known",
+      "passed": true,
+      "detail": "functions_models"
+    },
+    {
+      "check": "item_math.functions_models.013_hash",
+      "description": "math.functions_models.013 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.013_no_prohibited_lineage",
+      "description": "math.functions_models.013 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-b45c4d3fd9798dbb', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.functions_models.014_schema",
+      "description": "math.functions_models.014 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.functions_models.014_type",
+      "description": "math.functions_models.014 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.functions_models.014_four_choices",
+      "description": "math.functions_models.014 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.functions_models.014_unique_choices",
+      "description": "math.functions_models.014 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.014_answer_valid",
+      "description": "math.functions_models.014 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.functions_models.014_difficulty",
+      "description": "math.functions_models.014 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.functions_models.014_prompt",
+      "description": "math.functions_models.014 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.014_hints",
+      "description": "math.functions_models.014 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.014_explanation",
+      "description": "math.functions_models.014 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.014_approved",
+      "description": "math.functions_models.014 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.functions_models.014_reviewers",
+      "description": "math.functions_models.014 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.functions_models.014_license",
+      "description": "math.functions_models.014 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.functions_models.014_skill_known",
+      "description": "math.functions_models.014 target_skill known",
+      "passed": true,
+      "detail": "functions_models"
+    },
+    {
+      "check": "item_math.functions_models.014_hash",
+      "description": "math.functions_models.014 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.014_no_prohibited_lineage",
+      "description": "math.functions_models.014 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-d522384246cfbbe5', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.functions_models.015_schema",
+      "description": "math.functions_models.015 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.functions_models.015_type",
+      "description": "math.functions_models.015 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.functions_models.015_four_choices",
+      "description": "math.functions_models.015 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.functions_models.015_unique_choices",
+      "description": "math.functions_models.015 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.015_answer_valid",
+      "description": "math.functions_models.015 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.functions_models.015_difficulty",
+      "description": "math.functions_models.015 difficulty in 1..3",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "check": "item_math.functions_models.015_prompt",
+      "description": "math.functions_models.015 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.015_hints",
+      "description": "math.functions_models.015 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.015_explanation",
+      "description": "math.functions_models.015 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.015_approved",
+      "description": "math.functions_models.015 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.functions_models.015_reviewers",
+      "description": "math.functions_models.015 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.functions_models.015_license",
+      "description": "math.functions_models.015 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.functions_models.015_skill_known",
+      "description": "math.functions_models.015 target_skill known",
+      "passed": true,
+      "detail": "functions_models"
+    },
+    {
+      "check": "item_math.functions_models.015_hash",
+      "description": "math.functions_models.015 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.015_no_prohibited_lineage",
+      "description": "math.functions_models.015 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-f2467a7dd3730089', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.functions_models.016_schema",
+      "description": "math.functions_models.016 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.functions_models.016_type",
+      "description": "math.functions_models.016 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.functions_models.016_four_choices",
+      "description": "math.functions_models.016 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.functions_models.016_unique_choices",
+      "description": "math.functions_models.016 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.016_answer_valid",
+      "description": "math.functions_models.016 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.functions_models.016_difficulty",
+      "description": "math.functions_models.016 difficulty in 1..3",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "check": "item_math.functions_models.016_prompt",
+      "description": "math.functions_models.016 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.016_hints",
+      "description": "math.functions_models.016 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.016_explanation",
+      "description": "math.functions_models.016 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.016_approved",
+      "description": "math.functions_models.016 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.functions_models.016_reviewers",
+      "description": "math.functions_models.016 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.functions_models.016_license",
+      "description": "math.functions_models.016 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.functions_models.016_skill_known",
+      "description": "math.functions_models.016 target_skill known",
+      "passed": true,
+      "detail": "functions_models"
+    },
+    {
+      "check": "item_math.functions_models.016_hash",
+      "description": "math.functions_models.016 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.016_no_prohibited_lineage",
+      "description": "math.functions_models.016 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-f40b054572e2d6d2', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.functions_models.017_schema",
+      "description": "math.functions_models.017 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.functions_models.017_type",
+      "description": "math.functions_models.017 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.functions_models.017_four_choices",
+      "description": "math.functions_models.017 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.functions_models.017_unique_choices",
+      "description": "math.functions_models.017 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.017_answer_valid",
+      "description": "math.functions_models.017 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.functions_models.017_difficulty",
+      "description": "math.functions_models.017 difficulty in 1..3",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "check": "item_math.functions_models.017_prompt",
+      "description": "math.functions_models.017 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.017_hints",
+      "description": "math.functions_models.017 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.017_explanation",
+      "description": "math.functions_models.017 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.017_approved",
+      "description": "math.functions_models.017 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.functions_models.017_reviewers",
+      "description": "math.functions_models.017 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.functions_models.017_license",
+      "description": "math.functions_models.017 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.functions_models.017_skill_known",
+      "description": "math.functions_models.017 target_skill known",
+      "passed": true,
+      "detail": "functions_models"
+    },
+    {
+      "check": "item_math.functions_models.017_hash",
+      "description": "math.functions_models.017 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.017_no_prohibited_lineage",
+      "description": "math.functions_models.017 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-f785b056eadb0d94', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "item_math.functions_models.018_schema",
+      "description": "math.functions_models.018 schema v1",
+      "passed": true,
+      "detail": "v1"
+    },
+    {
+      "check": "item_math.functions_models.018_type",
+      "description": "math.functions_models.018 is a question",
+      "passed": true,
+      "detail": "question"
+    },
+    {
+      "check": "item_math.functions_models.018_four_choices",
+      "description": "math.functions_models.018 has exactly 4 choices",
+      "passed": true,
+      "detail": "4"
+    },
+    {
+      "check": "item_math.functions_models.018_unique_choices",
+      "description": "math.functions_models.018 choice ids unique",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.018_answer_valid",
+      "description": "math.functions_models.018 answer is a choice",
+      "passed": true,
+      "detail": "A"
+    },
+    {
+      "check": "item_math.functions_models.018_difficulty",
+      "description": "math.functions_models.018 difficulty in 1..3",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "check": "item_math.functions_models.018_prompt",
+      "description": "math.functions_models.018 has a prompt",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.018_hints",
+      "description": "math.functions_models.018 hints levels 1-3",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.018_explanation",
+      "description": "math.functions_models.018 has worked_explanation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.018_approved",
+      "description": "math.functions_models.018 review_status approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "item_math.functions_models.018_reviewers",
+      "description": "math.functions_models.018 has reviewer names",
+      "passed": true,
+      "detail": "{'accessibility': 'sim.a11y.rev-20260807', 'answer': 'sim.ans.rev-20260807', 'ed"
+    },
+    {
+      "check": "item_math.functions_models.018_license",
+      "description": "math.functions_models.018 has a license",
+      "passed": true,
+      "detail": "{'id': 'bridgesat_original', 'independent_answer_verification': True, 'name': 'BridgeSAT original content', 'recorded_authorship': 'ai_assisted_bridgesat'}"
+    },
+    {
+      "check": "item_math.functions_models.018_skill_known",
+      "description": "math.functions_models.018 target_skill known",
+      "passed": true,
+      "detail": "functions_models"
+    },
+    {
+      "check": "item_math.functions_models.018_hash",
+      "description": "math.functions_models.018 canonical content_hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "item_math.functions_models.018_no_prohibited_lineage",
+      "description": "math.functions_models.018 no prohibited lineage",
+      "passed": true,
+      "detail": "{'lineage_id': 'deepmind-fccc04fce1291ced', 'role': 'concept_source_only', 'sour"
+    },
+    {
+      "check": "items_unique_answers",
+      "description": "no duplicated answer text across a skill",
+      "passed": true,
+      "detail": "{}"
+    },
+    {
+      "check": "items_no_identical_bodies",
+      "description": "no byte-identical question bodies",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lessons_counts",
+      "description": "8 micro_lessons + 8 worked_examples",
+      "passed": true,
+      "detail": {
+        "micro_lesson": 8,
+        "worked_example": 8
+      }
+    },
+    {
+      "check": "lessons_unique_ids",
+      "description": "lesson ids distinct",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lessons_no_identical",
+      "description": "no byte-identical lesson bodies",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lesson_math.functions_models.micro_lesson.001_subskill",
+      "description": "math.functions_models.micro_lesson.001 has target_subskill",
+      "passed": true,
+      "detail": "algebraic_models"
+    },
+    {
+      "check": "lesson_math.functions_models.micro_lesson.001_hash",
+      "description": "math.functions_models.micro_lesson.001 canonical hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lesson_math.functions_models.micro_lesson.001_approved",
+      "description": "math.functions_models.micro_lesson.001 approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "lesson_math.functions_models.micro_lesson.002_subskill",
+      "description": "math.functions_models.micro_lesson.002 has target_subskill",
+      "passed": true,
+      "detail": "function_evaluation"
+    },
+    {
+      "check": "lesson_math.functions_models.micro_lesson.002_hash",
+      "description": "math.functions_models.micro_lesson.002 canonical hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lesson_math.functions_models.micro_lesson.002_approved",
+      "description": "math.functions_models.micro_lesson.002 approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "lesson_math.functions_models.worked_example.001_subskill",
+      "description": "math.functions_models.worked_example.001 has target_subskill",
+      "passed": true,
+      "detail": "function_evaluation"
+    },
+    {
+      "check": "lesson_math.functions_models.worked_example.001_hash",
+      "description": "math.functions_models.worked_example.001 canonical hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lesson_math.functions_models.worked_example.001_approved",
+      "description": "math.functions_models.worked_example.001 approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "lesson_math.functions_models.worked_example.002_subskill",
+      "description": "math.functions_models.worked_example.002 has target_subskill",
+      "passed": true,
+      "detail": "function_evaluation"
+    },
+    {
+      "check": "lesson_math.functions_models.worked_example.002_hash",
+      "description": "math.functions_models.worked_example.002 canonical hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lesson_math.functions_models.worked_example.002_approved",
+      "description": "math.functions_models.worked_example.002 approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "lesson_math.linear_equations.micro_lesson.001_subskill",
+      "description": "math.linear_equations.micro_lesson.001 has target_subskill",
+      "passed": true,
+      "detail": "isolate_variables"
+    },
+    {
+      "check": "lesson_math.linear_equations.micro_lesson.001_hash",
+      "description": "math.linear_equations.micro_lesson.001 canonical hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lesson_math.linear_equations.micro_lesson.001_approved",
+      "description": "math.linear_equations.micro_lesson.001 approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "lesson_math.linear_equations.micro_lesson.002_subskill",
+      "description": "math.linear_equations.micro_lesson.002 has target_subskill",
+      "passed": true,
+      "detail": "isolate_variables"
+    },
+    {
+      "check": "lesson_math.linear_equations.micro_lesson.002_hash",
+      "description": "math.linear_equations.micro_lesson.002 canonical hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lesson_math.linear_equations.micro_lesson.002_approved",
+      "description": "math.linear_equations.micro_lesson.002 approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "lesson_math.linear_equations.worked_example.001_subskill",
+      "description": "math.linear_equations.worked_example.001 has target_subskill",
+      "passed": true,
+      "detail": "isolate_variables"
+    },
+    {
+      "check": "lesson_math.linear_equations.worked_example.001_hash",
+      "description": "math.linear_equations.worked_example.001 canonical hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lesson_math.linear_equations.worked_example.001_approved",
+      "description": "math.linear_equations.worked_example.001 approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "lesson_math.linear_equations.worked_example.002_subskill",
+      "description": "math.linear_equations.worked_example.002 has target_subskill",
+      "passed": true,
+      "detail": "isolate_variables"
+    },
+    {
+      "check": "lesson_math.linear_equations.worked_example.002_hash",
+      "description": "math.linear_equations.worked_example.002 canonical hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lesson_math.linear_equations.worked_example.002_approved",
+      "description": "math.linear_equations.worked_example.002 approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "lesson_math.ratios_percentages.micro_lesson.001_subskill",
+      "description": "math.ratios_percentages.micro_lesson.001 has target_subskill",
+      "passed": true,
+      "detail": "unit_rates"
+    },
+    {
+      "check": "lesson_math.ratios_percentages.micro_lesson.001_hash",
+      "description": "math.ratios_percentages.micro_lesson.001 canonical hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lesson_math.ratios_percentages.micro_lesson.001_approved",
+      "description": "math.ratios_percentages.micro_lesson.001 approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "lesson_math.ratios_percentages.micro_lesson.002_subskill",
+      "description": "math.ratios_percentages.micro_lesson.002 has target_subskill",
+      "passed": true,
+      "detail": "unit_rates"
+    },
+    {
+      "check": "lesson_math.ratios_percentages.micro_lesson.002_hash",
+      "description": "math.ratios_percentages.micro_lesson.002 canonical hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lesson_math.ratios_percentages.micro_lesson.002_approved",
+      "description": "math.ratios_percentages.micro_lesson.002 approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "lesson_math.ratios_percentages.worked_example.001_subskill",
+      "description": "math.ratios_percentages.worked_example.001 has target_subskill",
+      "passed": true,
+      "detail": "unit_rates"
+    },
+    {
+      "check": "lesson_math.ratios_percentages.worked_example.001_hash",
+      "description": "math.ratios_percentages.worked_example.001 canonical hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lesson_math.ratios_percentages.worked_example.001_approved",
+      "description": "math.ratios_percentages.worked_example.001 approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "lesson_math.ratios_percentages.worked_example.002_subskill",
+      "description": "math.ratios_percentages.worked_example.002 has target_subskill",
+      "passed": true,
+      "detail": "unit_rates"
+    },
+    {
+      "check": "lesson_math.ratios_percentages.worked_example.002_hash",
+      "description": "math.ratios_percentages.worked_example.002 canonical hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lesson_math.ratios_percentages.worked_example.002_approved",
+      "description": "math.ratios_percentages.worked_example.002 approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "lesson_math.systems_equations.micro_lesson.001_subskill",
+      "description": "math.systems_equations.micro_lesson.001 has target_subskill",
+      "passed": true,
+      "detail": "solve_systems"
+    },
+    {
+      "check": "lesson_math.systems_equations.micro_lesson.001_hash",
+      "description": "math.systems_equations.micro_lesson.001 canonical hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lesson_math.systems_equations.micro_lesson.001_approved",
+      "description": "math.systems_equations.micro_lesson.001 approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "lesson_math.systems_equations.micro_lesson.002_subskill",
+      "description": "math.systems_equations.micro_lesson.002 has target_subskill",
+      "passed": true,
+      "detail": "solve_systems"
+    },
+    {
+      "check": "lesson_math.systems_equations.micro_lesson.002_hash",
+      "description": "math.systems_equations.micro_lesson.002 canonical hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lesson_math.systems_equations.micro_lesson.002_approved",
+      "description": "math.systems_equations.micro_lesson.002 approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "lesson_math.systems_equations.worked_example.001_subskill",
+      "description": "math.systems_equations.worked_example.001 has target_subskill",
+      "passed": true,
+      "detail": "solve_systems"
+    },
+    {
+      "check": "lesson_math.systems_equations.worked_example.001_hash",
+      "description": "math.systems_equations.worked_example.001 canonical hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lesson_math.systems_equations.worked_example.001_approved",
+      "description": "math.systems_equations.worked_example.001 approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "lesson_math.systems_equations.worked_example.002_subskill",
+      "description": "math.systems_equations.worked_example.002 has target_subskill",
+      "passed": true,
+      "detail": "solve_systems"
+    },
+    {
+      "check": "lesson_math.systems_equations.worked_example.002_hash",
+      "description": "math.systems_equations.worked_example.002 canonical hash matches",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "lesson_math.systems_equations.worked_example.002_approved",
+      "description": "math.systems_equations.worked_example.002 approved",
+      "passed": true,
+      "detail": "approved"
+    },
+    {
+      "check": "sources_restricted_audit",
+      "description": "restricted-source audit passes",
+      "passed": true,
+      "detail": "no restricted source acquisition or crawler enabled"
+    },
+    {
+      "check": "sources_no_prohibited_lineage",
+      "description": "no item carries prohibited-source lineage",
+      "passed": true,
+      "detail": ""
+    }
+  ]
+}

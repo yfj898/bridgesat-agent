@@ -12,8 +12,10 @@ from app.domain.memory import (
     InterventionStat,
     MemoryFact,
 )
+from app.infrastructure.database import connect, transaction
 
 from .episode_builder import utc_now_iso
+from .outbox import OutboxRepository
 
 FACT_CATEGORY_MISCONCEPTION_INTERVENTION = "misconception_intervention"
 
@@ -24,6 +26,7 @@ class SQLiteMemory:
 
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
+        self.outbox = OutboxRepository(database_path)
 
     # ---------- episode recall ----------
 
@@ -87,96 +90,107 @@ class SQLiteMemory:
             f"{episode.skill} {episode.misconception or 'errors'} respond "
             f"positively to {episode.intervention}."
         )
-        with sqlite3.connect(self.database_path) as connection:
-            connection.row_factory = sqlite3.Row
-            row = connection.execute(
-                """
-                SELECT * FROM student_memory_facts
-                WHERE student_id = ? AND normalized_key = ?
-                """,
-                (episode.student_id, key),
-            ).fetchone()
-            if row is None:
-                fact = MemoryFact(
-                    fact_id=f"fact_{uuid.uuid4().hex[:12]}",
-                    student_id=episode.student_id,
-                    category=FACT_CATEGORY_MISCONCEPTION_INTERVENTION,
-                    normalized_key=key,
-                    fact_text=fact_text,
-                    confidence=confidence,
-                    supporting_episode_ids=supporting_ids,
-                    contradicting_episode_ids=[],
-                    evidence_count=len(supporting_ids),
-                    contradiction_count=0,
-                    status=status,
-                    first_observed_at=now,
-                    last_observed_at=now,
-                    version=1,
-                )
-                connection.execute(
+        with connect(self.database_path) as connection:
+            with transaction(connection):
+                connection.row_factory = sqlite3.Row
+                row = connection.execute(
                     """
-                    INSERT INTO student_memory_facts (
-                        fact_id, student_id, category, normalized_key, fact_text,
-                        confidence, supporting_episode_ids_json,
-                        contradicting_episode_ids_json, evidence_count,
-                        contradiction_count, status, first_observed_at,
-                        last_observed_at, version
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        fact.fact_id,
-                        fact.student_id,
-                        fact.category,
-                        fact.normalized_key,
-                        fact.fact_text,
-                        fact.confidence,
-                        json.dumps(fact.supporting_episode_ids),
-                        json.dumps(fact.contradicting_episode_ids),
-                        fact.evidence_count,
-                        fact.contradiction_count,
-                        fact.status,
-                        fact.first_observed_at,
-                        fact.last_observed_at,
-                        fact.version,
-                    ),
-                )
-            else:
-                fact = MemoryFact(
-                    fact_id=row["fact_id"],
-                    student_id=row["student_id"],
-                    category=row["category"],
-                    normalized_key=row["normalized_key"],
-                    fact_text=row["fact_text"],
-                    confidence=confidence,
-                    supporting_episode_ids=supporting_ids,
-                    contradicting_episode_ids=json.loads(
-                        row["contradicting_episode_ids_json"] or "[]"
-                    ),
-                    evidence_count=len(supporting_ids),
-                    contradiction_count=row["contradiction_count"],
-                    status=status,
-                    first_observed_at=row["first_observed_at"],
-                    last_observed_at=now,
-                    version=row["version"] + 1,
-                )
-                connection.execute(
-                    """
-                    UPDATE student_memory_facts
-                    SET confidence = ?, supporting_episode_ids_json = ?,
-                        evidence_count = ?, status = ?, last_observed_at = ?,
-                        version = ?
+                    SELECT * FROM student_memory_facts
                     WHERE student_id = ? AND normalized_key = ?
                     """,
-                    (
-                        fact.confidence,
-                        json.dumps(fact.supporting_episode_ids),
-                        fact.evidence_count,
-                        fact.status,
-                        now,
-                        fact.version,
-                        fact.student_id,
-                        fact.normalized_key,
-                    ),
+                    (episode.student_id, key),
+                ).fetchone()
+                if row is None:
+                    fact = MemoryFact(
+                        fact_id=f"fact_{uuid.uuid4().hex[:12]}",
+                        student_id=episode.student_id,
+                        category=FACT_CATEGORY_MISCONCEPTION_INTERVENTION,
+                        normalized_key=key,
+                        fact_text=fact_text,
+                        confidence=confidence,
+                        supporting_episode_ids=supporting_ids,
+                        contradicting_episode_ids=[],
+                        evidence_count=len(supporting_ids),
+                        contradiction_count=0,
+                        status=status,
+                        first_observed_at=now,
+                        last_observed_at=now,
+                        version=1,
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO student_memory_facts (
+                            fact_id, student_id, category, normalized_key, fact_text,
+                            confidence, supporting_episode_ids_json,
+                            contradicting_episode_ids_json, evidence_count,
+                            contradiction_count, status, first_observed_at,
+                            last_observed_at, version
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            fact.fact_id,
+                            fact.student_id,
+                            fact.category,
+                            fact.normalized_key,
+                            fact.fact_text,
+                            fact.confidence,
+                            json.dumps(fact.supporting_episode_ids),
+                            json.dumps(fact.contradicting_episode_ids),
+                            fact.evidence_count,
+                            fact.contradiction_count,
+                            fact.status,
+                            fact.first_observed_at,
+                            fact.last_observed_at,
+                            fact.version,
+                        ),
+                    )
+                else:
+                    fact = MemoryFact(
+                        fact_id=row["fact_id"],
+                        student_id=row["student_id"],
+                        category=row["category"],
+                        normalized_key=row["normalized_key"],
+                        fact_text=row["fact_text"],
+                        confidence=confidence,
+                        supporting_episode_ids=supporting_ids,
+                        contradicting_episode_ids=json.loads(
+                            row["contradicting_episode_ids_json"] or "[]"
+                        ),
+                        evidence_count=len(supporting_ids),
+                        contradiction_count=row["contradiction_count"],
+                        status=status,
+                        first_observed_at=row["first_observed_at"],
+                        last_observed_at=now,
+                        version=row["version"] + 1,
+                    )
+                    connection.execute(
+                        """
+                        UPDATE student_memory_facts
+                        SET confidence = ?, supporting_episode_ids_json = ?,
+                            evidence_count = ?, status = ?, last_observed_at = ?,
+                            version = ?
+                        WHERE student_id = ? AND normalized_key = ?
+                        """,
+                        (
+                            fact.confidence,
+                            json.dumps(fact.supporting_episode_ids),
+                            fact.evidence_count,
+                            fact.status,
+                            now,
+                            fact.version,
+                            fact.student_id,
+                            fact.normalized_key,
+                        ),
+                    )
+                self.outbox.enqueue(
+                    connection,
+                    student_id=episode.student_id,
+                    aggregate_type="fact",
+                    aggregate_id=fact.fact_id,
+                    operation="upsert_fact",
+                    payload=fact.model_dump(),
+                    version=fact.version,
+                    now=now,
                 )
         return fact
 

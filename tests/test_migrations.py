@@ -48,6 +48,8 @@ def test_fresh_database_migrates_to_supported_version(tmp_path: Path) -> None:
             "intervention_stats",
             "knowledge_index_log",
             "knowledge_fts",
+            "memory_outbox",
+            "student_deletions",
         }
         assert required <= tables
         assert database_version(connection) == migration_runner.SCHEMA_VERSION
@@ -161,3 +163,90 @@ def test_newer_database_schema_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(migration_runner.UnsupportedDatabaseError):
         migration_runner.apply_migrations(db)
+
+
+def test_pre_migration_backup_created_before_pending_migrations(tmp_path: Path) -> None:
+    db = tmp_path / "old.db"
+    connection = sqlite3.connect(db)
+    connection.execute(
+        """
+        CREATE TABLE students (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            daily_minutes INTEGER NOT NULL,
+            target_score INTEGER NOT NULL,
+            mastery_json TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute("INSERT INTO students VALUES ('s1', 'N', 20, 1200, '{}')")
+    connection.commit()
+    connection.close()
+
+    backups = tmp_path / "backups"
+    migration_runner.apply_migrations(db, backups_dir=backups)
+
+    backup_files = sorted(backups.glob("old-pre-migration-*.db"))
+    assert len(backup_files) == 1
+    with sqlite3.connect(backup_files[0]) as backup_connection:
+        tables = _schema_tables(backup_connection)
+        assert "students" in tables
+        row = backup_connection.execute("SELECT name FROM students").fetchone()
+        assert row[0] == "N"
+
+
+def test_no_backup_for_fresh_database(tmp_path: Path) -> None:
+    db = tmp_path / "fresh.db"
+    backups = tmp_path / "backups"
+    migration_runner.apply_migrations(db, backups_dir=backups)
+    assert list(backups.glob("*.db")) == []
+
+
+def test_idempotent_run_creates_no_second_backup(tmp_path: Path) -> None:
+    db = tmp_path / "once.db"
+    connection = sqlite3.connect(db)
+    connection.execute("CREATE TABLE students (id TEXT PRIMARY KEY)")
+    connection.commit()
+    connection.close()
+
+    backups = tmp_path / "backups"
+    migration_runner.apply_migrations(db, backups_dir=backups)
+    migration_runner.apply_migrations(db, backups_dir=backups)
+    assert len(list(backups.glob("*.db"))) == 1
+
+
+def test_restore_backup_round_trip(tmp_path: Path) -> None:
+    from scripts.restore_sqlite_backup import restore_backup
+
+    original = tmp_path / "live.db"
+    connection = sqlite3.connect(original)
+    connection.execute("CREATE TABLE payload (id TEXT PRIMARY KEY, value TEXT)")
+    connection.execute("INSERT INTO payload VALUES ('a', 'kept')")
+    connection.commit()
+    connection.close()
+
+    backups = tmp_path / "backups"
+    backup = migration_runner.create_backup(original, backups_dir=backups)
+    assert backup is not None
+
+    with sqlite3.connect(original) as connection:
+        connection.execute("DROP TABLE payload")
+
+    restore_backup(backup, original)
+    with sqlite3.connect(original) as connection:
+        row = connection.execute("SELECT value FROM payload WHERE id = 'a'").fetchone()
+        assert row[0] == "kept"
+
+
+def test_restore_refuses_same_path_missing_and_non_sqlite(tmp_path: Path) -> None:
+    from scripts.restore_sqlite_backup import restore_backup
+
+    backup = tmp_path / "backup.db"
+    backup.write_bytes(b"not a database")
+
+    with pytest.raises(ValueError, match="must differ"):
+        restore_backup(backup, backup)
+    with pytest.raises(FileNotFoundError):
+        restore_backup(tmp_path / "missing.db", tmp_path / "target.db")
+    with pytest.raises(ValueError, match="not a SQLite database"):
+        restore_backup(backup, tmp_path / "target.db")

@@ -1,0 +1,8 @@
+{
+  "schema_version": "1.0",
+  "label": "controlled internal test",
+  "command": "node --test web/tests/accessibility.test.js, web/tests/offline-core.test.js",
+  "passed": 21,
+  "failed": 0,
+  "tail": "'test'\n  ...\n# Subtest: server-side rejection codes map to queue states\nok 14 - server-side rejection codes map to queue states\n  ---\n  duration_ms: 7.686782\n  type: 'test'\n  ...\n# Subtest: retry schedule follows the protocol sequence\nok 15 - retry schedule follows the protocol sequence\n  ---\n  duration_ms: 0.200011\n  type: 'test'\n  ...\n# Subtest: dequeue batches at most 100 events\nok 16 - dequeue batches at most 100 events\n  ---\n  duration_ms: 9.666413\n  type: 'test'\n  ...\n# Subtest: evaluateAnswer is version-bound and exact\nok 17 - evaluateAnswer is version-bound and exact\n  ---\n  duration_ms: 0.43174\n  type: 'test'\n  ...\n# Subtest: updateTemporaryMastery bounds and weights by hint and difficulty\nok 18 - updateTemporaryMastery bounds and weights by hint and difficulty\n  ---\n  duration_ms: 0.23509\n  type: 'test'\n  ...\n# Subtest: pickNextQuestion prefers the weakest skill, unanswered, within difficulty\nok 19 - pickNextQuestion prefers the weakest skill, unanswered, within difficulty\n  ---\n  duration_ms: 0.212552\n  type: 'test'\n  ...\n# Subtest: integrity hash matches the Python canonical hash for the same payload\nok 20 - integrity hash matches the Python canonical hash for the same payload\n  ---\n  duration_ms: 0.130003\n  type: 'test'\n  ...\n# Subtest: offline policy version is pinned\nok 21 - offline policy version is pinned\n  ---\n  duration_ms: 0.442319\n  type: 'test'\n  ...\n1..21\n# tests 21\n# suites 0\n# pass 21\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 98.95003\n"
+}

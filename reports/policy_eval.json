@@ -1,0 +1,494 @@
+{
+  "schema_version": "1.0",
+  "label": "synthetic simulation",
+  "total_trajectories": 24,
+  "passed": 24,
+  "pass_rate": 1.0,
+  "safety_critical_total": 17,
+  "safety_critical_passed": 17,
+  "safety_critical_pass_rate": 1.0,
+  "targets": {
+    "overall_min_pass_rate": 0.9,
+    "safety_critical_min_pass_rate": 1.0,
+    "min_trajectories": 20
+  },
+  "categories_covered": [
+    "difficulty increase with sufficient confidence",
+    "insufficient remaining time",
+    "low confidence requests more evidence",
+    "memory conflict with recent evidence",
+    "no increase after high-level hints",
+    "offline fallback",
+    "overdue review",
+    "prerequisite review",
+    "repeated misconception",
+    "stale memory",
+    "student-corrected memory",
+    "unavailable content"
+  ],
+  "categories_missing": [],
+  "results": [
+    {
+      "id": "p01",
+      "category": "repeated_misconception",
+      "safety_critical": true,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "SHOW_WORKED_EXAMPLE",
+        "reason_code": "REPEATED_MISCONCEPTION"
+      },
+      "expected": {
+        "action": "SHOW_WORKED_EXAMPLE",
+        "reason_code": "REPEATED_MISCONCEPTION"
+      },
+      "notes": "Two errors on the same misconception must trigger a worked example before more practice."
+    },
+    {
+      "id": "p02",
+      "category": "repeated_misconception",
+      "safety_critical": true,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "SHOW_WORKED_EXAMPLE",
+        "reason_code": "REPEATED_MISCONCEPTION"
+      },
+      "expected": {
+        "action": "SHOW_WORKED_EXAMPLE",
+        "reason_code": "REPEATED_MISCONCEPTION"
+      },
+      "notes": "Three observations across items confirm the misconception even after a single consecutive error."
+    },
+    {
+      "id": "p03",
+      "category": "repeated_misconception",
+      "safety_critical": false,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "MISCONCEPTION_OBSERVED"
+      },
+      "expected": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "MISCONCEPTION_OBSERVED"
+      },
+      "notes": "A single observation only asks for one more distinct item of confirmation evidence."
+    },
+    {
+      "id": "p04",
+      "category": "repeated_skill_error",
+      "safety_critical": true,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "SHOW_MICRO_LESSON",
+        "reason_code": "REPEATED_SKILL_ERRORS"
+      },
+      "expected": {
+        "action": "SHOW_MICRO_LESSON",
+        "reason_code": "REPEATED_SKILL_ERRORS"
+      },
+      "notes": "Two+ consecutive errors without a mapped misconception insert a micro lesson."
+    },
+    {
+      "id": "p05",
+      "category": "difficulty_increase_sufficient_confidence",
+      "safety_critical": false,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "RAISE_DIFFICULTY",
+        "reason_code": "MASTERY_PROMOTION"
+      },
+      "expected": {
+        "action": "RAISE_DIFFICULTY",
+        "reason_code": "MASTERY_PROMOTION"
+      },
+      "notes": "Mastery >= 0.72, confidence >= 0.55, recent corrects without high hints promote difficulty."
+    },
+    {
+      "id": "p06",
+      "category": "no_increase_after_high_level_hints",
+      "safety_critical": true,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "CONTINUE_PRACTICE"
+      },
+      "expected": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "CONTINUE_PRACTICE"
+      },
+      "notes": "Correctness earned through high-level hints does not justify a difficulty increase."
+    },
+    {
+      "id": "p07",
+      "category": "low_confidence_more_evidence",
+      "safety_critical": false,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "CONTINUE_PRACTICE"
+      },
+      "expected": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "CONTINUE_PRACTICE"
+      },
+      "notes": "Low confidence requests more evidence instead of changing difficulty."
+    },
+    {
+      "id": "p08",
+      "category": "prerequisite_review",
+      "safety_critical": true,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "SWITCH_TO_PREREQUISITE",
+        "reason_code": "PREREQUISITE_BLOCKER"
+      },
+      "expected": {
+        "action": "SWITCH_TO_PREREQUISITE",
+        "reason_code": "PREREQUISITE_BLOCKER"
+      },
+      "notes": "An unmastered prerequisite must switch practice before continuing the current skill."
+    },
+    {
+      "id": "p09",
+      "category": "insufficient_remaining_time",
+      "safety_critical": true,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "END_WITH_REVIEW",
+        "reason_code": "TIME_BUDGET_EXHAUSTED"
+      },
+      "expected": {
+        "action": "END_WITH_REVIEW",
+        "reason_code": "TIME_BUDGET_EXHAUSTED"
+      },
+      "notes": "One minute left closes with a short review rather than a new item."
+    },
+    {
+      "id": "p10",
+      "category": "insufficient_remaining_time",
+      "safety_critical": true,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "END_WITH_REVIEW",
+        "reason_code": "TIME_BUDGET_EXHAUSTED"
+      },
+      "expected": {
+        "action": "END_WITH_REVIEW",
+        "reason_code": "TIME_BUDGET_EXHAUSTED"
+      },
+      "notes": "Time budget takes precedence over misconception support actions at <= 2 minutes."
+    },
+    {
+      "id": "p11",
+      "category": "memory_recall_reuse",
+      "safety_critical": true,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "SHOW_WORKED_EXAMPLE",
+        "reason_code": "RECALLED_SUCCESSFUL_EPISODE"
+      },
+      "expected": {
+        "action": "SHOW_WORKED_EXAMPLE",
+        "reason_code": "RECALLED_SUCCESSFUL_EPISODE"
+      },
+      "notes": "A validated successful episode for the same skill+misconception triggers earlier reuse before the second error."
+    },
+    {
+      "id": "p12",
+      "category": "memory_conflict_recent_evidence",
+      "safety_critical": true,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "RAISE_DIFFICULTY",
+        "reason_code": "MASTERY_PROMOTION"
+      },
+      "expected": {
+        "action": "RAISE_DIFFICULTY",
+        "reason_code": "MASTERY_PROMOTION"
+      },
+      "notes": "Recent correct evidence with no active misconception and no recall promotes difficulty; memory is not consulted when evidence is strong."
+    },
+    {
+      "id": "p13",
+      "category": "stale_memory",
+      "safety_critical": false,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "SHOW_WORKED_EXAMPLE",
+        "reason_code": "RECALLED_SUCCESSFUL_EPISODE"
+      },
+      "expected": {
+        "action": "SHOW_WORKED_EXAMPLE",
+        "reason_code": "RECALLED_SUCCESSFUL_EPISODE"
+      },
+      "notes": "Stale-memory governance lives in the recall layer (validated episodes only); the policy trusts only validated, student-scoped episodes."
+    },
+    {
+      "id": "p14",
+      "category": "unavailable_content",
+      "safety_critical": true,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "CONTINUE_PRACTICE"
+      },
+      "expected": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "CONTINUE_PRACTICE"
+      },
+      "notes": "When retrieval has no approved content for the next item, the default bounded action keeps the loop safe rather than fabricating content."
+    },
+    {
+      "id": "p15",
+      "category": "offline_fallback",
+      "safety_critical": true,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "SHOW_WORKED_EXAMPLE",
+        "reason_code": "RECALLED_SUCCESSFUL_EPISODE"
+      },
+      "expected": {
+        "action": "SHOW_WORKED_EXAMPLE",
+        "reason_code": "RECALLED_SUCCESSFUL_EPISODE"
+      },
+      "notes": "The policy is deterministic and stateless: identical inputs (offline or online) yield identical decisions; recall may come from the offline snapshot."
+    },
+    {
+      "id": "p16",
+      "category": "student_corrected_memory",
+      "safety_critical": false,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "CONTINUE_PRACTICE"
+      },
+      "expected": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "CONTINUE_PRACTICE"
+      },
+      "notes": "A resolved/corrected misconception (no active misconception, no recall) simply continues practice without forcing an intervention."
+    },
+    {
+      "id": "p17",
+      "category": "overdue_review",
+      "safety_critical": false,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "CONTINUE_PRACTICE"
+      },
+      "expected": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "CONTINUE_PRACTICE"
+      },
+      "notes": "Review scheduling is driven by review_due_at in the state layer; with neutral inputs the policy continues practice."
+    },
+    {
+      "id": "p18",
+      "category": "support_low_mastery",
+      "safety_critical": true,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "LOWER_DIFFICULTY",
+        "reason_code": "SUPPORT_NEEDED"
+      },
+      "expected": {
+        "action": "LOWER_DIFFICULTY",
+        "reason_code": "SUPPORT_NEEDED"
+      },
+      "notes": "Low mastery with meaningful confidence signals support: next item on the same skill at lower difficulty."
+    },
+    {
+      "id": "p19",
+      "category": "bounded_action_allowlist",
+      "safety_critical": true,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true,
+        "allowlist": true
+      },
+      "actual": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "CONTINUE_PRACTICE"
+      },
+      "expected": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "CONTINUE_PRACTICE",
+        "check_allowlist": true
+      },
+      "notes": "Every decision must be one of the thirteen bounded actions; never a free-form instruction."
+    },
+    {
+      "id": "p20",
+      "category": "policy_version_persisted",
+      "safety_critical": true,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true,
+        "version": true
+      },
+      "actual": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "CONTINUE_PRACTICE"
+      },
+      "expected": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "CONTINUE_PRACTICE",
+        "check_version": true
+      },
+      "notes": "Every decision carries an immutable, auditable policy version."
+    },
+    {
+      "id": "p21",
+      "category": "difficulty_never_out_of_range",
+      "safety_critical": true,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true,
+        "difficulty_cap": true
+      },
+      "actual": {
+        "action": "RAISE_DIFFICULTY",
+        "reason_code": "MASTERY_PROMOTION"
+      },
+      "expected": {
+        "action": "RAISE_DIFFICULTY",
+        "reason_code": "MASTERY_PROMOTION",
+        "difficulty_cap": 3
+      },
+      "notes": "Difficulty never exceeds 3 regardless of promotion conditions."
+    },
+    {
+      "id": "p22",
+      "category": "memory_does_not_override_time_budget",
+      "safety_critical": true,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "END_WITH_REVIEW",
+        "reason_code": "TIME_BUDGET_EXHAUSTED"
+      },
+      "expected": {
+        "action": "END_WITH_REVIEW",
+        "reason_code": "TIME_BUDGET_EXHAUSTED"
+      },
+      "notes": "Time budget closure wins over memory-driven reuse."
+    },
+    {
+      "id": "p23",
+      "category": "misconception_without_error_streak",
+      "safety_critical": false,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "MISCONCEPTION_OBSERVED"
+      },
+      "expected": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "MISCONCEPTION_OBSERVED"
+      },
+      "notes": "A fresh single observation on a low-stakes item asks for one more distinct item."
+    },
+    {
+      "id": "p24",
+      "category": "recent_evidence_overrides_old_memory",
+      "safety_critical": true,
+      "passed": true,
+      "checks": {
+        "action": true,
+        "reason_code": true
+      },
+      "actual": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "CONTINUE_PRACTICE"
+      },
+      "expected": {
+        "action": "RETRY_SAME_SKILL",
+        "reason_code": "CONTINUE_PRACTICE"
+      },
+      "notes": "Two recent unassisted corrects are not yet enough promotion evidence (recent_total < 3); old memory is not allowed to force an intervention."
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "label": "controlled internal test",
+  "scenario_count": 10,
+  "passed": 10,
+  "pass_rate": 1.0,
+  "targets": {
+    "offline_core_flow_completion": "100%",
+    "duplicate_scoring_incidents": "0",
+    "restart_recovery": "100%",
+    "known_version_scoring_consistency": "100%",
+    "unacknowledged_event_loss": "0"
+  },
+  "results": [
+    {
+      "scenario": "full_offline_session",
+      "passed": true,
+      "detail": "accepted=6/6 evidence=2",
+      "target": "offline core-flow completion = 100%"
+    },
+    {
+      "scenario": "refresh_recovery",
+      "passed": true,
+      "detail": "duplicates=6 scored_valid=2",
+      "target": "duplicate scoring incidents = 0"
+    },
+    {
+      "scenario": "server_restart",
+      "passed": true,
+      "detail": "version=7 skills=2",
+      "target": "restart recovery = 100%"
+    },
+    {
+      "scenario": "duplicate_batch_upload",
+      "passed": true,
+      "detail": "duplicate=['evt_a1'] accepted=[]",
+      "target": "duplicate scoring incidents = 0"
+    },
+    {
+      "scenario": "out_of_order_upload",
+      "passed": true,
+      "detail": "first=['MISSING_DEPENDENCY'] then accepted=['evt_2']",
+      "target": "known-version scoring consistency = 100%"
+    },
+    {
+      "scenario": "late_event_after_summary",
+      "passed": true,
+      "detail": "accepted=['evt_3'] conflicts=['SUMMARY_REVISED'] state=SESSION_COMPLETED",
+      "target": "unacknowledged-event loss = 0"
+    },
+    {
+      "scenario": "old_known_content_version",
+      "passed": true,
+      "detail": "code=['QUESTION_VERSION_UNKNOWN']",
+      "target": "known-version scoring consistency = 100%"
+    },
+    {
+      "scenario": "unknown_content_version",
+      "passed": true,
+      "detail": "code=['QUESTION_VERSION_UNKNOWN']",
+      "target": "known-version scoring consistency = 100%"
+    },
+    {
+      "scenario": "parallel_device_branches",
+      "passed": true,
+      "detail": "weights=[1.0, 0.5] conflicts=['PARALLEL_ATTEMPT_DETECTED']",
+      "target": "duplicate scoring incidents = 0"
+    },
+    {
+      "scenario": "pending_event_retention_after_failure",
+      "passed": true,
+      "detail": "first=['INVALID_SCHEMA'] stored_before_retry=0 then accepted=['evt_retry']",
+      "target": "unacknowledged-event loss = 0"
+    }
+  ]
+}

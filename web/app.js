@@ -65,7 +65,11 @@ function renderMastery() {
     const row = document.createElement("div");
     row.className = "mastery-row";
     const mastery = Math.round((state.mastery ?? 0.5) * 100);
-    row.innerHTML = `<span>${skill.replaceAll("_", " ")}</span><strong>${mastery}%</strong>`;
+    const label = document.createElement("span");
+    label.textContent = skill.replaceAll("_", " ");
+    const value = document.createElement("strong");
+    value.textContent = `${mastery}%`;
+    row.append(label, value);
     masteryList.append(row);
   }
 }
@@ -248,11 +252,16 @@ async function submitAnswer(selectedChoiceId) {
   const misconception = !result.correct
     ? item.misconception_map?.[selectedChoiceId]
     : null;
-  feedback.innerHTML = result.correct
-    ? `<strong>Correct</strong> — ${item.worked_explanation || ""}`
-    : `<strong>Not quite</strong>${
-        misconception ? ` (${misconception.replaceAll("_", " ")})` : ""
-      } — ${item.worked_explanation || ""}`;
+  feedback.replaceChildren();
+  const verdict = document.createElement("strong");
+  verdict.textContent = result.correct ? "Correct" : "Not quite";
+  feedback.append(verdict);
+  const explanation = document.createTextNode(
+    ` — ${item.worked_explanation || ""}${
+      misconception ? ` (${misconception.replaceAll("_", " ")})` : ""
+    }`
+  );
+  feedback.append(explanation);
 
   const nextButton = questionArea.querySelector(".next-button");
   nextButton.classList.remove("hidden");

@@ -1,0 +1,556 @@
+{
+  "summary": {
+    "probes": 10,
+    "no_memory": {
+      "recall_at_3": 0.0,
+      "mrr": 0.0,
+      "next_action_accuracy": 0.0,
+      "intervention_accuracy": 0.4,
+      "latency_avg_ms": 0.0,
+      "latency_p95_ms": 0.0
+    },
+    "recent_sqlite": {
+      "recall_at_3": 0.3,
+      "mrr": 0.3,
+      "next_action_accuracy": 0.3,
+      "intervention_accuracy": 0.3,
+      "latency_avg_ms": 0.3664412652142346,
+      "latency_p95_ms": 0.5253140116110444
+    },
+    "similar_sqlite": {
+      "recall_at_3": 1.0,
+      "mrr": 1.0,
+      "next_action_accuracy": 1.0,
+      "intervention_accuracy": 1.0,
+      "latency_avg_ms": 0.37655093474313617,
+      "latency_p95_ms": 0.647346954792738
+    },
+    "mnemis_system1": {
+      "recall_at_3": 1.0,
+      "mrr": 0.85,
+      "next_action_accuracy": 1.0,
+      "intervention_accuracy": 1.0,
+      "latency_avg_ms": 0.016755633987486362,
+      "latency_p95_ms": 0.032593030482530594
+    },
+    "mnemis_dual": {
+      "recall_at_3": 1.0,
+      "mrr": 1.0,
+      "next_action_accuracy": 1.0,
+      "intervention_accuracy": 1.0,
+      "latency_avg_ms": 801.1112038977444,
+      "latency_p95_ms": 801.4336240012199,
+      "fallback_success": 1.0
+    }
+  },
+  "probes": [
+    {
+      "probe": {
+        "skill": "linear_equations",
+        "misconception": "sign_error",
+        "content_id": "q_a1"
+      },
+      "routes": {
+        "no_memory": {
+          "elapsed_ms": 0.0,
+          "recall_at_3": false,
+          "mrr": 0.0,
+          "next_action_accuracy": false,
+          "intervention_accuracy": true
+        },
+        "recent_sqlite": {
+          "elapsed_ms": 0.35414297599345446,
+          "recall_at_3": false,
+          "mrr": 0.0,
+          "next_action_accuracy": false,
+          "intervention_accuracy": false
+        },
+        "similar_sqlite": {
+          "elapsed_ms": 0.33425306901335716,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_system1": {
+          "elapsed_ms": 0.019674072973430157,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_dual": {
+          "elapsed_ms": 800.8316919440404,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true,
+          "fallback_success": true
+        }
+      },
+      "expected": {
+        "episode_ids": [
+          "a_e1",
+          "a_e2"
+        ]
+      }
+    },
+    {
+      "probe": {
+        "skill": "linear_equations",
+        "misconception": "transposition_error",
+        "content_id": "q_a2"
+      },
+      "routes": {
+        "no_memory": {
+          "elapsed_ms": 0.0,
+          "recall_at_3": false,
+          "mrr": 0.0,
+          "next_action_accuracy": false,
+          "intervention_accuracy": false
+        },
+        "recent_sqlite": {
+          "elapsed_ms": 0.32659294083714485,
+          "recall_at_3": false,
+          "mrr": 0.0,
+          "next_action_accuracy": false,
+          "intervention_accuracy": false
+        },
+        "similar_sqlite": {
+          "elapsed_ms": 0.32809004187583923,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_system1": {
+          "elapsed_ms": 0.01429906114935875,
+          "recall_at_3": true,
+          "mrr": 0.5,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_dual": {
+          "elapsed_ms": 801.0273149702698,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true,
+          "fallback_success": true
+        }
+      },
+      "expected": {
+        "episode_ids": [
+          "a_e5"
+        ]
+      }
+    },
+    {
+      "probe": {
+        "skill": "ratios_percentages",
+        "misconception": "unit_rate_error",
+        "content_id": "q_b1"
+      },
+      "routes": {
+        "no_memory": {
+          "elapsed_ms": 0.0,
+          "recall_at_3": false,
+          "mrr": 0.0,
+          "next_action_accuracy": false,
+          "intervention_accuracy": true
+        },
+        "recent_sqlite": {
+          "elapsed_ms": 0.3445269539952278,
+          "recall_at_3": false,
+          "mrr": 0.0,
+          "next_action_accuracy": false,
+          "intervention_accuracy": false
+        },
+        "similar_sqlite": {
+          "elapsed_ms": 0.37549901753664017,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_system1": {
+          "elapsed_ms": 0.011730007827281952,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_dual": {
+          "elapsed_ms": 800.8933770470321,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true,
+          "fallback_success": true
+        }
+      },
+      "expected": {
+        "episode_ids": [
+          "b_e1",
+          "b_e2"
+        ]
+      }
+    },
+    {
+      "probe": {
+        "skill": "ratios_percentages",
+        "misconception": "percent_change_error",
+        "content_id": "q_b2"
+      },
+      "routes": {
+        "no_memory": {
+          "elapsed_ms": 0.0,
+          "recall_at_3": false,
+          "mrr": 0.0,
+          "next_action_accuracy": false,
+          "intervention_accuracy": false
+        },
+        "recent_sqlite": {
+          "elapsed_ms": 0.3384590381756425,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "similar_sqlite": {
+          "elapsed_ms": 0.33129402436316013,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_system1": {
+          "elapsed_ms": 0.012694043107330799,
+          "recall_at_3": true,
+          "mrr": 0.5,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_dual": {
+          "elapsed_ms": 801.0958799859509,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true,
+          "fallback_success": true
+        }
+      },
+      "expected": {
+        "episode_ids": [
+          "b_e5"
+        ]
+      }
+    },
+    {
+      "probe": {
+        "skill": "systems_equations",
+        "misconception": "elimination_error",
+        "content_id": "q_c1"
+      },
+      "routes": {
+        "no_memory": {
+          "elapsed_ms": 0.0,
+          "recall_at_3": false,
+          "mrr": 0.0,
+          "next_action_accuracy": false,
+          "intervention_accuracy": true
+        },
+        "recent_sqlite": {
+          "elapsed_ms": 0.31807192135602236,
+          "recall_at_3": false,
+          "mrr": 0.0,
+          "next_action_accuracy": false,
+          "intervention_accuracy": false
+        },
+        "similar_sqlite": {
+          "elapsed_ms": 0.3336260560899973,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_system1": {
+          "elapsed_ms": 0.011036987416446209,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_dual": {
+          "elapsed_ms": 801.3791230041534,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true,
+          "fallback_success": true
+        }
+      },
+      "expected": {
+        "episode_ids": [
+          "c_e1",
+          "c_e2"
+        ]
+      }
+    },
+    {
+      "probe": {
+        "skill": "systems_equations",
+        "misconception": "substitution_error",
+        "content_id": "q_c2"
+      },
+      "routes": {
+        "no_memory": {
+          "elapsed_ms": 0.0,
+          "recall_at_3": false,
+          "mrr": 0.0,
+          "next_action_accuracy": false,
+          "intervention_accuracy": false
+        },
+        "recent_sqlite": {
+          "elapsed_ms": 0.31987891998142004,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "similar_sqlite": {
+          "elapsed_ms": 0.3217890625819564,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_system1": {
+          "elapsed_ms": 0.011906959116458893,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_dual": {
+          "elapsed_ms": 801.4336240012199,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true,
+          "fallback_success": true
+        }
+      },
+      "expected": {
+        "episode_ids": [
+          "c_e5"
+        ]
+      }
+    },
+    {
+      "probe": {
+        "skill": "functions_models",
+        "misconception": "slope_error",
+        "content_id": "q_a3"
+      },
+      "routes": {
+        "no_memory": {
+          "elapsed_ms": 0.0,
+          "recall_at_3": false,
+          "mrr": 0.0,
+          "next_action_accuracy": false,
+          "intervention_accuracy": true
+        },
+        "recent_sqlite": {
+          "elapsed_ms": 0.5253140116110444,
+          "recall_at_3": false,
+          "mrr": 0.0,
+          "next_action_accuracy": false,
+          "intervention_accuracy": false
+        },
+        "similar_sqlite": {
+          "elapsed_ms": 0.647346954792738,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_system1": {
+          "elapsed_ms": 0.032593030482530594,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_dual": {
+          "elapsed_ms": 801.3038849458098,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true,
+          "fallback_success": true
+        }
+      },
+      "expected": {
+        "episode_ids": [
+          "a_e8",
+          "a_e9"
+        ]
+      }
+    },
+    {
+      "probe": {
+        "skill": "functions_models",
+        "misconception": "intercept_error",
+        "content_id": "q_b3"
+      },
+      "routes": {
+        "no_memory": {
+          "elapsed_ms": 0.0,
+          "recall_at_3": false,
+          "mrr": 0.0,
+          "next_action_accuracy": false,
+          "intervention_accuracy": false
+        },
+        "recent_sqlite": {
+          "elapsed_ms": 0.43729692697525024,
+          "recall_at_3": false,
+          "mrr": 0.0,
+          "next_action_accuracy": false,
+          "intervention_accuracy": false
+        },
+        "similar_sqlite": {
+          "elapsed_ms": 0.4104870604351163,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_system1": {
+          "elapsed_ms": 0.012763077393174171,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_dual": {
+          "elapsed_ms": 800.6791600491852,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true,
+          "fallback_success": true
+        }
+      },
+      "expected": {
+        "episode_ids": [
+          "b_e8"
+        ]
+      }
+    },
+    {
+      "probe": {
+        "skill": "ratios_percentages",
+        "misconception": "unit_rate_error",
+        "content_id": "q_c3"
+      },
+      "routes": {
+        "no_memory": {
+          "elapsed_ms": 0.0,
+          "recall_at_3": false,
+          "mrr": 0.0,
+          "next_action_accuracy": false,
+          "intervention_accuracy": false
+        },
+        "recent_sqlite": {
+          "elapsed_ms": 0.32175600063055754,
+          "recall_at_3": false,
+          "mrr": 0.0,
+          "next_action_accuracy": false,
+          "intervention_accuracy": false
+        },
+        "similar_sqlite": {
+          "elapsed_ms": 0.3187860129401088,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_system1": {
+          "elapsed_ms": 0.01183908898383379,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_dual": {
+          "elapsed_ms": 801.3343849452212,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true,
+          "fallback_success": true
+        }
+      },
+      "expected": {
+        "episode_ids": [
+          "c_e8"
+        ]
+      }
+    },
+    {
+      "probe": {
+        "skill": "linear_equations",
+        "misconception": "division_error",
+        "content_id": "q_a4"
+      },
+      "routes": {
+        "no_memory": {
+          "elapsed_ms": 0.0,
+          "recall_at_3": false,
+          "mrr": 0.0,
+          "next_action_accuracy": false,
+          "intervention_accuracy": false
+        },
+        "recent_sqlite": {
+          "elapsed_ms": 0.3783729625865817,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "similar_sqlite": {
+          "elapsed_ms": 0.3643380478024483,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_system1": {
+          "elapsed_ms": 0.02902001142501831,
+          "recall_at_3": true,
+          "mrr": 0.5,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true
+        },
+        "mnemis_dual": {
+          "elapsed_ms": 801.1335980845615,
+          "recall_at_3": true,
+          "mrr": 1.0,
+          "next_action_accuracy": true,
+          "intervention_accuracy": true,
+          "fallback_success": true
+        }
+      },
+      "expected": {
+        "episode_ids": [
+          "a_e12",
+          "a_e13"
+        ]
+      }
+    }
+  ],
+  "schema_version": "1.0",
+  "label": "controlled internal test",
+  "golden_set": "evals/memory/golden.jsonl"
+}

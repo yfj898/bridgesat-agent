@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .engine import adapt, score_diagnostic
 from .knowledge.router import router as knowledge_router
@@ -32,6 +33,32 @@ app = FastAPI(
     version="0.1.0",
     description="Offline-first adaptive SAT learning agent API.",
 )
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Security defaults from THREAT_MODEL.md section 9.
+
+    Strict CSP, no-sniff, no-referrer, permissions policy, and frame
+    denial. CORS is deliberately absent: the PWA is same-origin, so no
+    cross-origin allowlist is needed and no wildcard can leak in.
+    """
+
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; style-src 'self'; "
+            "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=()",
+        )
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 @app.get("/health")

@@ -235,13 +235,19 @@ class SyncService:
         rejected: list[SyncRejectedEvent],
         conflicts: list[SyncConflict],
         server_agent_events: list[dict],
+        *,
+        insert_event_row: bool = True,
     ) -> None:
+        """Projection-only application; `insert_event_row=False` replays
+        already-stored events (used by scripts/rebuild_learner_projections.py)."""
         event_type = envelope.event_type
         if event_type == "ANSWER_SUBMITTED":
-            self._apply_answer_submitted(envelope, accepted, rejected, conflicts, server_agent_events)
+            self._apply_answer_submitted(envelope, accepted, rejected, conflicts,
+                                         server_agent_events, insert_event_row=insert_event_row)
             return
         if event_type == "SESSION_COMPLETED":
-            self._apply_session_completed(envelope, accepted, rejected, conflicts)
+            self._apply_session_completed(envelope, accepted, rejected, conflicts,
+                                          insert_event_row=insert_event_row)
             return
         if event_type in (
             "DIAGNOSTIC_STARTED",
@@ -252,7 +258,8 @@ class SyncService:
             "DIAGNOSTIC_COMPLETED",
             "PLAN_READY",
         ):
-            self._apply_observational(envelope, accepted, rejected, conflicts)
+            self._apply_observational(envelope, accepted, rejected, conflicts,
+                                      insert_event_row=insert_event_row)
             return
         rejected.append(
             SyncRejectedEvent(
@@ -291,11 +298,14 @@ class SyncService:
         accepted: list[str],
         rejected: list[SyncRejectedEvent],
         conflicts: list[SyncConflict],
+        *,
+        insert_event_row: bool = True,
     ) -> None:
         received_at = _utc_now_iso()
         with connect(self.db) as connection:
             with transaction(connection):
-                self._insert_learning_event_row(connection, envelope, received_at)
+                if insert_event_row:
+                    self._insert_learning_event_row(connection, envelope, received_at)
                 self._ensure_session(connection, envelope, SessionState.NEW.value)
         accepted.append(envelope.event_id)
 
@@ -305,11 +315,14 @@ class SyncService:
         accepted: list[str],
         rejected: list[SyncRejectedEvent],
         conflicts: list[SyncConflict],
+        *,
+        insert_event_row: bool = True,
     ) -> None:
         received_at = _utc_now_iso()
         with connect(self.db) as connection:
             with transaction(connection):
-                self._insert_learning_event_row(connection, envelope, received_at)
+                if insert_event_row:
+                    self._insert_learning_event_row(connection, envelope, received_at)
                 row = connection.execute(
                     "SELECT session_state FROM study_sessions WHERE session_id = ?",
                     (envelope.session_id,),
@@ -342,6 +355,8 @@ class SyncService:
         rejected: list[SyncRejectedEvent],
         conflicts: list[SyncConflict],
         server_agent_events: list[dict],
+        *,
+        insert_event_row: bool = True,
     ) -> None:
         question_id = envelope.question_id or envelope.payload.get("question_id")
         question_version = envelope.question_version or envelope.payload.get("question_version")
@@ -380,7 +395,8 @@ class SyncService:
         received_at = _utc_now_iso()
         with connect(self.db) as connection:
             with transaction(connection):
-                self._insert_learning_event_row(connection, envelope, received_at)
+                if insert_event_row:
+                    self._insert_learning_event_row(connection, envelope, received_at)
                 self._ensure_session(connection, envelope, SessionState.QUESTION_ACTIVE.value)
 
                 existing_attempt = connection.execute(

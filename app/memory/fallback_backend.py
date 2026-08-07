@@ -1,0 +1,173 @@
+"""Fallback student memory (ARCHITECTURE §8.6, COMPETITION plan §10).
+
+Retrieval chain: Mnemis within a strict timeout -> SQLite episodic/aggregate
+queries -> offline client snapshot. SQLite is always available and the loop
+never depends on Mnemis success; every call records route and latency so the
+fallback is measurable (memory_fallback_rate).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import time
+from collections import deque
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from app.memory.mnemis_backend import (
+    MnemisMemoryAdapter,
+    MnemisMemoryResult,
+    MnemisUnavailableError,
+    SYSTEM_1_TIMEOUT_MS,
+)
+from app.memory.sqlite_backend import SQLiteMemory
+
+
+@dataclass
+class RecallHit:
+    episode_id: str
+    memory_id: str | None
+    retrieval_route: str
+    confidence: float
+    supporting_episode_ids: list[str]
+    retrieval_score: float = 0.0
+
+    @classmethod
+    def from_mnemis(cls, result: MnemisMemoryResult | dict) -> "RecallHit":
+        if isinstance(result, dict):
+            supporting = list(result.get("supporting_episode_ids") or [])
+            episode_id = (
+                supporting[0] if supporting else result.get("memory_id", "unknown")
+            )
+            return cls(
+                episode_id=episode_id,
+                memory_id=result.get("memory_id"),
+                retrieval_route=result.get("retrieval_route", "mnemis_system1"),
+                confidence=float(result.get("confidence", 0.0)),
+                supporting_episode_ids=supporting,
+                retrieval_score=float(result.get("retrieval_score", 0.0)),
+            )
+        return cls(
+            episode_id=result.supporting_episode_ids[0],
+            memory_id=result.memory_id,
+            retrieval_route=result.retrieval_route,
+            confidence=result.confidence,
+            supporting_episode_ids=result.supporting_episode_ids,
+            retrieval_score=result.retrieval_score,
+        )
+
+
+@dataclass
+class RecallResult:
+    route: str
+    hits: list[RecallHit]
+
+
+class FallbackStudentMemory:
+    """Retrieval facade over the authoritative SQLite store with an optional
+    Mnemis index in front. Writes never pass through here: episodes and facts
+    are written to SQLite and delivered to Mnemis via the transactional
+    outbox."""
+
+    def __init__(
+        self,
+        database_path: Path,
+        mnemis: MnemisMemoryAdapter | Any | None = None,
+        *,
+        timeout_ms: int = SYSTEM_1_TIMEOUT_MS,
+        offline_snapshot: Any | None = None,
+    ) -> None:
+        self.sqlite = SQLiteMemory(database_path)
+        self.mnemis = mnemis
+        self.timeout_ms = timeout_ms
+        self.offline_snapshot = offline_snapshot
+        self._route_counts: dict[str, int] = {}
+        self._latencies: deque[float] = deque(maxlen=200)
+
+    async def recall_similar(
+        self,
+        *,
+        student_id: str,
+        skill: str,
+        misconception: str | None = None,
+        limit: int = 5,
+    ) -> RecallResult:
+        started = time.perf_counter()
+        hits: list[RecallHit] = []
+        route = "sqlite"
+
+        if self.mnemis is not None:
+            try:
+                query = {
+                    "student_id": student_id,
+                    "skill": skill,
+                    "misconception": misconception,
+                }
+                results = await asyncio.wait_for(
+                    self.mnemis.recall_similar(query),
+                    timeout=self.timeout_ms / 1000,
+                )
+                hits = [RecallHit.from_mnemis(r) for r in results]
+                route = "mnemis_system1"
+            except (TimeoutError, MnemisUnavailableError, asyncio.TimeoutError):
+                hits = []
+
+        if not hits:
+            episodes = self.sqlite.recall_episodes(
+                student_id=student_id,
+                skill=skill,
+                misconception=misconception,
+                limit=limit,
+            )
+            hits = [
+                RecallHit(
+                    episode_id=e.episode_id,
+                    memory_id=None,
+                    retrieval_route="sqlite",
+                    confidence=e.confidence,
+                    supporting_episode_ids=[e.episode_id],
+                )
+                for e in episodes
+            ]
+            route = "sqlite"
+
+        if not hits and self.offline_snapshot is not None:
+            episodes = self.offline_snapshot.recall_episodes(
+                student_id=student_id, skill=skill, misconception=misconception, limit=limit
+            )
+            hits = [
+                RecallHit(
+                    episode_id=e.episode_id,
+                    memory_id=None,
+                    retrieval_route="offline_snapshot",
+                    confidence=e.confidence,
+                    supporting_episode_ids=[e.episode_id],
+                )
+                for e in episodes
+            ]
+            route = "offline_snapshot"
+
+        self._route_counts[route] = self._route_counts.get(route, 0) + 1
+        self._latencies.append((time.perf_counter() - started) * 1000)
+        return RecallResult(route=route, hits=hits)
+
+    def recall_metrics(self) -> dict:
+        total = sum(self._route_counts.values()) or 0
+        mnemis_ok = self._route_counts.get("mnemis_system1", 0)
+        return {
+            "memory_fallback_rate": 0.0 if total == 0 else (total - mnemis_ok) / total,
+            "memory_route_counts": dict(self._route_counts),
+            "memory_latency_ms": {
+                "avg": round(sum(self._latencies) / len(self._latencies), 2)
+                if self._latencies
+                else 0.0,
+                "p95": self._latency_p95(),
+            },
+        }
+
+    def _latency_p95(self) -> float:
+        if not self._latencies:
+            return 0.0
+        ordered = sorted(self._latencies)
+        return round(ordered[int(0.95 * (len(ordered) - 1))], 2)
