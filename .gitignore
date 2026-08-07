@@ -6,6 +6,7 @@ __pycache__/
 htmlcov/
 .env
 data/*.db
+content/registry.db
 data/acquisition/**/raw/
 data/acquisition/**/*.part
 dist/
