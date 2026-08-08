@@ -26,6 +26,16 @@ class Student(StudentCreate):
     mastery: dict[Skill, float]
 
 
+class StudentWithToken(Student):
+    """Student creation response carrying the one-time bearer token.
+
+    The token is returned exactly once; only its SHA-256 hash is stored
+    (THREAT_MODEL section 10, plan section 7).
+    """
+
+    token: str
+
+
 class DiagnosticAnswer(BaseModel):
     question_id: str
     selected_answer: str
@@ -33,7 +43,6 @@ class DiagnosticAnswer(BaseModel):
 
 
 class DiagnosticRequest(BaseModel):
-    student_id: str
     answers: list[DiagnosticAnswer] = Field(min_length=1)
 
 
@@ -53,7 +62,6 @@ class DiagnosticResponse(BaseModel):
 
 
 class AdaptRequest(BaseModel):
-    student_id: str
     skill: Skill
     was_correct: bool
     hint_level: int = Field(default=0, ge=0, le=3)

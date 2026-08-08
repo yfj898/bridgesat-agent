@@ -13,6 +13,7 @@ let store = null;
 let client = null;
 let deviceId = null;
 let studentId = null;
+let authToken = null;
 let sessionId = null;
 let branchId = null;
 let deviceSeq = 0;
@@ -22,6 +23,13 @@ let answered = new Set();
 let currentQuestion = null;
 let hintLevel = 0;
 let sessionStarted = false;
+
+function authHeaders(extra) {
+  return {
+    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    ...(extra || {}),
+  };
+}
 
 function updateNetworkStatus() {
   networkStatus.textContent = navigator.onLine
@@ -41,7 +49,11 @@ if ("serviceWorker" in navigator) {
 
 async function request(url, options = {}) {
   const response = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+      ...(options.headers || {}),
+    },
     ...options,
   });
   if (!response.ok) {
@@ -52,7 +64,10 @@ async function request(url, options = {}) {
 }
 
 function transport(url, options) {
-  return fetch(url, options).then((response) => ({
+  return fetch(url, {
+    ...options,
+    headers: { ...authHeaders(), ...(options.headers || {}) },
+  }).then((response) => ({
     ok: response.ok,
     status: response.status,
     json: () => response.json(),
@@ -300,6 +315,7 @@ async function init() {
   if (state?.device_id && state?.student_id) {
     deviceId = state.device_id;
     studentId = state.student_id;
+    authToken = state.token || null;
     sessionId = state.session_id || "sess_" + uuidHex().slice(0, 16);
     branchId = state.session_branch_id || sessionId;
     deviceSeq = state.last_device_sequence || 0;
@@ -323,23 +339,26 @@ async function init() {
 }
 
 async function createProfile(name, minutes) {
-  studentId = (await request("/v1/students", {
+  const created = await request("/v1/students", {
     method: "POST",
     body: JSON.stringify({
       name,
       daily_minutes: minutes,
       target_score: 1200,
     }),
-  })).id;
+  });
+  studentId = created.id;
+  authToken = created.token;
   const device = await request("/v1/sync/devices", {
     method: "POST",
-    body: JSON.stringify({ student_id: studentId, device_name: "browser" }),
+    body: JSON.stringify({ device_name: "browser" }),
   });
   deviceId = device.device_id;
   await store.put("sync_state", {
     id: "state",
     device_id: deviceId,
     student_id: studentId,
+    token: authToken,
     last_device_sequence: 0,
   });
   client = new OfflineSyncClient({ store, transport, deviceId, studentId });

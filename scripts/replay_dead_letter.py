@@ -4,8 +4,13 @@
 Usage:
     python scripts/replay_dead_letter.py [--db PATH] [--max-attempts N]
 
-Resets dead_letter rows to pending with a fresh attempt budget and runs the
+Resets dead_letter rows to pending with a fresh attempt budget, then runs the
 worker once per attempt window, honoring the retry schedule.
+
+Delivery uses the real configured index (mirroring app.main): in enhanced
+mode that is the Mnemis adapter; otherwise the worker is left index=None and
+rows stay pending for the running app to drain. It never marks rows indexed
+against a throwaway in-memory stub, which would silently drop indexing.
 """
 
 from __future__ import annotations
@@ -20,10 +25,18 @@ sys.path.insert(0, str(ROOT))
 
 from app.infrastructure import migration_runner
 from app.infrastructure.database import connect, transaction
-from app.memory.mnemis_stub import InMemoryMnemisIndex
+from app.memory import MemoryMode, memory_mode
 from app.memory.worker import OutboxWorker
 
 DEFAULT_DB = ROOT / "data" / "bridgesat.db"
+
+
+def _make_index():
+    if memory_mode() != MemoryMode.ENHANCED:
+        return None
+    from app.memory.mnemis_backend import MnemisMemoryAdapter
+
+    return MnemisMemoryAdapter()
 
 
 def replay(db: Path, index, max_attempts: int) -> dict:
@@ -42,11 +55,18 @@ def replay(db: Path, index, max_attempts: int) -> dict:
                     """,
                     (now_iso(), row["outbox_id"]),
                 )
-    worker = OutboxWorker(db, index=index)
-    total = 0
-    for _ in range(max_attempts):
-        total += worker.run_pending()
-    return {"reset_rows": len(rows), "processed": total}
+    processed = 0
+    if index is not None:
+        worker = OutboxWorker(db, index=index)
+        for _ in range(max_attempts):
+            processed += worker.run_pending()
+    else:
+        print(
+            "Local memory mode: rows reset to pending; the app's own worker "
+            "will deliver them on next startup.",
+            file=sys.stderr,
+        )
+    return {"reset_rows": len(rows), "processed": processed}
 
 
 def now_iso() -> str:
@@ -66,7 +86,7 @@ def main() -> int:
         print(f"Database {db} not found", file=sys.stderr)
         return 1
     migration_runner.apply_migrations(db)
-    report = replay(db, InMemoryMnemisIndex(), args.max_attempts)
+    report = replay(db, _make_index(), args.max_attempts)
     print(json.dumps(report, indent=2))
     return 0
 

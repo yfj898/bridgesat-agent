@@ -13,14 +13,24 @@ on-device (no external model, Mnemis, vector service, or network required).
 - a FastAPI application (`app/main.py`) and a mobile-first PWA shell (`web/`);
 - a deterministic adaptive engine: diagnostic, skill-gap analysis, daily plan,
   mastery (Bayesian), misconception evidence, interventions;
-- a published content pack `bridgesat-math-0.1.0`: 55 human-approved original
-  math items across four skills (`linear_equations`, `systems_equations`,
+- a published content pack `bridgesat-math-0.1.0`: 55 original math items
+  across four skills (`linear_equations`, `systems_equations`,
   `ratios_percentages`, `functions_models`), plus 8 micro-lessons and 8
   worked examples, all with reviewer ledgers, licenses, and content hashes;
+- scoped bearer-token authentication: `POST /v1/students` returns a
+  one-time token (only its hash is stored), and every student-scoped
+  endpoint derives the learner identity from the token, never from the
+  request body;
 - an immutable SQLite event log with sync protocol: offline queuing,
   idempotent batches, refresh recovery, version-bound scoring;
 - episodic/strategy long-term memory (SQLite) with an optional Mnemis gateway
   that degrades to SQLite fallback on timeout or unavailability;
+- optional LLM enhancements that never become dependencies of the main loop:
+  a dual-mode next-action decision (`BRIDGESAT_LLM_API_KEY`) that prefers the
+  LLM's structured decision and falls back to the deterministic policy on any
+  failure, and an LLM-backed local memory index that distills episode
+  summaries and reranks recall, degrading to the authoritative SQLite recall
+  when the endpoint is unreachable;
 - FTS5 retrieval over the approved pack with citation/license filtering and
   restricted-source exclusion;
 - governed content pipeline: selection, drafting, exact-math validation,
@@ -43,7 +53,10 @@ on-device (no external model, Mnemis, vector service, or network required).
 - No external LLM is required for question selection, mastery updates,
   progress storage, or offline practice (design boundary, enforced by tests).
 - Mnemis, embeddings, LightRAG are conditional enhancements, never
-  dependencies of the main loop.
+  dependencies of the main loop. The LLM layer (`app/agent/llm_client.py`,
+  `app/memory/nvidia_backend.py`) is the same kind of conditional enhancement:
+  unset `BRIDGESAT_LLM_API_KEY` and every code path is byte-identical to the
+  deterministic engine.
 
 ## Planning and contract documents
 
@@ -63,6 +76,8 @@ on-device (no external model, Mnemis, vector service, or network required).
 
 ## Quick start
 
+Requirements: Python >= 3.11, Node >= 18 (for the web tests).
+
 ```bash
 cd bridgesat-agent
 python -m venv .venv
@@ -78,10 +93,64 @@ Open `http://127.0.0.1:8000` (PWA shell at `web/`), then run the tests and
 evaluations:
 
 ```bash
-pytest                                  # full test suite (238 tests)
+pytest                                  # full test suite (278 tests)
 python -m evals.run_all                 # regenerate every eval report
 node --test web/tests/*.test.js         # offline/weak-network/accessibility core paths
 ```
+
+The PWA issues its own bearer token on first profile creation, so no manual
+login is needed for the demo. Manual API use requires the token returned by
+`POST /v1/students` (`Authorization: Bearer <token>`).
+
+### Optional LLM enhancements
+
+Set `BRIDGESAT_LLM_API_KEY` (plus optional `BRIDGESAT_LLM_BASE_URL`,
+`BRIDGESAT_LLM_MODEL`, `BRIDGESAT_LLM_TIMEOUT_MS`) to enable the dual-mode
+decision and the LLM-backed memory index. Without the key every path is
+unchanged. With `BRIDGESAT_MODE=enhanced`, the index is used by the memory
+outbox worker:
+
+```bash
+export BRIDGESAT_LLM_API_KEY=nvapi-...   # never committed; env-only
+export BRIDGESAT_LLM_TIMEOUT_MS=8000     # default; NIM queues can exceed 1s
+export BRIDGESAT_MODE=enhanced
+```
+
+The default model is `deepseek-ai/deepseek-v4-flash-0731` on
+`https://integrate.api.nvidia.com/v1` (OpenAI-compatible). LLM failures are
+never fatal: decisions fall back to the deterministic policy and recall falls
+back to SQLite, exactly as before.
+
+The route layer (`/v1/adapt`) is wired to the LLM: with a key configured the
+next action is decided inside the `AdaptResponse` action domain, while the
+mastery update stays deterministic. A slow or timed-out call falls back to
+the deterministic policy mid-request, so a cold model never stalls a
+session.
+
+Verified NVIDIA NIM availability and behavior (free tier, 2026-08-08).
+Measured with the decision task (JSON-only action selection):
+
+- `deepseek-ai/deepseek-v4-flash-0731` — **default**; correct JSON at
+  `max_tokens=120`, math ~0.7s, decision ~1-9s (occasional queue). Same
+  model family as the opencode assistant runtime.
+- `openai/gpt-oss-120b` — strong quality but it is a reasoning model: it
+  returns `content=None` until `max_tokens` ~400 (the reasoning pass fills
+  the budget), and intermittently returns empty content. Usable via
+  `BRIDGESAT_LLM_MODEL=openai/gpt-oss-120b` + larger max-token headroom;
+  our client treats empty content as unavailable, so a missed call degrades,
+  it never crashes.
+- `nvidia/nemotron-3-super-120b-a12b` — correct JSON, ~3s;
+- `nvidia/nemotron-3-nano-30b-a3b` — correct JSON, ~1-4s;
+- `nvidia/llama-3.3-nemotron-super-49b-v1.5` — correct but very slow (16-46s);
+- `thinkingmachines/inkling` — reasoning-only output (content always None),
+  not usable for the structured decision;
+- `meta/llama-3.1-8b-instruct` — fine but weaker than the default;
+- `meta/llama-3.1-70b-instruct` — works; cold ~51s, warm ~18-31s. Use
+  `BRIDGESAT_LLM_TIMEOUT_MS=90000` and expect occasional timeouts on the
+  first call (which degrade to the deterministic policy);
+- `meta/llama-3.3-70b-instruct` — exceeds 90s on this key; not usable;
+- `nvidia/llama-3.1-nemotron-70b-instruct`, `moonshotai/kimi-k2.6`,
+  `mistralai/mistral-large*`, `z-ai/glm-5.2` — 404/unauthorized or timeout.
 
 ## Data sources
 
@@ -111,16 +180,28 @@ simulation is never presented as real student improvement.
 | local policy p95 < 150 ms | controlled internal test | 0.01 ms (this machine) |
 | FTS5 p95 < 200 ms | controlled internal test | 2.3 ms (this machine) |
 | session restore p95 < 500 ms | controlled internal test | 3.2 ms (this machine) |
-| security + sync suites | controlled internal test | 73 passed |
+| security + sync suites | controlled internal test | 74 passed |
 | web core-flow tests | controlled internal test | 21 passed, 0 failed |
 | educational improvement over control | synthetic simulation | +5.7pp correctness |
 
-Not yet measured (requires a human usability study): real educational
-outcome; accessibility manual walkthrough items marked "manual check
-required" in `reports/accessibility_eval.md`.
+Not yet measured or not yet done (each labeled honestly):
+
+- **real educational outcome** — requires a human usability study;
+- **accessibility manual walkthrough** — items marked "manual check required"
+  in `reports/accessibility_eval.md`;
+- **submission assets** — screenshots, one-page description, and the
+  3-minute demo video from `docs/IMPLEMENTATION_PLAN.md` section 14 do not
+  exist yet;
+- **human content review** — the review ledger is a simulated pass (see
+  "What is delivered"); a real human review of the 55 items is outstanding;
+- **newer API surface** — the full session/memory API contract
+  (`/v1/sessions`, `/v1/memory/*`) is not yet built; only the legacy
+  endpoints plus sync/content/knowledge routers exist.
 
 ## Status
 
 Competition MVP implemented end to end; every pre-submission checklist item
-in `docs/COMPETITION_MVP_EXECUTION_PLAN.md` section 12 is closed except the
-human usability study and the demo recording itself.
+in `docs/COMPETITION_MVP_EXECUTION_PLAN.md` section 12 is closed at the code
+level except the human items above (usability study, accessibility
+walkthrough, submission assets, real content review) and the demo recording
+itself.

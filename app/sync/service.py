@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -35,6 +36,8 @@ from app.infrastructure.migration_runner import apply_migrations
 from app.memory.sqlite_backend import SQLiteMemory
 
 from .protocol import (
+    MAX_EVENTS_PER_BATCH,
+    MAX_PAYLOAD_BYTES,
     OFFLINE_POLICY_VERSION,
     ConflictType,
     DeviceRegistration,
@@ -69,6 +72,19 @@ class SyncService:
         self.learner = LearnerStore(database_path)
         self.memory = SQLiteMemory(database_path)
         self.answer_keys = VersionedAnswerKey()
+        # Serializes same-student batch processing so concurrent device
+        # syncs cannot interleave SELECT-then-UPDATE projection steps
+        # (THREAT_MODEL 5.3, SYNC_PROTOCOL conflict semantics).
+        self._locks: dict[str, threading.Lock] = {}
+        self._locks_guard = threading.Lock()
+
+    def _student_lock(self, student_id: str) -> threading.Lock:
+        with self._locks_guard:
+            lock = self._locks.get(student_id)
+            if lock is None:
+                lock = threading.Lock()
+                self._locks[student_id] = lock
+            return lock
 
     # ------------------------------------------------------------------
     # Devices
@@ -128,7 +144,7 @@ class SyncService:
     # ------------------------------------------------------------------
 
     def process_batch(self, request: SyncRequest) -> SyncResponse:
-        if len(request.events) > 100:
+        if len(request.events) > MAX_EVENTS_PER_BATCH:
             return SyncResponse(
                 new_snapshot_version=0,
                 new_server_cursor="",
@@ -140,6 +156,10 @@ class SyncService:
                     )
                 ],
             )
+        with self._student_lock(request.student_id):
+            return self._process_batch_locked(request)
+
+    def _process_batch_locked(self, request: SyncRequest) -> SyncResponse:
         self._verify_device(request.device_id, request.student_id)
         if not self._student_exists(request.student_id):
             return SyncResponse(
@@ -159,6 +179,7 @@ class SyncService:
         rejected: list[SyncRejectedEvent] = []
         conflicts: list[SyncConflict] = []
         server_agent_events: list[dict] = []
+        accepted_max_sequence = 0
 
         for envelope in request.events:
             if not self._verify_integrity(envelope):
@@ -170,8 +191,27 @@ class SyncService:
                     )
                 )
                 continue
+            payload_bytes = len(json.dumps(envelope.payload, sort_keys=True).encode("utf-8"))
+            if payload_bytes > MAX_PAYLOAD_BYTES:
+                rejected.append(
+                    SyncRejectedEvent(
+                        event_id=envelope.event_id,
+                        code=SyncErrorCode.PAYLOAD_TOO_LARGE.value,
+                        retryable=False,
+                    )
+                )
+                continue
             if self.events.learning_event_exists(envelope.event_id):
                 duplicates.append(envelope.event_id)
+                continue
+            if not self._sequence_increases(request, envelope):
+                rejected.append(
+                    SyncRejectedEvent(
+                        event_id=envelope.event_id,
+                        code=SyncErrorCode.INVALID_SCHEMA.value,
+                        retryable=False,
+                    )
+                )
                 continue
 
             dependency_error = self._missing_dependency(request.student_id, envelope)
@@ -181,6 +221,7 @@ class SyncService:
 
             try:
                 self._apply_event(envelope, accepted, rejected, conflicts, server_agent_events)
+                accepted_max_sequence = max(accepted_max_sequence, envelope.device_sequence)
             except (DeviceNotFoundError, DeviceRevokedError):
                 raise
             except Exception:
@@ -192,6 +233,8 @@ class SyncService:
                     )
                 )
 
+        if accepted:
+            self._advance_device_sequence(request.device_id, request.student_id, accepted_max_sequence)
         snapshot = self.build_snapshot(request.student_id)
         return SyncResponse(
             accepted_event_ids=accepted,
@@ -208,13 +251,44 @@ class SyncService:
 
     def _verify_integrity(self, envelope: SyncEventEnvelope) -> bool:
         if envelope.integrity_hash is None:
-            return True
+            return False
         digest = hashlib.sha256()
         digest.update(envelope.event_type.encode("utf-8"))
         digest.update(b"\x00")
         canonical = json.dumps(envelope.payload, sort_keys=True, separators=(",", ":"))
         digest.update(canonical.encode("utf-8"))
         return envelope.integrity_hash == f"sha256:{digest.hexdigest()}"
+
+    def _sequence_increases(self, request: SyncRequest, envelope: SyncEventEnvelope) -> bool:
+        """SYNC_PROTOCOL rule: `device_sequence` increases per device.
+
+        The server tracks the last accepted sequence per device
+        (`devices.last_device_sequence`) and rejects events at or below it,
+        so a replayed or reordered batch cannot rewrite history.
+        Authoritative scope is the request (token-verified) device, not the
+        client-claims envelope fields.
+        """
+        with connect(self.db) as connection:
+            row = connection.execute(
+                "SELECT last_device_sequence FROM devices "
+                "WHERE device_id = ? AND student_id = ?",
+                (request.device_id, request.student_id),
+            ).fetchone()
+        if row is None:
+            return False
+        return envelope.device_sequence > row["last_device_sequence"]
+
+    def _advance_device_sequence(
+        self, device_id: str, student_id: str, batch_max: int
+    ) -> None:
+        with connect(self.db) as connection:
+            connection.execute(
+                """
+                UPDATE devices SET last_device_sequence = ?
+                WHERE device_id = ? AND student_id = ?
+                """,
+                (batch_max, device_id, student_id),
+            )
 
     def _missing_dependency(
         self, student_id: str, envelope: SyncEventEnvelope

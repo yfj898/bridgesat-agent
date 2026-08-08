@@ -46,7 +46,7 @@ Synthetic simulation is never presented as real student improvement.
 
 ## Security (controlled internal test)
 
-- pytest security + sync suites: 74 passed
+- pytest security + sync suites: 77 passed
 - report: reports/security_eval.json
 
 ## Web core-flow tests (controlled internal test)
@@ -63,9 +63,9 @@ Synthetic simulation is never presented as real student improvement.
 ## Performance gates (controlled internal test, this machine)
 
 - local policy p95: 0.0 ms (target < 150 ms)
-- FTS5 p95: 2.19 ms (target < 200 ms)
-- session restore p95: 3.29 ms (target < 500 ms)
-- sync throughput: 923.2 events/s, max RSS 79.6 MB
+- FTS5 p95: 1.77 ms (target < 200 ms)
+- session restore p95: 3.34 ms (target < 500 ms)
+- sync throughput: 662.0 events/s, max RSS 81.3 MB
 - report: reports/performance_eval.json
 
 ## Accessibility
@@ -86,8 +86,8 @@ Synthetic simulation is never presented as real student improvement.
 | unacknowledged-event loss = 0 | design target | PASS |
 | content audit 100% | controlled internal test | 100% |
 | local policy p95 < 150 ms | controlled internal test | 0.0 ms |
-| FTS5 p95 < 200 ms | controlled internal test | 2.19 ms |
-| session restore p95 < 500 ms | controlled internal test | 3.29 ms |
+| FTS5 p95 < 200 ms | controlled internal test | 1.77 ms |
+| session restore p95 < 500 ms | controlled internal test | 3.34 ms |
 | educational improvement over control | synthetic simulation | +5.7% correctness |
 
 ## Reproduction

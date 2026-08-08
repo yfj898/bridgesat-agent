@@ -6,6 +6,274 @@ EVALUATION_SPEC.md); this file is a chronological log, not a spec.
 
 ---
 
+## 2026-08-08 — Model selection: NVIDIA catalog probe + default model switch
+
+The user's NVIDIA NIM key is the same catalog the opencode assistant runtime
+uses, so the whole catalog was probed and benchmarked on the actual decision
+and memory tasks instead of assuming the small default.
+
+### What was done
+
+- Probed 17 candidate models on the free tier (200 / 404 / timeout) and
+  benchmarked the survivors on three tasks: arithmetic, JSON-only
+  decision, and (for the LLM-backed index) summary + rerank.
+- **Default model switched** `meta/llama-3.1-8b-instruct` →
+  `deepseek-ai/deepseek-v4-flash-0731` (the same model family the opencode
+  runtime uses). It returns valid JSON at `max_tokens=120` (the reasoning
+  models do not), math ~0.7s, decision ~1-9s, and handled summary and
+  rerank end-to-end on the first try.
+- Catalog findings recorded in README: `openai/gpt-oss-120b` and
+  `nvidia/nemotron-3-super-120b-a12b`/`nano-30b-a3b` work but are reasoning
+  models — they consume `max_tokens` with the reasoning pass and return
+  `content=None` until given ~400 tokens; `thinkingmachines/inkling` only
+  ever emits reasoning (content always None); `kimi`, `mistral-large*`,
+  `glm-5.2`, `nemotron-70b` are unauthorized/timeout.
+- `LLMClient.complete` now treats empty/None content as
+  `LLMUnavailableError` (reasoning models can emit None) instead of letting
+  a `AttributeError` escape; +1 test.
+- **Timeout-budget bug found and fixed** (would have made the LLM memory
+  index always fall back): `MnemisMemoryAdapter.recall_similar` falls back
+  to `SYSTEM_1_TIMEOUT_MS` (800 ms) when no per-call timeout is passed, and
+  `FallbackStudentMemory` calls it without one. The LLM round-trip (~1-30s)
+  always exceeded 800 ms → `MnemisUnavailableError` → SQLite fallback on
+  every recall. Fixes:
+  - `NvidiaMemoryIndex` budgets LLM calls with
+    `max(timeout_ms, llm.timeout_ms)` in both upsert summary and rerank;
+  - `FallbackStudentMemory` derives its recall budget from the adapter's
+    `timeout_ms` when not given explicitly (explicit wins, legacy default
+    kept);
+  - `build_mnemis_index` passes `timeout_ms=client.timeout_ms` to the
+    adapter.
+- Live chain re-verified with the new default: adapt → `insert_micro_lesson`
+  (LLM), upsert summary distilled, recall → `route=mnemis_system1` with the
+  expected hit. Route-level smoke of the 403-on-wrong-key path also
+  confirmed the degradation contract (deterministic fallback, no crash).
+
+### Verification
+
+- `pytest` → **278 passed**; `python -m evals.run_all` → 12 `[ok]`;
+  `node --test web/tests/*.test.js` → 21 pass.
+
+### Problems encountered and resolutions
+
+- Reasoning models (gpt-oss etc.) return `content=None` at small
+  `max_tokens`; resolved by empty-content → `LLMUnavailableError` and
+  documented `BRIDGESAT_LLM_MODEL=openai/gpt-oss-120b` with the caveat.
+- The 800 ms SYSTEM_1 budget silently defeated the LLM index; resolved by
+  the budget chain above and verified with the real endpoint (previously
+  `route: sqlite` on every call, now `mnemis_system1`).
+- A script typo in the smoke key produced a 403 — the failure surfaced as
+  a clean deterministic fallback with a traceback-free degrade, confirming
+  the degradation contract holds for auth errors too.
+
+### Follow-ups / known issues
+
+- `openai/gpt-oss-120b` is usable but needs max-token headroom; the default
+  stays `deepseek-ai/deepseek-v4-flash-0731` because it is reliable at the
+  configured budgets.
+- 70b-class models remain slow (cold 51s); documented.
+
+---
+
+## 2026-08-08 — LLM decision at the route layer + real 70b model verified
+
+Follow-on to the optional LLM layer: the `/v1/adapt` route now makes its
+decision through the LLM when configured, and the 70b-class model was probed
+and wired as a documented option.
+
+### What was done
+
+- `app/engine.py::adapt(previous_mastery, request, llm=None)` — dual-mode:
+  mastery stays deterministic; with an LLM attached the next action is asked
+  inside the `AdaptResponse` action domain (5 literal actions) and used only
+  when legal; failure/non-JSON/unknown action falls back to the
+  deterministic branches. The `minutes_remaining <= 2` time guard stays a
+  floor even when the LLM disagrees.
+- `app/main.py` — `_get_llm_client()` lazy singleton wired into
+  `adapt_session`; no `BRIDGESAT_LLM_API_KEY` → client stays None and the
+  route is byte-identical to before.
+- `app/infrastructure/async_utils.py` — `await_in_any_context` extracted
+  from the orchestrator (now a compat alias) so the sync engine can await
+  the async LLM client from any context (threadpool, running loop, tests).
+- Default `BRIDGESAT_LLM_TIMEOUT_MS` raised 800 → 8000 ms (8b model measures
+  ~1s; 800 ms was too tight for real NIM queues).
+- Probed the NVIDIA free-tier catalog for 70b-class models:
+  - `meta/llama-3.1-70b-instruct` — **works**: cold ~51s, warm ~18-31s;
+  - `meta/llama-3.3-70b-instruct` — exceeds 90s on this key;
+  - `nvidia/llama-3.1-nemotron-70b-instruct` — 404 (not authorized).
+- Live verification (env-only key, never committed):
+  - `adapt(0.5, ..., llm=70b client)` → `insert_micro_lesson` (deterministic
+    would have said `decrease_difficulty`), mastery stayed 0.41 deterministic;
+  - HTTP route with 70b → first call timed out at 90s and **degraded to the
+    deterministic policy mid-request** (the designed fallback, observed
+    live), warm call returned `insert_micro_lesson` in 18s.
+- Tests: `tests/test_llm_adapt.py` (8, incl. minutes-guard floor, mastery
+  determinism), 2 route-level tests in `tests/test_api.py`.
+
+### Verification
+
+- `pytest` → **277 passed**; `python -m evals.run_all` → 12 `[ok]`;
+  `node --test web/tests/*.test.js` → 21 pass.
+
+### Problems encountered and resolutions
+
+- Route test stub was injected as a transport (callable) instead of a
+  client (`complete`) — the first wiring test silently fell back to the
+  deterministic policy, which is exactly the degradation contract; the test
+  now injects a client-shaped stub.
+- First live 70b route call timed out at 90s and fell back — confirmed as
+  the designed behavior, documented (cold model → deterministic fallback,
+  never a stalled session).
+
+### Follow-ups / known issues
+
+- 70b calls are slow enough that only the warm path is interactive; the
+  default 8b model remains the sensible default. Documented in README.
+- `_get_llm_client` is a module-level singleton; fine for the single-worker
+  demo, revisit for multi-worker deployment.
+
+---
+
+## 2026-08-08 — Optional LLM layer: dual-mode decision + LLM-backed memory index
+
+TDD, strictly additive: with `BRIDGESAT_LLM_API_KEY` unset every code path is
+byte-identical to the deterministic engine; with it set, the orchestrator
+prefers the LLM's structured decision and the memory index distills summaries
+and reranks recall, both degrading to the existing deterministic/SQLite paths.
+
+### What was done
+
+- `app/agent/llm_client.py`: OpenAI-compatible chat-completions client over
+  an injectable async transport; default httpx transport reads
+  `BRIDGESAT_LLM_API_KEY`/`BRIDGESAT_LLM_BASE_URL`/`BRIDGESAT_LLM_MODEL`/
+  `BRIDGESAT_LLM_TIMEOUT_MS` (defaults: NVIDIA NIM endpoint,
+  `meta/llama-3.1-8b-instruct`, 800 ms). No key → `LLMUnavailableError`.
+- `SessionOrchestrator` dual-mode decision (`_decide`/`_decide_with_llm`):
+  LLM returns JSON `{action, reason_code, reason_text}`; the action must be
+  inside `BoundedAction`, otherwise the deterministic policy decides.
+  `_await_in_any_context` bridges the sync decision API to the async client
+  both outside and inside a running event loop.
+- `app/memory/nvidia_backend.py`: `NvidiaMemoryIndex` — a Mnemis-transport
+  drop-in (`request(method, path, body, timeout_ms)`) backed by local SQLite
+  plus the injected LLM: upsert distills a summary (LLM failure degrades to
+  the payload summary, never blocks indexing), recall reranks local
+  candidates by LLM relevance and raises `MnemisUnavailableError` on LLM
+  failure so the fallback chain routes to authoritative SQLite.
+- `app/memory/__init__.py::build_mnemis_index`: worker wiring — with the LLM
+  key set, `OutboxWorker` gets a `MnemisMemoryAdapter` over
+  `NvidiaMemoryIndex`; without it, the default unavailable-transport adapter
+  (unchanged behavior). `app/main.py` lifespan uses the factory.
+- Verified live against the real NVIDIA NIM endpoint (env-injected key, never
+  committed): decision returned `GIVE_HINT_1`/`llm-0.1.0`; upsert→recall
+  returned `ep_live` with `mnemis_system1` route and health ok. Also
+  confirmed the 800 ms default is too tight for NIM queues (~1s+); README
+  documents `BRIDGESAT_LLM_TIMEOUT_MS=8000` for live use.
+- Tests: `tests/test_llm_client.py` (5), `tests/test_llm_decision.py` (5),
+  `tests/test_nvidia_backend.py` (11), `tests/test_memory_index_factory.py`
+  (2), plus a chain integration test in `tests/test_fallback_memory.py`.
+
+### Verification
+
+- `pytest` → **267 passed** (was 244); `python -m evals.run_all` → 12
+  `[ok]`; `node --test web/tests/*.test.js` → 21 pass.
+- Live smoke (env-only key): LLMClient + orchestrator decision +
+  NvidiaMemoryIndex upsert/recall/health all exercised against NVIDIA NIM.
+
+### Problems encountered and resolutions
+
+- `asyncio.run()` inside a running loop (smoke called `_decide` from an
+  async main) → `_await_in_any_context` runs the coroutine on a fresh loop
+  in a worker thread when a loop is already running.
+- LLM decision `GIVE_HINT_1` mapped to `HINT_ACTIVE`, but `evaluate_answer`
+  had already transitioned to `ANSWER_EVALUATED`; hints map to
+  `QUESTION_ACTIVE` (the only legal source states are
+  `ANSWER_EVALUATED`/`QUESTION_ACTIVE`).
+- 800 ms default timeout too short for real NIM queues → documented 8000 ms
+  for live use; tests keep the injectable transport and stay sub-second.
+
+### Follow-ups / known issues
+
+- NVIDIA 70b-class models queue-beyond-timeout on the free tier; use
+  `meta/llama-3.1-8b-instruct` (verified ~1s) or `minimaxai/minimax-m3`
+  (~6s).
+- The LLM key must only ever be injected via environment; it is not stored
+  anywhere in the repo (verified by `tests/security/test_secret_scan.py`).
+
+---
+
+## 2026-08-07 — Review-driven hardening: auth, demo seed truth, worker, sync limits
+
+Fixes from the full project review (4 parallel subagent reviews: spec, code
+quality, security, usability), applied in priority order.
+
+### What was done
+
+1. **P0-1 import path** — `scripts/import_content_pack.py` defaulted to
+   `./bridgesat.db` (repo root) while the app uses `data/bridgesat.db`;
+   now resolves `ROOT / "data" / "bridgesat.db"`.
+2. **P0-2 HTTP auth** — new `app/auth.py` (`TokenStore` + `require_student`
+   dependency); `POST /v1/students` returns a one-time Bearer token (server
+   stores only a SHA-256 digest, matching migration 0003). All of
+   `/v1/diagnostics`, `/v1/adapt`, and `/v1/sync/*` now require the token;
+   student scope is derived from the token, never from client-claimed body
+   fields (mismatch -> 403). `web/app.js` persists the token in sync state
+   and sends `Authorization: Bearer ...` on every request.
+3. **P0-3 seed narrative** — `scripts/seed_demo.py` previously faked
+   mastery: the practice batch claimed correct answers on the transfer item
+   while the episode said `sign_error`. Now the session answers
+   `linear_equations.001/.002` wrong (distractor B, `sign_error`) and the
+   transfer item `.003` correctly without hints, matching the episode.
+4. **P1-1 worker startup** — `app/main.py` now starts `OutboxWorker` in a
+   lifespan; enhanced mode polls every 2 s with the Mnemis adapter, local
+   mode keeps rows pending by design.
+5. **P1-2 README honesty** — 55 items re-labeled as simulated (human review
+   pending); bearer-token auth documented; quick start / test counts fixed;
+   "not yet measured" list expanded.
+6. **P2-1 sync protocol hardening** — `SyncService.process_batch` now:
+   serializes same-student batches under a per-student lock
+   (THREAT_MODEL 5.3); rejects events whose serialized payload exceeds
+   64 KiB (`PAYLOAD_TOO_LARGE`); requires a valid `integrity_hash`
+   (`None` -> `INVALID_SCHEMA`, previously passed through); enforces
+   monotonic `device_sequence` per device against the `last_device_sequence`
+   column (previously dead) — replays/out-of-order batches are rejected.
+   New tests: `test_single_payload_over_64kb_rejected`,
+   `test_missing_integrity_hash_rejected`,
+   `test_out_of_order_device_sequence_rejected`.
+7. **P2-2 dead-letter replay** — `scripts/replay_dead_letter.py` previously
+   drained dead letters into a throwaway `InMemoryMnemisIndex`, marking rows
+   `indexed` that never reached the real index. It now mirrors `app.main`:
+   delivers via the Mnemis adapter in enhanced mode, and otherwise just
+   resets rows to `pending` for the running app to drain.
+8. **Demo script** — new `docs/DEMO_SCRIPT.md`, a 7-step reproducible
+   competition path with exact commands, expected output, and a failure
+   table.
+
+### Verification
+
+- Full suite: 244 passed (was 238; +6 request-limit/sequence/hash tests).
+- `python -m evals.run_all` all steps [ok]; `node --test web/tests/` green.
+- Fresh-db `scripts/seed_demo.py` smoke: 13 events accepted, episode
+  validated, plan `['micro_lesson','practice','review','reflection']`.
+
+### Problems encountered and resolutions
+
+1. **Sequence check scoped to the wrong device** — early draft validated
+   `envelope.device_id` (client-claimed, often a default `device_a`) against
+   the registered request device, rejecting legitimate batches; the check now
+   uses the request (token-verified) device.
+2. **`MAX()` on learning_events returned NULL** — forged-event tests insert
+   envelopes whose `device_id` differs from the registered device, so the
+   UPDATE subquery hit a NOT NULL violation; `_advance_device_sequence` now
+   takes the batch's accepted max directly.
+
+### Follow-ups / known issues
+
+- Remaining human items only: accessibility manual walkthrough, real
+  educational outcome study, demo recording; new token-based API surface
+  needs external security review. No further code items open.
+
+---
+
 ## 2026-08-07 — Fix byte-identical lesson pairs in content generation
 
 Commit: `a1f808f` `fix(content-pipeline): generate distinct lesson pairs per

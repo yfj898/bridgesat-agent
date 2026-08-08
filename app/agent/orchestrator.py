@@ -43,16 +43,66 @@ class DecisionOutcome:
     episode: Episode | None = None
 
 
+def _await_in_any_context(coro):
+    """Compatibility alias; moved to app.infrastructure.async_utils."""
+    from app.infrastructure.async_utils import await_in_any_context as _impl
+
+    return _impl(coro)
+
+
+def _policy_input_brief(inputs: PolicyInput) -> dict:
+    """A compact, serializable view of the state for the LLM prompt."""
+    return {
+        "skill": inputs.skill,
+        "subskill": inputs.subskill,
+        "difficulty": inputs.difficulty,
+        "mastery": round(inputs.mastery, 3),
+        "confidence": round(inputs.confidence, 3),
+        "consecutive_errors": inputs.consecutive_errors,
+        "correct_streak": inputs.correct_streak,
+        "repeated_misconception": inputs.repeated_misconception,
+        "active_misconception": inputs.active_misconception,
+        "misconception_observation_count": inputs.misconception_observation_count,
+        "requires_unmastered_prerequisite": inputs.requires_unmastered_prerequisite,
+        "minutes_remaining": inputs.minutes_remaining,
+        "hints_used_this_item": inputs.hints_used_this_item,
+        "recalled_successful_episode": inputs.recalled_successful_episode,
+    }
+
+
+def _next_state_for(action: str) -> SessionState:
+    """Map a bounded action to the session state it leads to."""
+    from app.domain.memory import BoundedAction as BA
+
+    if action == BA.SHOW_WORKED_EXAMPLE.value:
+        return SessionState.WORKED_EXAMPLE_ACTIVE
+    if action == BA.SHOW_MICRO_LESSON.value:
+        return SessionState.MICRO_LESSON_ACTIVE
+    if action in (BA.GIVE_HINT_1.value, BA.GIVE_HINT_2.value, BA.GIVE_HINT_3.value):
+        return SessionState.QUESTION_ACTIVE
+    if action in (BA.SCHEDULE_REVIEW.value, BA.END_WITH_REVIEW.value, BA.END_SESSION.value):
+        return SessionState.SESSION_SUMMARY
+    return SessionState.QUESTION_ACTIVE
+
+
 class SessionOrchestrator:
     """Ties immutable events, projections, memory, and the bounded policy into
-    one explainable decision per interaction."""
+    one explainable decision per interaction.
 
-    def __init__(self, database_path: Path) -> None:
+    Dual-mode decision: when ``llm`` (an LLMClient) is attached, the
+    orchestrator asks it for the next action as structured JSON. Any failure,
+    unparseable output, or action outside the bounded set falls back to the
+    deterministic policy, so an LLM outage never breaks a session. Without an
+    attached client the behavior is identical to the deterministic policy.
+    """
+
+    def __init__(self, database_path: Path, llm=None) -> None:
         self.db = database_path
         self.events = EventStore(database_path)
         self.learner = LearnerStore(database_path)
         self.memory = SQLiteMemory(database_path)
         self.episodes = EpisodeBuilder(database_path)
+        self.llm = llm
 
     def _content_version(self, item: ContentItem) -> str:
         return f"{item.content_id}.v{item.version}"
@@ -126,7 +176,7 @@ class SessionOrchestrator:
             else (0, 0)
         )
 
-        recalled = self._recall_successful_episodes(student_id, item.skill, misconception)
+        recalled = self._recall_episodes(student_id, item.skill, misconception)
         inputs = PolicyInput(
             student_id=student_id,
             session_id=session_id,
@@ -144,7 +194,7 @@ class SessionOrchestrator:
             recalled_successful_episode=bool(recalled),
             recalled_episode_ids=[e.episode_id for e in recalled],
         )
-        result = decide_next_action(inputs)
+        result = self._decide(inputs)
 
         agent_event = AgentEvent(
             event_id=f"agt_{uuid.uuid4().hex[:16]}",
@@ -174,12 +224,72 @@ class SessionOrchestrator:
             agent_event=agent_event,
         )
 
-    def _recall_successful_episodes(self, student_id: str, skill: str, misconception: str | None):
+    def _recall_episodes(self, student_id: str, skill: str, misconception: str | None):
         return self.memory.recall_episodes(
             student_id=student_id,
             skill=skill,
             misconception=misconception,
             limit=3,
+        )
+
+    def _decide(self, inputs: PolicyInput):
+        """Dual-mode next-action selection.
+
+        With an LLM attached, request a structured decision; fall back to the
+        bounded policy when the LLM is unavailable, returns non-JSON, or picks
+        an action outside the bounded set. The deterministic policy is always
+        the floor, so an LLM outage degrades the decision, never the session.
+        """
+        if self.llm is not None:
+            llm_result = self._decide_with_llm(inputs)
+            if llm_result is not None:
+                return llm_result
+        return decide_next_action(inputs)
+
+    def _decide_with_llm(self, inputs: PolicyInput):
+        from app.agent.llm_client import LLMUnavailableError
+        import json as _json
+
+        prompt = (
+            "You are the next-action policy for an SAT math tutor. Given the "
+            "current state, choose exactly one action from the bounded set: "
+            + ", ".join(action.value for action in BoundedAction)
+            + ". Respond with JSON only: "
+            '{"action": "<ACTION>", "reason_code": "<UPPER_SNAKE>", '
+            '"reason_text": "<short explanation>"}. '
+            "State: " + _json.dumps(_policy_input_brief(inputs), sort_keys=True)
+        )
+        try:
+            content = self.llm.complete(prompt, max_tokens=120, temperature=0.0)
+            if hasattr(content, "__await__"):
+                from app.infrastructure.async_utils import await_in_any_context
+
+                content = await_in_any_context(content)
+        except (LLMUnavailableError, AttributeError, TypeError):
+            return None
+        if not content:
+            return None
+        try:
+            parsed = _json.loads(content.strip())
+        except ValueError:
+            return None
+        action = parsed.get("action")
+        if action not in {a.value for a in BoundedAction}:
+            return None
+        decision = AgentDecision(
+            action=action,
+            action_payload={"skill": inputs.skill, "source": "llm"},
+            reason_code=str(parsed.get("reason_code") or "LLM_DECISION"),
+            reason_text=str(parsed.get("reason_text") or "LLM-selected next action."),
+            target_skill=inputs.skill,
+            difficulty=inputs.difficulty,
+            policy_version="llm-0.1.0",
+        )
+        from app.agent.policy import PolicyResult
+
+        return PolicyResult(
+            decision=decision,
+            next_state=_next_state_for(action),
         )
 
     def build_episode(

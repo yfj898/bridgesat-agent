@@ -73,11 +73,28 @@ def test_retrieval_failure_is_fail_closed(tmp_path: Path, monkeypatch) -> None:
     assert payload["explicit_no_result"] is True
 
 
-def test_diagnostic_payload_bounds_rejected() -> None:
-    client = TestClient(__import__("app.main", fromlist=["app"]).app)
+def test_diagnostic_payload_bounds_rejected(tmp_path: Path) -> None:
+    db = tmp_path / "limits.db"
+    from app.auth import TokenStore
+    from app.infrastructure.migration_runner import apply_migrations
+    from app.repository import StudentRepository
+
+    import app.main as main
+
+    apply_migrations(db)
+    main.repository = StudentRepository(db)
+    main.token_store = TokenStore(db)
+    student_id = main.repository.create(
+        __import__("app.models", fromlist=["StudentCreate"]).StudentCreate(
+            name="Limits", daily_minutes=15, target_score=1100
+        )
+    ).id
+    token = main.token_store.issue(student_id)
+    client = TestClient(main.app)
     response = client.post(
         "/v1/diagnostics",
-        json={"student_id": "nobody", "answers": []},
+        headers={"Authorization": f"Bearer {token}"},
+        json={"student_id": student_id, "answers": []},
     )
     assert response.status_code == 422
 
@@ -89,3 +106,93 @@ def test_oversized_student_name_rejected() -> None:
         json={"name": "x" * 200, "daily_minutes": 20, "target_score": 1200},
     )
     assert response.status_code == 422
+
+
+def test_single_payload_over_64kb_rejected(db: Path) -> None:
+    _seed_student(db)
+    sync = SyncService(db)
+    sync.register_device(STUDENT_ID, "d", device_id="dev_lim")
+    event = envelope(
+        event_id="evt_huge",
+        student_id=STUDENT_ID,
+        device_id="dev_lim",
+        payload={"question_id": "sync.linear.001", "blob": "x" * (70 * 1024)},
+    )
+    response = sync.process_batch(
+        SyncRequest(
+            device_id="dev_lim",
+            student_id=STUDENT_ID,
+            events=[SyncEventEnvelope(**event)],
+        )
+    )
+    assert response.accepted_event_ids == []
+    assert response.rejected_events[0].code == "PAYLOAD_TOO_LARGE"
+    assert response.rejected_events[0].retryable is False
+
+
+def test_missing_integrity_hash_rejected(db: Path) -> None:
+    _seed_student(db)
+    sync = SyncService(db)
+    sync.register_device(STUDENT_ID, "d", device_id="dev_lim")
+    event = envelope(
+        event_id="evt_nohash",
+        student_id=STUDENT_ID,
+        device_id="dev_lim",
+        include_hash=False,
+    )
+    response = sync.process_batch(
+        SyncRequest(
+            device_id="dev_lim",
+            student_id=STUDENT_ID,
+            events=[SyncEventEnvelope(**event)],
+        )
+    )
+    assert response.accepted_event_ids == []
+    assert response.rejected_events[0].code == "INVALID_SCHEMA"
+    assert response.rejected_events[0].retryable is False
+
+
+def test_out_of_order_device_sequence_rejected(db: Path) -> None:
+    _seed_student(db)
+    sync = SyncService(db)
+    sync.register_device(STUDENT_ID, "d", device_id="dev_lim")
+    first = envelope(
+        event_id="evt_seq_1", student_id=STUDENT_ID, device_id="dev_lim", device_sequence=1
+    )
+    response = sync.process_batch(
+        SyncRequest(
+            device_id="dev_lim",
+            student_id=STUDENT_ID,
+            events=[SyncEventEnvelope(**first)],
+        )
+    )
+    assert response.accepted_event_ids == ["evt_seq_1"]
+
+    stale = envelope(
+        event_id="evt_seq_1_replay",
+        student_id=STUDENT_ID,
+        device_id="dev_lim",
+        device_sequence=1,
+    )
+    stale["payload"]["attempt_id"] = "evt_seq_1_replay"
+    response = sync.process_batch(
+        SyncRequest(
+            device_id="dev_lim",
+            student_id=STUDENT_ID,
+            events=[SyncEventEnvelope(**stale)],
+        )
+    )
+    assert response.accepted_event_ids == []
+    assert response.rejected_events[0].code == "INVALID_SCHEMA"
+
+    next_event = envelope(
+        event_id="evt_seq_2", student_id=STUDENT_ID, device_id="dev_lim", device_sequence=2
+    )
+    response = sync.process_batch(
+        SyncRequest(
+            device_id="dev_lim",
+            student_id=STUDENT_ID,
+            events=[SyncEventEnvelope(**next_event)],
+        )
+    )
+    assert response.accepted_event_ids == ["evt_seq_2"]

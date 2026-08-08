@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .models import Skill, Student, StudentCreate
@@ -20,6 +21,8 @@ class StudentRepository:
         return connection
 
     def _initialize(self) -> None:
+        # Mirrors migration 0003 exactly so the legacy repository and the
+        # migrated schema can never disagree (both use IF NOT EXISTS).
         with self._connect() as connection:
             connection.execute(
                 """
@@ -28,7 +31,10 @@ class StudentRepository:
                     name TEXT NOT NULL,
                     daily_minutes INTEGER NOT NULL,
                     target_score INTEGER NOT NULL,
-                    mastery_json TEXT NOT NULL
+                    mastery_json TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
                 )
                 """
             )
@@ -41,15 +47,23 @@ class StudentRepository:
             target_score=payload.target_score,
             mastery={skill: 0.5 for skill in Skill},
         )
+        now = datetime.now(UTC).isoformat()
         with self._connect() as connection:
             connection.execute(
-                "INSERT INTO students VALUES (?, ?, ?, ?, ?)",
+                """
+                INSERT INTO students (
+                    id, name, daily_minutes, target_score, mastery_json,
+                    status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+                """,
                 (
                     student.id,
                     student.name,
                     student.daily_minutes,
                     student.target_score,
                     json.dumps({key.value: value for key, value in student.mastery.items()}),
+                    now,
+                    now,
                 ),
             )
         return student

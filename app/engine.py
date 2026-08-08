@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from collections import defaultdict
+from typing import Any
 
 from .models import (
     AdaptRequest,
@@ -16,9 +18,74 @@ from .question_bank import question_map
 
 DEFAULT_MASTERY = 0.5
 
+ADAPT_ACTIONS = (
+    "increase_difficulty",
+    "continue_practice",
+    "decrease_difficulty",
+    "insert_micro_lesson",
+    "end_with_review",
+)
+
+ADAPT_DELTA = {
+    "increase_difficulty": 1,
+    "decrease_difficulty": -1,
+    "insert_micro_lesson": -1,
+    "continue_practice": 0,
+    "end_with_review": 0,
+}
+
 
 def _clamp(value: float) -> float:
     return round(max(0.05, min(0.95, value)), 3)
+
+
+def _adapt_with_llm(
+    previous_mastery: float, request: AdaptRequest, llm: Any
+) -> tuple[str, str] | None:
+    """Ask the LLM for the next adapt action; None means fall back.
+
+    The LLM answers inside the AdaptResponse action domain. Returns
+    (action, reason) only when the action is a legal value, so an LLM can
+    never steer the session outside the bounded set.
+    """
+    prompt = (
+        "You are the adapt policy for an SAT math tutor. Decide the next "
+        "action from this exact set: "
+        + ", ".join(ADAPT_ACTIONS)
+        + ". State: "
+        + json.dumps(
+            {
+                "skill": request.skill.value,
+                "mastery": round(previous_mastery, 3),
+                "was_correct": request.was_correct,
+                "hint_level": request.hint_level,
+                "consecutive_skill_errors": request.consecutive_skill_errors,
+                "minutes_remaining": request.minutes_remaining,
+            },
+            sort_keys=True,
+        )
+        + '. Respond with JSON only: {"action": "<ACTION>", '
+        '"reason_code": "<UPPER_SNAKE>", "reason_text": "<short explanation>"}.'
+    )
+    try:
+        content = llm.complete(prompt, max_tokens=120, temperature=0.0)
+        if hasattr(content, "__await__"):
+            from .infrastructure.async_utils import await_in_any_context
+
+            content = await_in_any_context(content)
+    except Exception:
+        return None
+    if not content:
+        return None
+    try:
+        parsed = json.loads(content.strip())
+    except (ValueError, AttributeError):
+        return None
+    action = parsed.get("action")
+    if action not in ADAPT_ACTIONS:
+        return None
+    reason = str(parsed.get("reason_text") or "LLM-selected next action.")
+    return action, reason
 
 
 def score_diagnostic(
@@ -100,7 +167,20 @@ def build_plan(weakest: list[Skill], daily_minutes: int) -> list[PlanItem]:
     ]
 
 
-def adapt(previous_mastery: float, request: AdaptRequest) -> AdaptResponse:
+def adapt(
+    previous_mastery: float,
+    request: AdaptRequest,
+    llm: Any | None = None,
+) -> AdaptResponse:
+    """Dual-mode next-action selection for /v1/adapt.
+
+    The mastery update is always computed deterministically below — the LLM
+    never touches the numbers. With an LLM attached, the next action is asked
+    inside the AdaptResponse action domain and used only when it is a legal
+    value; any failure, non-JSON output, or unknown action falls back to the
+    deterministic branches. Without an LLM the behavior is byte-identical to
+    the deterministic policy.
+    """
     if request.was_correct:
         updated = _clamp(previous_mastery + 0.07 - request.hint_level * 0.02)
     else:
@@ -113,6 +193,16 @@ def adapt(previous_mastery: float, request: AdaptRequest) -> AdaptResponse:
             reason="Only a few minutes remain, so the agent closes with a short review instead of starting a new concept.",
             next_difficulty_delta=0,
         )
+
+    if llm is not None:
+        llm_action = _adapt_with_llm(previous_mastery, request, llm)
+        if llm_action is not None:
+            return AdaptResponse(
+                action=llm_action[0],
+                mastery=updated,
+                reason=llm_action[1],
+                next_difficulty_delta=ADAPT_DELTA[llm_action[0]],
+            )
 
     if request.consecutive_skill_errors >= 2:
         return AdaptResponse(

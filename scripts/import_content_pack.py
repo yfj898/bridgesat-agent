@@ -4,7 +4,7 @@
 Usage:
     python scripts/import_content_pack.py [--db PATH] [--pack PATH]
 
-Default database is BRIDGESAT_DB or ./bridgesat.db; default pack is the
+Default database is BRIDGESAT_DB or ./data/bridgesat.db; default pack is the
 latest built bridgesat-math pack under content/packs/.
 """
 
@@ -24,7 +24,7 @@ from app.knowledge.local_backend import index_pack
 
 
 def _default_db() -> Path:
-    return Path(os.getenv("BRIDGESAT_DB", ROOT / "bridgesat.db"))
+    return Path(os.getenv("BRIDGESAT_DB", ROOT / "data" / "bridgesat.db"))
 
 
 def _default_pack() -> Path:

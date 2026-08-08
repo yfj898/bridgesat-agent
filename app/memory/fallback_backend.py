@@ -75,12 +75,21 @@ class FallbackStudentMemory:
         database_path: Path,
         mnemis: MnemisMemoryAdapter | Any | None = None,
         *,
-        timeout_ms: int = SYSTEM_1_TIMEOUT_MS,
+        timeout_ms: int | None = None,
         offline_snapshot: Any | None = None,
     ) -> None:
         self.sqlite = SQLiteMemory(database_path)
         self.mnemis = mnemis
-        self.timeout_ms = timeout_ms
+        # The recall budget must fit the index behind the adapter: the
+        # LLM-backed index (NvidiaMemoryIndex) needs the LLM round-trip time,
+        # not the 800 ms HTTP budget. Prefer an explicit timeout, then the
+        # adapter's own, then the legacy default.
+        if timeout_ms is not None:
+            self.timeout_ms = timeout_ms
+        elif hasattr(mnemis, "timeout_ms") and mnemis.timeout_ms is not None:
+            self.timeout_ms = mnemis.timeout_ms
+        else:
+            self.timeout_ms = SYSTEM_1_TIMEOUT_MS
         self.offline_snapshot = offline_snapshot
         self._route_counts: dict[str, int] = {}
         self._latencies: deque[float] = deque(maxlen=200)

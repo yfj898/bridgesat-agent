@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 OFFLINE_POLICY_VERSION = "offline-policy-v1"
 MAX_EVENTS_PER_BATCH = 100
+MAX_PAYLOAD_BYTES = 64 * 1024
 
 
 class SyncErrorCode(StrEnum):

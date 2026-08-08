@@ -72,7 +72,15 @@ def _demo_answers() -> list[DiagnosticAnswer]:
 
 
 def _practice_events(student_id: str) -> list[SyncEventEnvelope]:
-    """One offline practice session: 4 correct, 2 misconception answers."""
+    """One offline practice session matching the demo narrative.
+
+    Session 1 shows two consecutive `sign_error` answers on linear equations
+    (the sign-error distractor choice), then a same-misconception transfer
+    item answered correctly without hints, followed by correct answers in the
+    other covered skills. EpisodeBuilder later encodes this as a
+    `linear_equations`/`sign_error` episode with the SHOW_WORKED_EXAMPLE
+    intervention (see setup_*_episode in main()).
+    """
     from app.question_bank import packs_root
 
     items_path = packs_root() / f"bridgesat-math-{PACK_VERSION}" / "items.jsonl"
@@ -81,13 +89,15 @@ def _practice_events(student_id: str) -> list[SyncEventEnvelope]:
     for item in items:
         by_skill.setdefault(item["target_skill"], []).append(item)
 
+    linear = by_skill["linear_equations"]
+    wrong_pick = [c for c in linear[0]["choices"] if c["id"] == "B"][0]
     picks = [
-        (by_skill["linear_equations"][0], True),
-        (by_skill["ratios_percentages"][0], False),
-        (by_skill["linear_equations"][1], True),
-        (by_skill["ratios_percentages"][1], False),
-        (by_skill["functions_models"][0], True),
-        (by_skill["systems_equations"][0], True),
+        (linear[0], wrong_pick),          # linear: sign_error (distractor B)
+        (linear[1], wrong_pick),          # linear: sign_error again (same B)
+        (linear[2], None),                # linear: transfer item, correct, no hint
+        (by_skill["functions_models"][0], None),
+        (by_skill["systems_equations"][0], None),
+        (by_skill["ratios_percentages"][0], None),
     ]
 
     events: list[SyncEventEnvelope] = []
@@ -117,16 +127,14 @@ def _practice_events(student_id: str) -> list[SyncEventEnvelope]:
         sequence += 1
 
     previous_id: str | None = None
-    for item, correct in picks:
+    for item, forced_choice in picks:
         append(
             "CONTENT_PRESENTED",
             {"question_id": item["id"]},
             depends_on=[previous_id] if previous_id else None,
         )
         presented_id = events[-1].event_id
-        selected = item["answer_choice_id"] if correct else [
-            c["id"] for c in item["choices"] if c["id"] != item["answer_choice_id"]
-        ][0]
+        selected = forced_choice["id"] if forced_choice else item["answer_choice_id"]
         append(
             "ANSWER_SUBMITTED",
             {
@@ -217,7 +225,7 @@ def main() -> int:
     observation = _event("demo_obs_1", LearningEventType.MISCONCEPTION_IDENTIFIED,
                          {"skill": "linear_equations", "misconception": "sign_error"})
     outcome = _event("demo_out_1", LearningEventType.ANSWER_SUBMITTED,
-                     {"question_id": "math.linear_equations.004", "correct": True})
+                     {"question_id": "math.linear_equations.003", "correct": True})
 
     builder = EpisodeBuilder(DATABASE_PATH)
     episode = builder.build_candidate(
@@ -231,19 +239,24 @@ def main() -> int:
         outcome_event=outcome,
         outcome_correct=True,
         outcome_hint_level=0,
-        outcome_content_id="math.linear_equations.004",
+        outcome_content_id="math.linear_equations.003",
         teaching_content_id="math.linear_equations.001",
         summary="worked example resolved sign_error on a transfer item",
     )
     validated = builder.validate(episode)
 
     from app.memory.worker import OutboxWorker
+    from app.auth import TokenStore
+
     worker = OutboxWorker(DATABASE_PATH)
     drained = 0
     while worker.run_pending() > 0:
         drained += 1
 
+    token = TokenStore(DATABASE_PATH).issue(student_id)
+
     print(f"Seeded demo student {student_id}")
+    print(f"  token: {token}")
     print(f"  mastery: {json.dumps(diagnostic.mastery, sort_keys=True)}")
     print(f"  weakest: {diagnostic.weakest_skills}")
     print(f"  plan: {[p.activity for p in plan]}")

@@ -18,7 +18,10 @@ from app.infrastructure import migration_runner
 from app.infrastructure.learner_store import LearnerStore
 from app.memory.episode_builder import EpisodeBuilder
 from app.memory.fallback_backend import FallbackStudentMemory
-from app.memory.mnemis_backend import MnemisUnavailableError
+from app.memory.mnemis_backend import (
+    MnemisMemoryAdapter,
+    MnemisUnavailableError,
+)
 from app.memory.mnemis_stub import InMemoryMnemisIndex
 
 
@@ -67,6 +70,11 @@ class SlowIndex:
         return True
 
 
+class _RankingLLM:
+    async def complete(self, prompt: str, **kwargs) -> str:
+        return '[{"memory_id": "ep_1", "confidence": 0.9, "retrieval_score": 0.95}]'
+
+
 def test_mnemis_results_take_priority(db: tuple[Path, str]) -> None:
     path, student_id = db
     mnemis = InMemoryMnemisIndex()
@@ -110,7 +118,37 @@ def test_mnemis_unavailable_falls_back_to_sqlite(db: tuple[Path, str]) -> None:
     assert metrics["memory_route_counts"].get("mnemis_system1", 0) == 0
 
 
-def test_slow_mnemis_does_not_block_sqlite(db: tuple[Path, str]) -> None:
+def test_nvidia_index_drives_mnemis_route(db: tuple[Path, str]) -> None:
+    """The LLM-backed local index is a drop-in Mnemis transport: when recall
+    succeeds via the LLM rerank, hits carry the mnemis route and the fallback
+    rate drops to zero."""
+    path, student_id = db
+    from app.memory.nvidia_backend import NvidiaMemoryIndex
+
+    index = NvidiaMemoryIndex(path, llm=_RankingLLM())
+    adapter = MnemisMemoryAdapter(base_url="http://local/nvidia", transport=index)
+    asyncio.run(
+        adapter.upsert_episode(
+            {
+                "episode_id": "ep_1",
+                "student_id": student_id,
+                "skill": "linear_equations",
+                "misconception": "sign_error",
+                "summary": "student resolved sign_error via worked example",
+                "confidence": 1.0,
+            },
+            idempotency_key="memory-index:k1",
+        )
+    )
+    memory = FallbackStudentMemory(path, mnemis=adapter)
+    result = asyncio.run(
+        memory.recall_similar(
+            student_id=student_id, skill="linear_equations", misconception="sign_error"
+        )
+    )
+    assert result.route == "mnemis_system1"
+    assert [r.episode_id for r in result.hits] == ["ep_1"]
+    assert memory.recall_metrics()["memory_fallback_rate"] == 0.0
     path, student_id = db
     memory = FallbackStudentMemory(path, mnemis=SlowIndex(), timeout_ms=200)
     started = time.perf_counter()
