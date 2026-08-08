@@ -4,7 +4,7 @@
 
 **Goal:** 把全部存储层从 SQLite 单文件迁移到 PostgreSQL 多租户(RLS 隔离),检索层从 FTS5 迁移到 PG tsvector 兜底,并提供 SQLite → PG 数据迁移脚本,278+ 测试全部改跑真实 PG。
 
-**Architecture:** `app/infrastructure/pg.py` 提供 PG 连接池统一入口;迁移器重写为 PG 版(8 个迁移脚本 0001-0008,0008 加租户列与 RLS);所有存储模块(StudentRepository/TokenStore/EventStore/LearnerStore/PGMemory/OutboxRepository/SyncService/KnowledgeBackend)改用 psycopg;FastAPI 加租户解析中间件;`scripts/migrate_sqlite_to_pg.py` 一次性迁移现有数据。
+**Architecture:** `app/infrastructure/pg.py` 提供 PG 连接池统一入口;迁移器重写为 PG 版(9 个迁移脚本 0001-0009,0008 加租户列与 RLS,0009 加固 SECURITY DEFINER token resolver);所有存储模块(StudentRepository/TokenStore/EventStore/LearnerStore/PGMemory/OutboxRepository/SyncService/KnowledgeBackend)改用 psycopg;FastAPI 加租户解析中间件;`scripts/migrate_sqlite_to_pg.py` 一次性迁移现有数据。
 
 **Tech Stack:** psycopg3、PostgreSQL 16(Docker)、PG tsvector、RLS;测试用 pytest 连真实 PG。Milvus 向量检索在 Plan 2,不在本计划内。
 
@@ -478,7 +478,7 @@ from .pg import transaction
 
 MIGRATION_DIR = Path(__file__).resolve().parent / "migrations_pg"
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 class UnsupportedDatabaseError(RuntimeError):
@@ -1000,13 +1000,14 @@ git commit -m "feat: PG 迁移脚本 0001-0004(基础+会话核心+记忆)"
 
 ---
 
-## Task 5: PG 迁移脚本 0005-0008
+## Task 5: PG 迁移脚本 0005-0009
 
 **Files:**
 - Create: `app/infrastructure/migrations_pg/0005_knowledge_fts.py`(tsvector 版)
 - Create: `app/infrastructure/migrations_pg/0006_sync_protocol.py`
 - Create: `app/infrastructure/migrations_pg/0007_memory_outbox.py`
 - Create: `app/infrastructure/migrations_pg/0008_multi_tenant_rls.py`
+- Create: `app/infrastructure/migrations_pg/0009_harden_token_resolver.py`(存量 v8 数据库的 SECURITY DEFINER 加固)
 
 - [ ] **Step 1: 0005 写迁移脚本(tsvector 兜底检索)**
 
@@ -1241,22 +1242,30 @@ def _create_token_resolver(connection: psycopg.Connection) -> None:
     exposes only the row for the presented token."""
     connection.execute(
         """
-        CREATE OR REPLACE FUNCTION resolve_token(p_hash TEXT)
+        CREATE OR REPLACE FUNCTION public.resolve_token(p_hash TEXT)
         RETURNS TABLE (tenant_id TEXT, student_id TEXT)
         LANGUAGE sql
         SECURITY DEFINER
-        SET search_path = public
+        SET search_path = pg_catalog, public, pg_temp
         AS $$
-            SELECT tenant_id, student_id FROM student_tokens
+            SELECT tenant_id, student_id FROM public.student_tokens
             WHERE token_hash = p_hash AND revoked_at IS NULL
         $$
         """
     )
-    connection.execute("REVOKE ALL ON FUNCTION resolve_token(TEXT) FROM PUBLIC")
-    connection.execute("GRANT EXECUTE ON FUNCTION resolve_token(TEXT) TO bridgesat_app")
+    connection.execute("REVOKE ALL ON FUNCTION public.resolve_token(TEXT) FROM PUBLIC")
+    connection.execute("GRANT EXECUTE ON FUNCTION public.resolve_token(TEXT) TO bridgesat_app")
 ```
 
-- [ ] **Step 5: 运行迁移器验证(全部 8 个)**
+- [ ] **Step 4b: 0009 加固存量 v8 的 token resolver**
+
+`0008` 初次创建 resolver 后,新增 `0009_harden_token_resolver.py` 对已记录为
+version 8 的数据库执行 `CREATE OR REPLACE FUNCTION public.resolve_token(TEXT)`。
+函数必须使用 `SET search_path = pg_catalog, public, pg_temp`、显式查询
+`public.student_tokens`,并重新执行 `REVOKE PUBLIC`/`GRANT bridgesat_app`。
+`SCHEMA_VERSION` 提升为 9;回归测试使用独立临时数据库模拟 v8→v9,验证临时表不能劫持 resolver 及函数 ACL/SECURITY DEFINER 属性。
+
+- [ ] **Step 5: 运行迁移器验证(全部 9 个)**
 
 Run: `python -c "
 import sys; sys.path.insert(0, '.')
@@ -1264,7 +1273,7 @@ from app.infrastructure.migration_runner import migrate_database
 from app.infrastructure import pg
 conn = pg.connect_admin(); print('version:', migrate_database(conn)); conn.close()
 "`
-Expected: `version: 8`。再跑一次仍为 8(幂等)。
+Expected: `version: 9`。再跑一次仍为 9(幂等)。已有 v8 数据库也必须应用 0009。
 
 - [ ] **Step 5b: 验证 RLS 在 app 角色下真正生效(双角色核心)**
 
