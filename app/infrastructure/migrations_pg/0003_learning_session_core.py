@@ -16,16 +16,21 @@ def migrate(connection: psycopg.Connection) -> None:
             target_score INTEGER NOT NULL,
             mastery_json TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'active',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            created_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT ''
         )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_students_tenant ON students (tenant_id)
         """
     )
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS student_tokens (
             token_id TEXT PRIMARY KEY,
-            tenant_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL DEFAULT 'tenant_demo',
             student_id TEXT NOT NULL,
             token_hash TEXT NOT NULL UNIQUE,
             device_bound_name TEXT,
@@ -38,7 +43,7 @@ def migrate(connection: psycopg.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS student_skill_states (
             student_id TEXT NOT NULL,
-            tenant_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL DEFAULT 'tenant_demo',
             skill TEXT NOT NULL,
             alpha DOUBLE PRECISION NOT NULL,
             beta DOUBLE PRECISION NOT NULL,
@@ -59,7 +64,7 @@ def migrate(connection: psycopg.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS study_plans (
             plan_id TEXT PRIMARY KEY,
-            tenant_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL DEFAULT 'tenant_demo',
             student_id TEXT NOT NULL,
             session_id TEXT,
             plan_json TEXT NOT NULL,
@@ -73,7 +78,7 @@ def migrate(connection: psycopg.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS study_sessions (
             session_id TEXT PRIMARY KEY,
-            tenant_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL DEFAULT 'tenant_demo',
             student_id TEXT NOT NULL,
             session_state TEXT NOT NULL,
             paused_from_state TEXT,
@@ -87,7 +92,7 @@ def migrate(connection: psycopg.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS session_items (
             session_id TEXT NOT NULL,
-            tenant_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL DEFAULT 'tenant_demo',
             sequence INTEGER NOT NULL,
             content_id TEXT NOT NULL,
             version INTEGER NOT NULL,
@@ -105,7 +110,7 @@ def migrate(connection: psycopg.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS answer_attempts (
             attempt_id TEXT PRIMARY KEY,
-            tenant_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL DEFAULT 'tenant_demo',
             event_id TEXT NOT NULL UNIQUE,
             student_id TEXT NOT NULL,
             session_id TEXT NOT NULL,
@@ -125,7 +130,7 @@ def migrate(connection: psycopg.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS learning_events (
             event_id TEXT PRIMARY KEY,
-            tenant_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL DEFAULT 'tenant_demo',
             student_id TEXT NOT NULL,
             session_id TEXT NOT NULL,
             event_type TEXT NOT NULL,
@@ -145,7 +150,7 @@ def migrate(connection: psycopg.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS agent_events (
             event_id TEXT PRIMARY KEY,
-            tenant_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL DEFAULT 'tenant_demo',
             student_id TEXT NOT NULL,
             session_id TEXT NOT NULL,
             source_event_id TEXT,
@@ -169,7 +174,7 @@ def migrate(connection: psycopg.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS misconception_evidence (
             evidence_id TEXT PRIMARY KEY,
-            tenant_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL DEFAULT 'tenant_demo',
             student_id TEXT NOT NULL,
             session_id TEXT NOT NULL,
             event_id TEXT NOT NULL,

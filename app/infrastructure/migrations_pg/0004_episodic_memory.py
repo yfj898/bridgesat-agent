@@ -10,7 +10,7 @@ def migrate(connection: psycopg.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS learning_episodes (
             episode_id TEXT PRIMARY KEY,
-            tenant_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL DEFAULT 'tenant_demo',
             student_id TEXT NOT NULL,
             session_id TEXT NOT NULL,
             skill TEXT NOT NULL,
@@ -31,7 +31,7 @@ def migrate(connection: psycopg.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS student_memory_facts (
             fact_id TEXT PRIMARY KEY,
-            tenant_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL DEFAULT 'tenant_demo',
             student_id TEXT NOT NULL,
             category TEXT NOT NULL,
             normalized_key TEXT NOT NULL,
@@ -52,7 +52,7 @@ def migrate(connection: psycopg.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS intervention_stats (
             stat_id TEXT PRIMARY KEY,
-            tenant_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL DEFAULT 'tenant_demo',
             student_id TEXT NOT NULL,
             skill TEXT NOT NULL,
             misconception TEXT,
