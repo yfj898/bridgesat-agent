@@ -1,0 +1,271 @@
+"""LearnerStore on PostgreSQL."""
+from __future__ import annotations
+
+import pytest
+
+from app.domain.events import LearningEvent, LearningEventType
+from app.domain.learner import MisconceptionState, SkillState
+from app.domain.sessions import IllegalTransitionError, SessionState
+from app.infrastructure import pg
+from app.infrastructure.learner_store import (
+    DuplicateEventIdError,
+    LearnerStore,
+)
+from app.infrastructure.migration_runner import migrate_database
+
+
+TENANT = "tenant_test"
+
+
+@pytest.fixture()
+def store() -> LearnerStore:
+    admin = pg.connect_admin()
+    migrate_database(admin)
+    admin.close()
+
+    conn = pg.connect()
+    try:
+        conn.execute(
+            "SELECT set_config('app.tenant_id', 'tenant_test', false)"
+        )
+        conn.commit()
+        yield LearnerStore(conn)
+    finally:
+        conn.close()
+        cleanup = pg.connect_admin()
+        try:
+            cleanup.execute("DROP SCHEMA public CASCADE")
+            cleanup.execute("CREATE SCHEMA public")
+            cleanup.commit()
+        finally:
+            cleanup.close()
+
+
+def _create_question_session(store: LearnerStore) -> tuple[str, str]:
+    student_id, _ = store.create_student("Ada", 30, 600)
+    session_id = "session_test"
+    store.create_session(student_id, session_id)
+    for state in (
+        SessionState.PROFILE_READY,
+        SessionState.DIAGNOSTIC_ACTIVE,
+        SessionState.DIAGNOSTIC_COMPLETE,
+        SessionState.PLAN_READY,
+        SessionState.QUESTION_ACTIVE,
+    ):
+        store.transition_session(session_id, state)
+    return student_id, session_id
+
+
+def _evaluation_event(
+    student_id: str,
+    session_id: str,
+    event_id: str,
+    *,
+    occurred_at: str = "2026-01-01T00:00:00+00:00",
+) -> LearningEvent:
+    return LearningEvent(
+        event_id=event_id,
+        student_id=student_id,
+        session_id=session_id,
+        event_type=LearningEventType.ANSWER_EVALUATED,
+        payload={"correct": True},
+        occurred_at=occurred_at,
+        received_at=occurred_at,
+        origin="online",
+    ).with_integrity()
+
+
+def _record_evaluation(
+    store: LearnerStore,
+    *,
+    student_id: str,
+    session_id: str,
+    event: LearningEvent,
+    correct: bool = True,
+    misconception: str | None = None,
+    content_id: str = "math.linear_equations.001",
+    sequence: int = 1,
+    target_state: SessionState = SessionState.ANSWER_EVALUATED,
+) -> tuple[object, SkillState | None]:
+    return store.record_answer_evaluation(
+        student_id=student_id,
+        session_id=session_id,
+        event=event,
+        content_id=content_id,
+        content_version=1,
+        skill="linear_equations",
+        subskill="isolate_variable",
+        difficulty=2,
+        sequence=sequence,
+        selected_choice_id="A",
+        correct=correct,
+        hint_level=0,
+        weight=1.0,
+        validity="valid",
+        misconception=misconception,
+        misconception_source_label="distractor_mapping",
+        misconception_confidence_label="high",
+        session_state=target_state,
+    )
+
+
+def test_create_student_emits_student_created_event(store: LearnerStore) -> None:
+    student_id, event = store.create_student("Ada", 30, 600)
+
+    assert event.student_id == student_id
+    assert event.event_type is LearningEventType.STUDENT_CREATED
+    row = store.connection.execute(
+        "SELECT event_type FROM learning_events WHERE event_id = %s",
+        (event.event_id,),
+    ).fetchone()
+    assert row["event_type"] == LearningEventType.STUDENT_CREATED.value
+
+
+def test_session_create_get_and_transition_round_trip(store: LearnerStore) -> None:
+    student_id, _ = store.create_student("Ada", 30, 600)
+    event = store.create_session(student_id, "session_round_trip")
+
+    assert event.event_type is LearningEventType.DIAGNOSTIC_STARTED
+    assert store.get_session_state("session_round_trip") is SessionState.NEW
+
+    assert (
+        store.transition_session(
+            "session_round_trip", SessionState.PROFILE_READY
+        )
+        is SessionState.PROFILE_READY
+    )
+    assert (
+        store.get_session_state("session_round_trip")
+        is SessionState.PROFILE_READY
+    )
+
+
+def test_record_answer_updates_skill_state_and_session(store: LearnerStore) -> None:
+    student_id, session_id = _create_question_session(store)
+    event = _evaluation_event(student_id, session_id, "event_skill")
+
+    evidence, state = _record_evaluation(
+        store,
+        student_id=student_id,
+        session_id=session_id,
+        event=event,
+    )
+
+    assert evidence is None
+    assert isinstance(state, SkillState)
+    assert state.mastery > 0.5
+    assert state.evidence_count == 1
+    assert state.correct_streak == 1
+    assert state.incorrect_streak == 0
+    assert store.get_session_state(session_id) is SessionState.ANSWER_EVALUATED
+    attempt = store.connection.execute(
+        "SELECT correct, weight FROM answer_attempts WHERE event_id = %s",
+        (event.event_id,),
+    ).fetchone()
+    assert attempt["correct"] == 1
+    assert attempt["weight"] == 1.0
+
+
+def test_record_answer_projects_misconception_evidence(store: LearnerStore) -> None:
+    student_id, session_id = _create_question_session(store)
+    event = _evaluation_event(student_id, session_id, "event_misconception")
+
+    evidence, _ = _record_evaluation(
+        store,
+        student_id=student_id,
+        session_id=session_id,
+        event=event,
+        correct=False,
+        misconception="sign_error",
+    )
+
+    assert evidence is not None
+    assert evidence.state is MisconceptionState.OBSERVED
+    assert evidence.event_id == event.event_id
+    assert store.count_misconception_evidence(
+        student_id, "linear_equations", "sign_error"
+    ) == (1, 1)
+
+
+def test_duplicate_event_does_not_pollute_projections(
+    store: LearnerStore,
+) -> None:
+    student_id, session_id = _create_question_session(store)
+    event = _evaluation_event(student_id, session_id, "event_duplicate")
+    _record_evaluation(
+        store,
+        student_id=student_id,
+        session_id=session_id,
+        event=event,
+        correct=False,
+        misconception="sign_error",
+    )
+
+    with pytest.raises(DuplicateEventIdError):
+        _record_evaluation(
+            store,
+            student_id=student_id,
+            session_id=session_id,
+            event=event,
+            correct=False,
+            misconception="sign_error",
+        )
+
+    state = store.get_skill_state(student_id, "linear_equations")
+    assert state is not None
+    assert state.evidence_count == 1
+    assert store.count_misconception_evidence(
+        student_id, "linear_equations", "sign_error"
+    ) == (1, 1)
+    assert store.connection.execute(
+        "SELECT COUNT(*) AS total FROM answer_attempts WHERE event_id = %s",
+        (event.event_id,),
+    ).fetchone()["total"] == 1
+
+
+def test_tenant_isolation_hides_session_skill_and_evidence(
+    store: LearnerStore,
+) -> None:
+    student_id, session_id = _create_question_session(store)
+    _record_evaluation(
+        store,
+        student_id=student_id,
+        session_id=session_id,
+        event=_evaluation_event(student_id, session_id, "event_tenant"),
+        correct=False,
+        misconception="sign_error",
+    )
+
+    other_connection = pg.connect()
+    try:
+        other_connection.execute(
+            "SELECT set_config('app.tenant_id', 'tenant_other', false)"
+        )
+        other_connection.commit()
+        other_store = LearnerStore(other_connection)
+
+        assert other_store.get_session_state(session_id) is None
+        assert other_store.get_skill_state(student_id, "linear_equations") is None
+        assert other_store.count_misconception_evidence(
+            student_id, "linear_equations", "sign_error"
+        ) == (0, 0)
+    finally:
+        other_connection.close()
+
+
+def test_illegal_session_transition_does_not_update_projection(
+    store: LearnerStore,
+) -> None:
+    student_id, _ = store.create_student("Ada", 30, 600)
+    session_id = "session_illegal"
+    store.create_session(student_id, session_id)
+
+    with pytest.raises(IllegalTransitionError):
+        store.transition_session(session_id, SessionState.QUESTION_ACTIVE)
+
+    assert store.get_session_state(session_id) is SessionState.NEW
+
+
+def test_unknown_session_transition_raises_key_error(store: LearnerStore) -> None:
+    with pytest.raises(KeyError, match="Unknown session missing"):
+        store.transition_session("missing", SessionState.PROFILE_READY)
