@@ -43,7 +43,12 @@ def store():
             cleanup.close()
 
 
-def _learning_event(event_id: str) -> LearningEvent:
+def _learning_event(
+    event_id: str,
+    *,
+    occurred_at: str = "2026-01-01T00:00:00+00:00",
+    received_at: str = "2026-01-01T00:00:00+00:00",
+) -> LearningEvent:
     return LearningEvent(
         event_id=event_id,
         student_id="stu_1",
@@ -51,8 +56,8 @@ def _learning_event(event_id: str) -> LearningEvent:
         event_type=LearningEventType.ANSWER_SUBMITTED,
         payload={},
         policy_version="test",
-        occurred_at="2026-01-01T00:00:00+00:00",
-        received_at="2026-01-01T00:00:00+00:00",
+        occurred_at=occurred_at,
+        received_at=received_at,
         origin="online",
     ).with_integrity()
 
@@ -63,6 +68,27 @@ def test_append_and_get_learning_event_roundtrip(store: EventStore) -> None:
     assert store.append_learning_event(event) is True
     assert store.learning_event_exists(event.event_id) is True
     assert store.get_learning_events("stu_1", session_id="sess_1") == [event]
+
+
+def test_learning_events_are_ordered_by_occurred_then_received(store: EventStore) -> None:
+    occurred_first = _learning_event(
+        "evt_occurred_first",
+        occurred_at="2026-01-01T00:00:00+00:00",
+        received_at="2026-01-01T00:02:00+00:00",
+    )
+    received_first = _learning_event(
+        "evt_received_first",
+        occurred_at="2026-01-01T00:01:00+00:00",
+        received_at="2026-01-01T00:01:00+00:00",
+    )
+
+    assert store.append_learning_event(occurred_first) is True
+    assert store.append_learning_event(received_first) is True
+
+    assert [
+        event.event_id
+        for event in store.get_learning_events("stu_1", session_id="sess_1")
+    ] == ["evt_occurred_first", "evt_received_first"]
 
 
 def test_duplicate_learning_event_raises(store: EventStore) -> None:

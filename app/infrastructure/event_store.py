@@ -129,7 +129,7 @@ class EventStore:
             params.append(event_type)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self.connection.execute(
-            f"SELECT * FROM learning_events {where} ORDER BY received_at",
+            f"SELECT * FROM learning_events {where} ORDER BY occurred_at, received_at",
             params,
         ).fetchall()
         return [_row_to_learning_event(row) for row in rows]
