@@ -16,6 +16,18 @@ from app.infrastructure.migration_runner import (
 )
 
 
+MISCONCEPTION_EVIDENCE_INDEX = "idx_misconception_evidence_lookup"
+
+
+def _has_misconception_evidence_index(connection) -> bool:
+    row = connection.execute(
+        "SELECT 1 FROM pg_catalog.pg_indexes "
+        "WHERE schemaname = 'public' AND indexname = %s",
+        (MISCONCEPTION_EVIDENCE_INDEX,),
+    ).fetchone()
+    return row is not None
+
+
 @pytest.fixture()
 def database():
     conn = pg.connect_admin()
@@ -151,6 +163,29 @@ def test_existing_v8_database_hardens_token_resolver(
             assert rows == [{"tenant_id": "tenant_real", "student_id": "stu_real"}]
         finally:
             app.close()
+    finally:
+        connection.close()
+
+
+def test_fresh_database_creates_misconception_evidence_lookup_index(database) -> None:
+    assert _has_misconception_evidence_index(database)
+
+
+def test_existing_v9_database_gets_misconception_evidence_lookup_index(
+    monkeypatch, isolated_database
+) -> None:
+    from app.infrastructure import migration_runner as runner
+
+    admin_dsn, _ = isolated_database
+    connection = pg.connect_admin(admin_dsn)
+    try:
+        monkeypatch.setattr(runner, "SCHEMA_VERSION", 9)
+        assert runner.migrate_database(connection) == 9
+        assert not _has_misconception_evidence_index(connection)
+
+        monkeypatch.setattr(runner, "SCHEMA_VERSION", 10)
+        assert runner.migrate_database(connection) == 10
+        assert _has_misconception_evidence_index(connection)
     finally:
         connection.close()
 
