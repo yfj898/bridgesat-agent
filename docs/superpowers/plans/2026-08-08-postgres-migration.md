@@ -4,7 +4,7 @@
 
 **Goal:** 把全部存储层从 SQLite 单文件迁移到 PostgreSQL 多租户(RLS 隔离),检索层从 FTS5 迁移到 PG tsvector 兜底,并提供 SQLite → PG 数据迁移脚本,278+ 测试全部改跑真实 PG。
 
-**Architecture:** `app/infrastructure/pg.py` 提供 PG 连接池统一入口;迁移器重写为 PG 版(9 个迁移脚本 0001-0009,0008 加租户列与 RLS,0009 加固 SECURITY DEFINER token resolver);所有存储模块(StudentRepository/TokenStore/EventStore/LearnerStore/PGMemory/OutboxRepository/SyncService/KnowledgeBackend)改用 psycopg;FastAPI 加租户解析中间件;`scripts/migrate_sqlite_to_pg.py` 一次性迁移现有数据。
+**Architecture:** `app/infrastructure/pg.py` 提供 PG 连接池统一入口;迁移器重写为 PG 版(10 个迁移脚本 0001-0010,0008 加租户列与 RLS,0009 加固 SECURITY DEFINER token resolver,0010 加速 misconception evidence 聚合);所有存储模块(StudentRepository/TokenStore/EventStore/LearnerStore/PGMemory/OutboxRepository/SyncService/KnowledgeBackend)改用 psycopg;FastAPI 加租户解析中间件;`scripts/migrate_sqlite_to_pg.py` 一次性迁移现有数据。
 
 **Tech Stack:** psycopg3、PostgreSQL 16(Docker)、PG tsvector、RLS;测试用 pytest 连真实 PG。Milvus 向量检索在 Plan 2,不在本计划内。
 
@@ -478,7 +478,7 @@ from .pg import transaction
 
 MIGRATION_DIR = Path(__file__).resolve().parent / "migrations_pg"
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 class UnsupportedDatabaseError(RuntimeError):
@@ -1000,7 +1000,7 @@ git commit -m "feat: PG 迁移脚本 0001-0004(基础+会话核心+记忆)"
 
 ---
 
-## Task 5: PG 迁移脚本 0005-0009
+## Task 5: PG 迁移脚本 0005-0010
 
 **Files:**
 - Create: `app/infrastructure/migrations_pg/0005_knowledge_fts.py`(tsvector 版)
@@ -1008,6 +1008,7 @@ git commit -m "feat: PG 迁移脚本 0001-0004(基础+会话核心+记忆)"
 - Create: `app/infrastructure/migrations_pg/0007_memory_outbox.py`
 - Create: `app/infrastructure/migrations_pg/0008_multi_tenant_rls.py`
 - Create: `app/infrastructure/migrations_pg/0009_harden_token_resolver.py`(存量 v8 数据库的 SECURITY DEFINER 加固)
+- Create: `app/infrastructure/migrations_pg/0010_misconception_evidence_index.py`(misconception evidence 聚合索引)
 
 - [ ] **Step 1: 0005 写迁移脚本(tsvector 兜底检索)**
 
@@ -1265,7 +1266,13 @@ version 8 的数据库执行 `CREATE OR REPLACE FUNCTION public.resolve_token(TE
 `public.student_tokens`,并重新执行 `REVOKE PUBLIC`/`GRANT bridgesat_app`。
 `SCHEMA_VERSION` 提升为 9;回归测试使用独立临时数据库模拟 v8→v9,验证临时表不能劫持 resolver 及函数 ACL/SECURITY DEFINER 属性。
 
-- [ ] **Step 5: 运行迁移器验证(全部 9 个)**
+- [ ] **Step 4c: 0010 加速 misconception evidence 聚合**
+
+新增幂等索引 `public.idx_misconception_evidence_lookup`:
+`(tenant_id, student_id, skill, misconception, item_id)`,覆盖 LearnerStore 的
+`COUNT(*)`/`COUNT(DISTINCT item_id)` 查询;`SCHEMA_VERSION` 提升为 10,并验证 fresh 与 v9→v10 升级路径。
+
+- [ ] **Step 5: 运行迁移器验证(全部 10 个)**
 
 Run: `python -c "
 import sys; sys.path.insert(0, '.')
@@ -1273,7 +1280,7 @@ from app.infrastructure.migration_runner import migrate_database
 from app.infrastructure import pg
 conn = pg.connect_admin(); print('version:', migrate_database(conn)); conn.close()
 "`
-Expected: `version: 9`。再跑一次仍为 9(幂等)。已有 v8 数据库也必须应用 0009。
+Expected: `version: 10`。再跑一次仍为 10(幂等)。已有 v9 数据库也必须应用 0010;已有 v8 数据库应依次应用 0009、0010。
 
 - [ ] **Step 5b: 验证 RLS 在 app 角色下真正生效(双角色核心)**
 
