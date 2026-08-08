@@ -78,9 +78,9 @@ def _create_token_resolver(connection: psycopg.Connection) -> None:
         RETURNS TABLE (tenant_id TEXT, student_id TEXT)
         LANGUAGE sql
         SECURITY DEFINER
-        SET search_path = public
+        SET search_path = pg_catalog, public, pg_temp
         AS $$
-            SELECT tenant_id, student_id FROM student_tokens
+            SELECT tenant_id, student_id FROM public.student_tokens
             WHERE token_hash = p_hash AND revoked_at IS NULL
         $$
         """

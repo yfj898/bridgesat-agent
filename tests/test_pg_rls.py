@@ -89,3 +89,33 @@ def test_resolve_token_bypasses_rls_for_app_role(migrated) -> None:
         assert rows[0]["student_id"] == "stu_1"
     finally:
         app.close()
+
+
+def test_resolve_token_cannot_be_hijacked_by_temp_table(migrated) -> None:
+    migrated.execute(
+        "INSERT INTO student_tokens "
+        "(token_id, tenant_id, student_id, token_hash, created_at) "
+        "VALUES (%s, %s, %s, %s, %s)",
+        ("tok_real", "tenant_real", "stu_real", "realhash", "2026-01-01"),
+    )
+    migrated.commit()
+
+    app = pg.connect()
+    try:
+        app.execute(
+            "CREATE TEMP TABLE student_tokens ("
+            "tenant_id TEXT, student_id TEXT, token_hash TEXT, revoked_at TEXT"
+            ")"
+        )
+        app.execute(
+            "INSERT INTO student_tokens "
+            "(tenant_id, student_id, token_hash, revoked_at) "
+            "VALUES (%s, %s, %s, %s)",
+            ("tenant_fake", "stu_fake", "realhash", None),
+        )
+
+        rows = app.execute("SELECT * FROM resolve_token('realhash')").fetchall()
+
+        assert rows == [{"tenant_id": "tenant_real", "student_id": "stu_real"}]
+    finally:
+        app.close()
