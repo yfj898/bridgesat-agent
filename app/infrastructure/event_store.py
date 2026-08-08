@@ -59,6 +59,9 @@ class EventStore:
             if on_duplicate == "raise":
                 raise DuplicateEventError(f"Duplicate event {event.event_id}") from exc
             return False
+        except Exception:
+            self.connection.rollback()
+            raise
 
     def append_agent_event(self, event: AgentEvent, *, on_duplicate: str = "ignore") -> bool:
         try:
@@ -102,6 +105,9 @@ class EventStore:
             if on_duplicate == "raise":
                 raise DuplicateEventError(f"Duplicate agent event {event.event_id}") from exc
             return False
+        except Exception:
+            self.connection.rollback()
+            raise
 
     def learning_event_exists(self, event_id: str) -> bool:
         row = self.connection.execute(
