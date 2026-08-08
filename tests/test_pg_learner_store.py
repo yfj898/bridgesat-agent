@@ -250,6 +250,55 @@ def test_record_answer_updates_skill_state_and_session(store: LearnerStore) -> N
     assert attempt["weight"] == 1.0
 
 
+def test_create_session_requires_a_tenant_student(store: LearnerStore) -> None:
+    with pytest.raises(KeyError, match="Unknown student missing"):
+        store.create_session("missing", "session_missing")
+
+
+def test_record_answer_rejects_a_session_owned_by_another_student(
+    store: LearnerStore,
+) -> None:
+    _, session_id = _create_question_session(store)
+    other_student_id, _ = store.create_student("Bea", 30, 600)
+    event = _evaluation_event(other_student_id, session_id, "event_wrong_owner")
+
+    with pytest.raises(ValueError, match="does not own session"):
+        _record_evaluation(
+            store,
+            student_id=other_student_id,
+            session_id=session_id,
+            event=event,
+        )
+
+    assert store.connection.execute(
+        "SELECT COUNT(*) AS total FROM learning_events WHERE event_id = %s",
+        (event.event_id,),
+    ).fetchone()["total"] == 0
+
+
+def test_record_answer_rejects_a_tampered_event_hash(store: LearnerStore) -> None:
+    student_id, session_id = _create_question_session(store)
+    event = _evaluation_event(
+        student_id,
+        session_id,
+        "event_tampered",
+        payload={"tampered": True},
+    ).model_copy(update={"payload": {"correct": True, "tampered": False}})
+
+    with pytest.raises(ValueError, match="invalid integrity hash"):
+        _record_evaluation(
+            store,
+            student_id=student_id,
+            session_id=session_id,
+            event=event,
+        )
+
+    assert store.connection.execute(
+        "SELECT COUNT(*) AS total FROM learning_events WHERE event_id = %s",
+        (event.event_id,),
+    ).fetchone()["total"] == 0
+
+
 @pytest.mark.parametrize(
     ("event_kwargs", "call_kwargs", "expected_fragment"),
     [

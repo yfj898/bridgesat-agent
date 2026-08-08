@@ -102,6 +102,12 @@ class LearnerStore:
             origin=origin,
         ).with_integrity()
         with transaction(self.connection):
+            student = self.connection.execute(
+                "SELECT id FROM students WHERE id = %s FOR UPDATE",
+                (student_id,),
+            ).fetchone()
+            if student is None:
+                raise KeyError(f"Unknown student {student_id}")
             self._insert_learning_event(self.connection, event)
             self.connection.execute(
                 """
@@ -228,11 +234,14 @@ class LearnerStore:
                 raise DuplicateEventIdError(event.event_id)
 
             row = self.connection.execute(
-                "SELECT session_state FROM study_sessions WHERE session_id = %s FOR UPDATE",
+                "SELECT student_id, session_state FROM study_sessions "
+                "WHERE session_id = %s FOR UPDATE",
                 (session_id,),
             ).fetchone()
             if row is None:
                 raise KeyError(f"Unknown session {session_id}")
+            if row["student_id"] != student_id:
+                raise ValueError(f"Student {student_id} does not own session {session_id}")
             source_state = SessionState(row["session_state"])
             target_state = SessionState(session_state)
             if not can_transition(source_state, target_state):
@@ -339,17 +348,18 @@ class LearnerStore:
 
             if misconception is not None:
                 # Lock order is session row, core skill row, then misconception key.
-                self.connection.execute(
-                    """
-                    SELECT pg_advisory_xact_lock(
-                        hashtextextended(
-                            json_build_array(%s::text, %s::text, %s::text)::text,
-                            0
+                if skill not in CORE_MISCONCEPTION_SKILLS:
+                    self.connection.execute(
+                        """
+                        SELECT pg_advisory_xact_lock(
+                            hashtextextended(
+                                json_build_array(%s::text, %s::text, %s::text)::text,
+                                0
+                            )
                         )
+                        """,
+                        (student_id, skill, misconception),
                     )
-                    """,
-                    (student_id, skill, misconception),
-                )
                 counts = self.connection.execute(
                     """
                     SELECT COUNT(*) AS total,
@@ -422,6 +432,10 @@ class LearnerStore:
     def _insert_learning_event(
         self, connection: psycopg.Connection, event: LearningEvent
     ) -> None:
+        if event.integrity_hash != event.hash_payload():
+            raise ValueError(
+                f"Learning event {event.event_id} has an invalid integrity hash"
+            )
         try:
             connection.execute(
                 """
