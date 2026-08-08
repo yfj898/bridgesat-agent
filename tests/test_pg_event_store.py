@@ -126,14 +126,31 @@ def test_learning_events_are_ordered_by_occurred_then_received(store: EventStore
         occurred_at="2026-01-01T00:01:00+00:00",
         received_at="2026-01-01T00:01:00+00:00",
     )
+    same_occurred_received_later = _learning_event(
+        "evt_same_occurred_received_later",
+        occurred_at="2026-01-01T00:02:00+00:00",
+        received_at="2026-01-01T00:04:00+00:00",
+    )
+    same_occurred_received_earlier = _learning_event(
+        "evt_same_occurred_received_earlier",
+        occurred_at="2026-01-01T00:02:00+00:00",
+        received_at="2026-01-01T00:03:00+00:00",
+    )
 
     assert store.append_learning_event(occurred_first) is True
     assert store.append_learning_event(received_first) is True
+    assert store.append_learning_event(same_occurred_received_later) is True
+    assert store.append_learning_event(same_occurred_received_earlier) is True
 
     assert [
         event.event_id
         for event in store.get_learning_events("stu_1", session_id="sess_1")
-    ] == ["evt_occurred_first", "evt_received_first"]
+    ] == [
+        "evt_occurred_first",
+        "evt_received_first",
+        "evt_same_occurred_received_earlier",
+        "evt_same_occurred_received_later",
+    ]
 
 
 def test_duplicate_learning_event_raises(store: EventStore) -> None:
@@ -196,11 +213,13 @@ def test_run_in_transaction_rolls_back_callback_error(store: EventStore) -> None
         with pytest.raises(RuntimeError, match="abort transaction"):
             run_in_transaction(store.connection, insert_then_fail)
 
+        assert store.learning_event_exists(event.event_id) is False
         assert reader.learning_event_exists(event.event_id) is False
         reader_connection.commit()
 
         committed_event = _learning_event("evt_after_rollback")
         assert store.append_learning_event(committed_event) is True
+        assert store.learning_event_exists(committed_event.event_id) is True
         assert reader.learning_event_exists(committed_event.event_id) is True
     finally:
         reader_connection.close()
@@ -229,7 +248,7 @@ def test_concurrent_duplicate_learning_event_has_one_winner(store: EventStore) -
     event = _learning_event("evt_concurrent")
     barrier = Barrier(2)
 
-    def append_from_independent_connection() -> bool:
+    def append_from_independent_connection() -> tuple[bool, bool]:
         connection = pg.connect()
         try:
             connection.execute(
@@ -238,7 +257,10 @@ def test_concurrent_duplicate_learning_event_has_one_winner(store: EventStore) -
             )
             connection.commit()
             barrier.wait(timeout=10)
-            return EventStore(connection).append_learning_event(event)
+            event_store = EventStore(connection)
+            appended = event_store.append_learning_event(event)
+            reusable = event_store.learning_event_exists(event.event_id)
+            return appended, reusable
         finally:
             connection.close()
 
@@ -249,7 +271,8 @@ def test_concurrent_duplicate_learning_event_has_one_winner(store: EventStore) -
         ]
         results = [future.result() for future in futures]
 
-    assert sorted(results) == [False, True]
+    assert sorted(appended for appended, _ in results) == [False, True]
+    assert all(reusable for _, reusable in results)
     assert store.get_learning_events("stu_1") == [event]
 
 
