@@ -353,14 +353,17 @@ class LearnerStore:
                 counts = self.connection.execute(
                     """
                     SELECT COUNT(*) AS total,
-                           COUNT(DISTINCT item_id) AS distinct_items
+                           COUNT(DISTINCT item_id) AS distinct_items,
+                           COUNT(*) FILTER (WHERE item_id = %s) AS current_item_count
                     FROM misconception_evidence
                     WHERE student_id = %s AND skill = %s AND misconception = %s
                     """,
-                    (student_id, skill, misconception),
+                    (content_id, student_id, skill, misconception),
                 ).fetchone()
                 state_value = next_misconception_state(
-                    int(counts["total"]) + 1, int(counts["distinct_items"])
+                    int(counts["total"]) + 1,
+                    int(counts["distinct_items"])
+                    + (int(counts["current_item_count"]) == 0),
                 )
                 evidence_id = f"evid_{uuid.uuid4().hex[:12]}"
                 evidence = MisconceptionEvidence(

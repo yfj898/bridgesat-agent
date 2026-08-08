@@ -371,6 +371,82 @@ def test_record_answer_projects_misconception_evidence(store: LearnerStore) -> N
     ) == (1, 1)
 
 
+def test_misconception_state_counts_current_item_before_insert(
+    store: LearnerStore,
+) -> None:
+    student_id, session_id = _create_question_session(store)
+
+    first_event = _evaluation_event(
+        student_id, session_id, "event_misconception_first", correct=False
+    )
+    first_evidence, _ = _record_evaluation(
+        store,
+        student_id=student_id,
+        session_id=session_id,
+        event=first_event,
+        correct=False,
+        misconception="sign_error",
+        content_id="item_1",
+        sequence=1,
+    )
+    assert first_evidence is not None
+    assert first_evidence.state is MisconceptionState.OBSERVED
+
+    store.transition_session(session_id, SessionState.QUESTION_ACTIVE)
+    second_event = _evaluation_event(
+        student_id, session_id, "event_misconception_second", correct=False
+    )
+    second_evidence, _ = _record_evaluation(
+        store,
+        student_id=student_id,
+        session_id=session_id,
+        event=second_event,
+        correct=False,
+        misconception="sign_error",
+        content_id="item_1",
+        sequence=2,
+    )
+    assert second_evidence is not None
+    assert second_evidence.state is MisconceptionState.SUSPECTED
+
+    store.transition_session(session_id, SessionState.QUESTION_ACTIVE)
+    third_event = _evaluation_event(
+        student_id, session_id, "event_misconception_third", correct=False
+    )
+    third_evidence, _ = _record_evaluation(
+        store,
+        student_id=student_id,
+        session_id=session_id,
+        event=third_event,
+        correct=False,
+        misconception="sign_error",
+        content_id="item_2",
+        sequence=3,
+    )
+    assert third_evidence is not None
+    assert third_evidence.state is MisconceptionState.CONFIRMED
+
+    rows = store.connection.execute(
+        """
+        SELECT event_id, state, item_id
+        FROM misconception_evidence
+        WHERE student_id = %s AND skill = %s AND misconception = %s
+        ORDER BY event_id
+        """,
+        (student_id, "linear_equations", "sign_error"),
+    ).fetchall()
+    assert [
+        (row["event_id"], row["state"], row["item_id"]) for row in rows
+    ] == [
+        (first_event.event_id, MisconceptionState.OBSERVED.value, "item_1"),
+        (second_event.event_id, MisconceptionState.SUSPECTED.value, "item_1"),
+        (third_event.event_id, MisconceptionState.CONFIRMED.value, "item_2"),
+    ]
+    assert store.count_misconception_evidence(
+        student_id, "linear_equations", "sign_error"
+    ) == (3, 2)
+
+
 def test_duplicate_event_does_not_pollute_projections(
     store: LearnerStore,
 ) -> None:
