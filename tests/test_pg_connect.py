@@ -3,12 +3,19 @@ from __future__ import annotations
 
 import pytest
 
-from app.infrastructure.pg import connect, database_version, transaction
+from app.infrastructure.pg import connect, connect_admin, database_version, transaction
 
 
 @pytest.fixture(scope="module")
 def pg_conn():
     conn = connect()
+    yield conn
+    conn.close()
+
+
+@pytest.fixture()
+def admin_conn():
+    conn = connect_admin()
     yield conn
     conn.close()
 
@@ -23,8 +30,8 @@ def test_connect_runs_cleanup_sql(pg_conn) -> None:
     assert row["sp"] == "public"
 
 
-def test_database_version_zero_on_unmigrated_db() -> None:
-    conn = connect()
+def test_database_version_zero_on_unmigrated_db(admin_conn) -> None:
+    conn = admin_conn
     try:
         conn.execute("DROP TABLE IF EXISTS schema_migrations")
         assert database_version(conn) == 0
@@ -35,12 +42,12 @@ def test_database_version_zero_on_unmigrated_db() -> None:
         conn.close()
 
 
-def test_transaction_commits_across_connections(pg_conn) -> None:
+def test_transaction_commits_across_connections(admin_conn) -> None:
     table_name = "txn_commit_probe"
-    pg_conn.execute(f"DROP TABLE IF EXISTS {table_name}")
-    with transaction(pg_conn):
-        pg_conn.execute(f"CREATE TABLE {table_name} (v INTEGER)")
-    other = connect()
+    admin_conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+    with transaction(admin_conn):
+        admin_conn.execute(f"CREATE TABLE {table_name} (v INTEGER)")
+    other = connect_admin()
     try:
         row = other.execute(
             "SELECT COUNT(*) AS n FROM information_schema.tables "
@@ -54,19 +61,19 @@ def test_transaction_commits_across_connections(pg_conn) -> None:
         other.close()
 
 
-def test_transaction_rolls_back_on_error(pg_conn) -> None:
+def test_transaction_rolls_back_on_error(admin_conn) -> None:
     table_name = "txn_rollback_probe"
-    pg_conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+    admin_conn.execute(f"DROP TABLE IF EXISTS {table_name}")
     try:
         with pytest.raises(RuntimeError):
-            with transaction(pg_conn):
-                pg_conn.execute(f"CREATE TABLE {table_name} (v INTEGER)")
+            with transaction(admin_conn):
+                admin_conn.execute(f"CREATE TABLE {table_name} (v INTEGER)")
                 raise RuntimeError("boom")
-        row = pg_conn.execute(
+        row = admin_conn.execute(
             "SELECT COUNT(*) AS n FROM information_schema.tables "
             "WHERE table_schema = 'public' AND table_name = %s",
             (table_name,),
         ).fetchone()
         assert row["n"] == 0
     finally:
-        pg_conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+        admin_conn.execute(f"DROP TABLE IF EXISTS {table_name}")

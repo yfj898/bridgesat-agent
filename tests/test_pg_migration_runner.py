@@ -15,7 +15,7 @@ from app.infrastructure.migration_runner import (
 
 @pytest.fixture()
 def database():
-    conn = pg.connect()
+    conn = pg.connect_admin()
     migrate_database(conn)
     yield conn
     conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
@@ -57,7 +57,7 @@ def test_failing_migration_rolls_back_its_transaction(monkeypatch, tmp_path) -> 
     monkeypatch.setattr(runner, "MIGRATION_DIR", tmp_path)
     monkeypatch.setattr(runner, "SCHEMA_VERSION", 9002)
 
-    conn = pg.connect()
+    conn = pg.connect_admin()
     try:
         with pytest.raises(RuntimeError):
             runner.migrate_database(conn)
@@ -87,7 +87,7 @@ def test_migrate_database_acquires_and_releases_advisory_lock(monkeypatch, tmp_p
     monkeypatch.setattr(runner, "MIGRATION_DIR", tmp_path)
     monkeypatch.setattr(runner, "SCHEMA_VERSION", 9001)
 
-    conn = pg.connect()
+    conn = pg.connect_admin()
     try:
         assert runner.migrate_database(conn) == 9001
         other = pg.connect()

@@ -13,15 +13,31 @@ from typing import Iterator
 import psycopg
 from psycopg.rows import dict_row
 
-DEFAULT_DSN = "postgresql://bridgesat:bridgesat@localhost:5432/bridgesat"
+DEFAULT_ADMIN_DSN = "postgresql://bridgesat:bridgesat@localhost:5432/bridgesat"
+DEFAULT_APP_DSN = "postgresql://bridgesat_app:bridgesat@localhost:5432/bridgesat"
+
+
+def admin_dsn() -> str:
+    return os.getenv("BRIDGESAT_ADMIN_DB", DEFAULT_ADMIN_DSN)
 
 
 def dsn() -> str:
-    return os.getenv("BRIDGESAT_DB", DEFAULT_DSN)
+    """Application-role DSN (RLS applies). Runtime and tests use this."""
+    return os.getenv("BRIDGESAT_DB", DEFAULT_APP_DSN)
+
+
+def connect_admin(target: str | None = None) -> psycopg.Connection:
+    """Superuser connection: migrations/DDL/GRANT only."""
+    return psycopg.connect(
+        target or admin_dsn(),
+        row_factory=dict_row,
+        autocommit=False,
+        options="-c search_path=public",
+    )
 
 
 def connect(target: str | None = None) -> psycopg.Connection:
-    """Open a new connection with dict-row access. Caller closes it."""
+    """Application-role connection with dict-row access. Caller closes it."""
     return psycopg.connect(
         target or dsn(),
         row_factory=dict_row,

@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = ROOT / "docker-compose.yml"
 
 DSN = "postgresql://bridgesat:bridgesat@localhost:5432/bridgesat"
+APP_DSN = "postgresql://bridgesat_app:bridgesat@localhost:5432/bridgesat"
 
 
 def _compose(*args: str) -> subprocess.CompletedProcess:
@@ -44,7 +45,28 @@ def _wait_healthy(timeout_s: int = 60) -> None:
 def up() -> None:
     _compose("up", "-d", "postgres")
     _wait_healthy()
+    _ensure_app_role()
     print(f"DSN: {DSN}")
+    print(f"APP DSN: {APP_DSN}")
+
+
+def _ensure_app_role() -> None:
+    """Idempotently create the bridgesat_app role (initdb only runs on a
+    fresh volume; existing dev volumes need this on every `up`)."""
+    proc = subprocess.run(
+        [
+            "docker", "compose", "-f", str(COMPOSE), "exec", "-T", "postgres",
+            "psql", "-U", "bridgesat", "-d", "bridgesat", "-v", "ON_ERROR_STOP=1",
+            "-c", "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'bridgesat_app') THEN CREATE ROLE bridgesat_app LOGIN PASSWORD 'bridgesat'; END IF; END $$;",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        print(f"WARNING: could not ensure bridgesat_app role: {proc.stderr.strip()}")
+    else:
+        print("bridgesat_app role: ensured")
 
 
 def down() -> None:

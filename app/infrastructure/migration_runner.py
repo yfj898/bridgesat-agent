@@ -89,8 +89,9 @@ def migrate_database(connection: psycopg.Connection) -> int:
 
 
 def apply_migrations(target: str | None = None) -> int:
-    """Open a connection to target (or env DSN), migrate, close. Returns version."""
-    connection = pg.connect(target)
+    """Open a superuser connection (migrations need DDL/GRANT rights),
+    migrate, close. Returns version."""
+    connection = pg.connect_admin(target)
     try:
         return migrate_database(connection)
     finally:
