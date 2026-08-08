@@ -1,6 +1,9 @@
 """PG 迁移器测试(替代原 SQLite 版 test_migrations 语义)。"""
 from __future__ import annotations
 
+import uuid
+
+import psycopg
 import pytest
 
 from app.infrastructure import pg
@@ -23,6 +26,41 @@ def database():
     conn.close()
 
 
+@pytest.fixture()
+def isolated_database():
+    database_name = f"bridgesat_test_{uuid.uuid4().hex}"
+    maintenance_dsn = psycopg.conninfo.make_conninfo(
+        pg.admin_dsn(), dbname="postgres"
+    )
+    admin_dsn = psycopg.conninfo.make_conninfo(
+        pg.admin_dsn(), dbname=database_name
+    )
+    app_dsn = psycopg.conninfo.make_conninfo(pg.dsn(), dbname=database_name)
+
+    maintenance = psycopg.connect(maintenance_dsn, autocommit=True)
+    try:
+        maintenance.execute(
+            psycopg.sql.SQL("CREATE DATABASE {}").format(
+                psycopg.sql.Identifier(database_name)
+            )
+        )
+    finally:
+        maintenance.close()
+
+    try:
+        yield admin_dsn, app_dsn
+    finally:
+        maintenance = psycopg.connect(maintenance_dsn, autocommit=True)
+        try:
+            maintenance.execute(
+                psycopg.sql.SQL("DROP DATABASE {} WITH (FORCE)").format(
+                    psycopg.sql.Identifier(database_name)
+                )
+            )
+        finally:
+            maintenance.close()
+
+
 def test_fresh_database_migrates_to_supported_version(database) -> None:
     assert pg.database_version(database) == SCHEMA_VERSION
 
@@ -32,10 +70,13 @@ def test_migrations_are_idempotent(database) -> None:
     assert pg.database_version(database) == SCHEMA_VERSION
 
 
-def test_existing_v8_database_hardens_token_resolver(monkeypatch) -> None:
+def test_existing_v8_database_hardens_token_resolver(
+    monkeypatch, isolated_database
+) -> None:
     from app.infrastructure import migration_runner as runner
 
-    connection = pg.connect_admin()
+    admin_dsn, app_dsn = isolated_database
+    connection = pg.connect_admin(admin_dsn)
     try:
         monkeypatch.setattr(runner, "SCHEMA_VERSION", 8)
         assert runner.migrate_database(connection) == 8
@@ -61,10 +102,37 @@ def test_existing_v8_database_hardens_token_resolver(monkeypatch) -> None:
         )
         connection.commit()
 
+        connection.execute("CREATE SCHEMA resolver_hijack")
+        connection.execute("SET search_path = resolver_hijack, public")
         monkeypatch.setattr(runner, "SCHEMA_VERSION", 9)
         assert runner.migrate_database(connection) == 9
 
-        app = pg.connect()
+        resolver = connection.execute(
+            """
+            SELECT p.prosecdef, p.proconfig,
+                   EXISTS (
+                       SELECT 1
+                       FROM pg_catalog.aclexplode(p.proacl) AS acl
+                       WHERE acl.grantee = 'bridgesat_app'::pg_catalog.regrole
+                         AND acl.privilege_type = 'EXECUTE'
+                   ) AS app_execute,
+                   EXISTS (
+                       SELECT 1
+                       FROM pg_catalog.aclexplode(p.proacl) AS acl
+                       WHERE acl.grantee = 0
+                         AND acl.privilege_type = 'EXECUTE'
+                   ) AS public_execute
+            FROM pg_catalog.pg_proc AS p
+            WHERE p.oid = 'public.resolve_token(text)'::pg_catalog.regprocedure
+            """
+        ).fetchone()
+        assert resolver is not None
+        assert resolver["prosecdef"] is True
+        assert "search_path=pg_catalog, public, pg_temp" in resolver["proconfig"]
+        assert resolver["app_execute"] is True
+        assert resolver["public_execute"] is False
+
+        app = pg.connect(app_dsn)
         try:
             app.execute(
                 "CREATE TEMP TABLE student_tokens ("
@@ -84,8 +152,6 @@ def test_existing_v8_database_hardens_token_resolver(monkeypatch) -> None:
         finally:
             app.close()
     finally:
-        connection.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
-        connection.commit()
         connection.close()
 
 

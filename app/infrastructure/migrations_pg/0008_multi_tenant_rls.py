@@ -74,7 +74,7 @@ def _create_token_resolver(connection: psycopg.Connection) -> None:
     exposes only the row for the presented token."""
     connection.execute(
         """
-        CREATE OR REPLACE FUNCTION resolve_token(p_hash TEXT)
+        CREATE OR REPLACE FUNCTION public.resolve_token(p_hash TEXT)
         RETURNS TABLE (tenant_id TEXT, student_id TEXT)
         LANGUAGE sql
         SECURITY DEFINER
@@ -85,5 +85,9 @@ def _create_token_resolver(connection: psycopg.Connection) -> None:
         $$
         """
     )
-    connection.execute("REVOKE ALL ON FUNCTION resolve_token(TEXT) FROM PUBLIC")
-    connection.execute("GRANT EXECUTE ON FUNCTION resolve_token(TEXT) TO bridgesat_app")
+    connection.execute(
+        "REVOKE ALL ON FUNCTION public.resolve_token(TEXT) FROM PUBLIC"
+    )
+    connection.execute(
+        "GRANT EXECUTE ON FUNCTION public.resolve_token(TEXT) TO bridgesat_app"
+    )
