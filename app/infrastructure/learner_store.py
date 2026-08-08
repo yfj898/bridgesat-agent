@@ -137,7 +137,7 @@ class LearnerStore:
         not write the projection."""
         with transaction(self.connection):
             row = self.connection.execute(
-                "SELECT session_state FROM study_sessions WHERE session_id = %s",
+                "SELECT session_state FROM study_sessions WHERE session_id = %s FOR UPDATE",
                 (session_id,),
             ).fetchone()
             if row is None:
@@ -195,7 +195,7 @@ class LearnerStore:
                 raise DuplicateEventIdError(event.event_id)
 
             row = self.connection.execute(
-                "SELECT session_state FROM study_sessions WHERE session_id = %s",
+                "SELECT session_state FROM study_sessions WHERE session_id = %s FOR UPDATE",
                 (session_id,),
             ).fetchone()
             if row is None:
@@ -264,6 +264,7 @@ class LearnerStore:
                            incorrect_streak, last_practiced_at, review_due_at
                     FROM student_skill_states
                     WHERE student_id = %s AND skill = %s
+                    FOR UPDATE
                     """,
                     (student_id, skill),
                 ).fetchone()

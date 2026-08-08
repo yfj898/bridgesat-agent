@@ -1,7 +1,12 @@
 """LearnerStore on PostgreSQL."""
 from __future__ import annotations
 
+import time
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+
 import pytest
+from psycopg.errors import NotNullViolation
 
 from app.domain.events import LearningEvent, LearningEventType
 from app.domain.learner import MisconceptionState, SkillState
@@ -107,6 +112,27 @@ def _record_evaluation(
         misconception_confidence_label="high",
         session_state=target_state,
     )
+
+
+class _SynchronizedConnection:
+    """Delay one query while keeping the underlying connection independent."""
+
+    def __init__(self, connection, query_fragment: str, barrier: Barrier) -> None:
+        self._connection = connection
+        self._query_fragment = query_fragment
+        self._barrier = barrier
+
+    def execute(self, query, params=None):
+        normalized_query = " ".join(str(query).split()).upper()
+        if self._query_fragment in normalized_query:
+            self._barrier.wait(timeout=10)
+            cursor = self._connection.execute(query, params)
+            time.sleep(0.2)
+            return cursor
+        return self._connection.execute(query, params)
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
 
 
 def test_create_student_emits_student_created_event(store: LearnerStore) -> None:
@@ -269,3 +295,159 @@ def test_illegal_session_transition_does_not_update_projection(
 def test_unknown_session_transition_raises_key_error(store: LearnerStore) -> None:
     with pytest.raises(KeyError, match="Unknown session missing"):
         store.transition_session("missing", SessionState.PROFILE_READY)
+
+
+def test_concurrent_transitions_recheck_locked_session_state(
+    store: LearnerStore,
+) -> None:
+    student_id, session_id = _create_question_session(store)
+    barrier = Barrier(2)
+
+    def transition_from_independent_connection() -> str:
+        connection = pg.connect()
+        try:
+            connection.execute(
+                "SELECT set_config('app.tenant_id', %s, false)",
+                (TENANT,),
+            )
+            connection.commit()
+            concurrent_store = LearnerStore(
+                _SynchronizedConnection(
+                    connection,
+                    "SELECT SESSION_STATE FROM STUDY_SESSIONS",
+                    barrier,
+                )
+            )
+            try:
+                concurrent_store.transition_session(
+                    session_id, SessionState.ANSWER_EVALUATED
+                )
+            except IllegalTransitionError:
+                return "illegal"
+            return "success"
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(
+            executor.map(
+                lambda _: transition_from_independent_connection(),
+                range(2),
+            )
+        )
+
+    assert sorted(results) == ["illegal", "success"]
+    assert store.get_session_state(session_id) is SessionState.ANSWER_EVALUATED
+
+
+def test_concurrent_evaluations_lock_skill_projection(
+    store: LearnerStore,
+) -> None:
+    student_id, first_session_id = _create_question_session(store)
+    second_session_id = "session_concurrent_second"
+    store.create_session(student_id, second_session_id)
+    for state in (
+        SessionState.PROFILE_READY,
+        SessionState.DIAGNOSTIC_ACTIVE,
+        SessionState.DIAGNOSTIC_COMPLETE,
+        SessionState.PLAN_READY,
+        SessionState.QUESTION_ACTIVE,
+    ):
+        store.transition_session(second_session_id, state)
+
+    _record_evaluation(
+        store,
+        student_id=student_id,
+        session_id=first_session_id,
+        event=_evaluation_event(student_id, first_session_id, "event_seed"),
+    )
+    store.transition_session(first_session_id, SessionState.QUESTION_ACTIVE)
+
+    barrier = Barrier(2)
+
+    def evaluate_from_independent_connection(
+        session_id: str, event_id: str
+    ) -> int:
+        connection = pg.connect()
+        try:
+            connection.execute(
+                "SELECT set_config('app.tenant_id', %s, false)",
+                (TENANT,),
+            )
+            connection.commit()
+            concurrent_store = LearnerStore(
+                _SynchronizedConnection(
+                    connection,
+                    "SELECT ALPHA, BETA, EVIDENCE_COUNT FROM STUDENT_SKILL_STATES",
+                    barrier,
+                )
+            )
+            _, state = _record_evaluation(
+                concurrent_store,
+                student_id=student_id,
+                session_id=session_id,
+                event=_evaluation_event(student_id, session_id, event_id),
+            )
+            assert state is not None
+            return state.evidence_count
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(
+            executor.map(
+                lambda args: evaluate_from_independent_connection(*args),
+                (
+                    (first_session_id, "event_concurrent_first"),
+                    (second_session_id, "event_concurrent_second"),
+                ),
+            )
+        )
+
+    assert sorted(results) == [2, 3]
+    state = store.get_skill_state(student_id, "linear_equations")
+    assert state is not None
+    assert state.alpha == 5.0
+    assert state.evidence_count == 3
+    assert state.correct_streak == 3
+
+
+def test_record_answer_rolls_back_after_answer_attempt_constraint_failure(
+    store: LearnerStore,
+) -> None:
+    student_id, session_id = _create_question_session(store)
+    event = _evaluation_event(student_id, session_id, "event_failed_attempt")
+
+    with pytest.raises(NotNullViolation):
+        _record_evaluation(
+            store,
+            student_id=student_id,
+            session_id=session_id,
+            event=event,
+            content_id=None,
+            misconception="sign_error",
+        )
+
+    assert store.connection.execute(
+        "SELECT COUNT(*) AS total FROM learning_events WHERE event_id = %s",
+        (event.event_id,),
+    ).fetchone()["total"] == 0
+    assert store.connection.execute(
+        "SELECT COUNT(*) AS total FROM answer_attempts WHERE event_id = %s",
+        (event.event_id,),
+    ).fetchone()["total"] == 0
+    assert store.get_skill_state(student_id, "linear_equations") is None
+    assert store.count_misconception_evidence(
+        student_id, "linear_equations", "sign_error"
+    ) == (0, 0)
+    assert store.get_session_state(session_id) is SessionState.QUESTION_ACTIVE
+
+    _, state = _record_evaluation(
+        store,
+        student_id=student_id,
+        session_id=session_id,
+        event=_evaluation_event(student_id, session_id, "event_after_rollback"),
+    )
+    assert state is not None
+    assert state.evidence_count == 1
+    assert store.get_session_state(session_id) is SessionState.ANSWER_EVALUATED
