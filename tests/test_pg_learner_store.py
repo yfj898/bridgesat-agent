@@ -68,13 +68,21 @@ def _evaluation_event(
     event_id: str,
     *,
     occurred_at: str = "2026-01-01T00:00:00+00:00",
+    correct: bool = True,
+    event_type: LearningEventType = LearningEventType.ANSWER_EVALUATED,
+    event_student_id: str | None = None,
+    event_session_id: str | None = None,
+    payload: dict[str, object] | None = None,
 ) -> LearningEvent:
+    event_payload: dict[str, object] = {"correct": correct}
+    if payload:
+        event_payload.update(payload)
     return LearningEvent(
         event_id=event_id,
-        student_id=student_id,
-        session_id=session_id,
-        event_type=LearningEventType.ANSWER_EVALUATED,
-        payload={"correct": True},
+        student_id=event_student_id if event_student_id is not None else student_id,
+        session_id=event_session_id if event_session_id is not None else session_id,
+        event_type=event_type,
+        payload=event_payload,
         occurred_at=occurred_at,
         received_at=occurred_at,
         origin="online",
@@ -91,7 +99,10 @@ def _record_evaluation(
     misconception: str | None = None,
     skill: str = "linear_equations",
     content_id: str = "math.linear_equations.001",
+    content_version: int = 1,
     sequence: int = 1,
+    selected_choice_id: str = "A",
+    hint_level: int = 0,
     target_state: SessionState = SessionState.ANSWER_EVALUATED,
 ) -> tuple[object, SkillState | None]:
     return store.record_answer_evaluation(
@@ -99,14 +110,14 @@ def _record_evaluation(
         session_id=session_id,
         event=event,
         content_id=content_id,
-        content_version=1,
+        content_version=content_version,
         skill=skill,
         subskill="isolate_variable",
         difficulty=2,
         sequence=sequence,
-        selected_choice_id="A",
+        selected_choice_id=selected_choice_id,
         correct=correct,
-        hint_level=0,
+        hint_level=hint_level,
         weight=1.0,
         validity="valid",
         misconception=misconception,
@@ -239,9 +250,109 @@ def test_record_answer_updates_skill_state_and_session(store: LearnerStore) -> N
     assert attempt["weight"] == 1.0
 
 
+@pytest.mark.parametrize(
+    ("event_kwargs", "call_kwargs", "expected_fragment"),
+    [
+        pytest.param(
+            {"event_type": LearningEventType.ANSWER_SUBMITTED},
+            {},
+            "event.event_type",
+            id="event-type",
+        ),
+        pytest.param(
+            {"event_student_id": "student_other"},
+            {},
+            "event.student_id",
+            id="student-id",
+        ),
+        pytest.param(
+            {"event_session_id": "session_other"},
+            {},
+            "event.session_id",
+            id="session-id",
+        ),
+        pytest.param(
+            {"payload": {"content_id": "math.other.001"}},
+            {},
+            "payload.content_id",
+            id="content-id",
+        ),
+        pytest.param(
+            {"payload": {"version": 2}},
+            {},
+            "payload.version",
+            id="version",
+        ),
+        pytest.param(
+            {"payload": {"selected_choice_id": "B"}},
+            {},
+            "payload.selected_choice_id",
+            id="selected-choice-id",
+        ),
+        pytest.param(
+            {"correct": False},
+            {"correct": True},
+            "payload.correct",
+            id="correct",
+        ),
+        pytest.param(
+            {"payload": {"hint_level": 1}},
+            {},
+            "payload.hint_level",
+            id="hint-level",
+        ),
+    ],
+)
+def test_inconsistent_evaluation_inputs_reject_without_writes(
+    store: LearnerStore,
+    event_kwargs: dict[str, object],
+    call_kwargs: dict[str, object],
+    expected_fragment: str,
+) -> None:
+    student_id, session_id = _create_question_session(store)
+    event = _evaluation_event(
+        student_id,
+        session_id,
+        "event_inconsistent",
+        **event_kwargs,
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        _record_evaluation(
+            store,
+            student_id=student_id,
+            session_id=session_id,
+            event=event,
+            misconception="sign_error",
+            **call_kwargs,
+        )
+
+    assert expected_fragment in str(exc_info.value)
+    assert store.connection.execute(
+        "SELECT COUNT(*) AS total FROM learning_events WHERE event_id = %s",
+        (event.event_id,),
+    ).fetchone()["total"] == 0
+    assert store.connection.execute(
+        "SELECT COUNT(*) AS total FROM answer_attempts WHERE event_id = %s",
+        (event.event_id,),
+    ).fetchone()["total"] == 0
+    assert store.get_skill_state(student_id, "linear_equations") is None
+    assert store.connection.execute(
+        """
+        SELECT COUNT(*) AS total
+        FROM misconception_evidence
+        WHERE event_id = %s
+        """,
+        (event.event_id,),
+    ).fetchone()["total"] == 0
+    assert store.get_session_state(session_id) is SessionState.QUESTION_ACTIVE
+
+
 def test_record_answer_projects_misconception_evidence(store: LearnerStore) -> None:
     student_id, session_id = _create_question_session(store)
-    event = _evaluation_event(student_id, session_id, "event_misconception")
+    event = _evaluation_event(
+        student_id, session_id, "event_misconception", correct=False
+    )
 
     evidence, _ = _record_evaluation(
         store,
@@ -264,7 +375,9 @@ def test_duplicate_event_does_not_pollute_projections(
     store: LearnerStore,
 ) -> None:
     student_id, session_id = _create_question_session(store)
-    event = _evaluation_event(student_id, session_id, "event_duplicate")
+    event = _evaluation_event(
+        student_id, session_id, "event_duplicate", correct=False
+    )
     _record_evaluation(
         store,
         student_id=student_id,
@@ -304,7 +417,9 @@ def test_tenant_isolation_hides_session_skill_and_evidence(
         store,
         student_id=student_id,
         session_id=session_id,
-        event=_evaluation_event(student_id, session_id, "event_tenant"),
+        event=_evaluation_event(
+            student_id, session_id, "event_tenant", correct=False
+        ),
         correct=False,
         misconception="sign_error",
     )
@@ -543,7 +658,9 @@ def test_concurrent_non_core_misconceptions_serialize_evidence_projection(
                 concurrent_store,
                 student_id=student_id,
                 session_id=session_id,
-                event=_evaluation_event(student_id, session_id, event_id),
+                event=_evaluation_event(
+                    student_id, session_id, event_id, correct=False
+                ),
                 correct=False,
                 misconception="sign_error",
                 skill="non_core_skill",

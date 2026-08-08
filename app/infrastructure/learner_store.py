@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import psycopg
 from psycopg.errors import UniqueViolation
 
-from app.domain.events import LearningEvent
+from app.domain.events import LearningEvent, LearningEventType
 from app.domain.learner import (
     DEFAULT_ALPHA,
     DEFAULT_BETA,
@@ -183,6 +183,39 @@ class LearnerStore:
         session_state: SessionState,
     ) -> tuple[MisconceptionEvidence | None, SkillState | None]:
         """Append event and update projection atomically."""
+        if event.event_type != LearningEventType.ANSWER_EVALUATED:
+            raise ValueError(
+                "record_answer_evaluation event.event_type must be "
+                "ANSWER_EVALUATED"
+            )
+
+        for field_name, event_value, argument_value in (
+            ("student_id", event.student_id, student_id),
+            ("session_id", event.session_id, session_id),
+        ):
+            if event_value != argument_value:
+                raise ValueError(
+                    f"record_answer_evaluation event.{field_name}={event_value!r} "
+                    f"does not match argument={argument_value!r}"
+                )
+
+        for field_name, argument_value in (
+            ("content_id", content_id),
+            ("version", content_version),
+            ("selected_choice_id", selected_choice_id),
+            ("correct", correct),
+            ("hint_level", hint_level),
+        ):
+            if (
+                field_name in event.payload
+                and event.payload[field_name] != argument_value
+            ):
+                raise ValueError(
+                    f"record_answer_evaluation payload.{field_name}="
+                    f"{event.payload[field_name]!r} does not match "
+                    f"argument={argument_value!r}"
+                )
+
         now = event.occurred_at or utc_now_iso()
         evidence: MisconceptionEvidence | None = None
         skill_state: SkillState | None = None
