@@ -34,7 +34,11 @@
 | `json.dumps` 存 TEXT | 不变(保持 TEXT 列,避免 PG json 类型序列化差异) |
 | 布尔 `INTEGER NOT NULL` | `BOOLEAN NOT NULL` |
 
-**连接 DSN 约定:** `BRIDGESAT_DB=postgresql://bridgesat:bridgesat@localhost:5432/bridgesat`。测试与开发共用 `scripts/dev_env.py` 起的本地容器。
+**连接 DSN 约定(双角色):**
+- `BRIDGESAT_ADMIN_DB=postgresql://bridgesat:bridgesat@localhost:5432/bridgesat` — 超级用户,**仅用于迁移/DDL**(`apply_migrations`/`connect_admin`)
+- `BRIDGESAT_DB=postgresql://bridgesat_app:bridgesat@localhost:5432/bridgesat` — 非超级应用角色,**所有运行时/存储模块/测试业务连接用这个**
+
+**为何双角色:** 单角色 `bridgesat` 是超级用户+表 owner,而 PG 中超级用户与表 owner 都绕过 RLS(owner 需 FORCE 才受限,超级用户不受限)——单角色下 0008 的 RLS 隔离完全无效(已实测跨租户可见)。因此:超级用户只做迁移,应用角色(非 owner)承载 RLS 隔离。token 解析因发生在设置 `app.tenant_id` 之前,必须用 `SECURITY DEFINER` 函数(0008 创建,owner 为超级用户,精确 hash 匹配,只暴露该 token 对应行)。
 
 ---
 
@@ -101,6 +105,7 @@ services:
       - "5432:5432"
     volumes:
       - bridgesat-pgdata:/var/lib/postgresql/data
+      - ./scripts/pg-initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U bridgesat -d bridgesat"]
       interval: 2s
@@ -110,6 +115,15 @@ services:
 volumes:
   bridgesat-pgdata:
 ```
+
+Step 1b: 创建 `scripts/pg-initdb/01-app-role.sql`(initdb 阶段创建应用角色;仅首次初始化执行):
+
+```sql
+-- Application role for BridgeSAT runtime connections (RLS subject).
+CREATE ROLE bridgesat_app LOGIN PASSWORD 'bridgesat';
+```
+
+**注意:** 若本地 dev 容器已初始化(volume 存在),initdb 脚本不会重跑;用 dev_env.py 的 `up` 命令补充执行(见 Step 2b)保证幂等。
 
 - [ ] **Step 2: 写 scripts/dev_env.py**
 
@@ -133,6 +147,7 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = ROOT / "docker-compose.yml"
 
 DSN = "postgresql://bridgesat:bridgesat@localhost:5432/bridgesat"
+APP_DSN = "postgresql://bridgesat_app:bridgesat@localhost:5432/bridgesat"
 
 
 def _compose(*args: str) -> subprocess.CompletedProcess:
@@ -160,7 +175,28 @@ def _wait_healthy(timeout_s: int = 60) -> None:
 def up() -> None:
     _compose("up", "-d", "postgres")
     _wait_healthy()
-    print(f"DSN: {DSN}")
+    _ensure_app_role()
+    print(f"admin DSN: {DSN}")
+    print(f"app DSN:   {APP_DSN}")
+
+
+def _ensure_app_role() -> None:
+    """Idempotently create the bridgesat_app role (initdb only runs on a
+    fresh volume; existing dev volumes need this on every `up`)."""
+    proc = subprocess.run(
+        [
+            "docker", "compose", "-f", str(COMPOSE), "exec", "-T", "postgres",
+            "psql", "-U", "bridgesat", "-d", "bridgesat", "-v", "ON_ERROR_STOP=1",
+            "-c", "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'bridgesat_app') THEN CREATE ROLE bridgesat_app LOGIN PASSWORD 'bridgesat'; END IF; END $$;",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        print(f"WARNING: could not ensure bridgesat_app role: {proc.stderr.strip()}")
+    else:
+        print("bridgesat_app role: ensured")
 
 
 def down() -> None:
@@ -206,14 +242,15 @@ git commit -m "chore: 本地 PostgreSQL 开发环境(docker-compose + dev_env)"
 - [ ] **Step 1: 写失败测试**
 
 ```python
-"""PG 连接层测试。需要本地 PG 已启动(scripts/dev_env.py up)。"""
+"""PG 连接层测试。需要本地 PG 已启动(scripts/dev_env.py up),且
+bridgesat_app 角色已创建(up 命令幂等保证)。"""
 from __future__ import annotations
 
 import pytest
 
 from app.infrastructure.pg import connect, transaction
 
-DSN = "postgresql://bridgesat:bridgesat@localhost:5432/bridgesat"
+DSN = "postgresql://bridgesat_app:bridgesat@localhost:5432/bridgesat"
 
 
 @pytest.fixture(scope="module")
@@ -279,15 +316,30 @@ from typing import Iterator
 import psycopg
 from psycopg.rows import dict_row
 
-DEFAULT_DSN = "postgresql://bridgesat:bridgesat@localhost:5432/bridgesat"
+DEFAULT_ADMIN_DSN = "postgresql://bridgesat:bridgesat@localhost:5432/bridgesat"
+DEFAULT_APP_DSN = "postgresql://bridgesat_app:bridgesat@localhost:5432/bridgesat"
+
+
+def admin_dsn() -> str:
+    return os.getenv("BRIDGESAT_ADMIN_DB", DEFAULT_ADMIN_DSN)
 
 
 def dsn() -> str:
-    return os.getenv("BRIDGESAT_DB", DEFAULT_DSN)
+    """Application-role DSN (RLS applies). Runtime and tests use this."""
+    return os.getenv("BRIDGESAT_DB", DEFAULT_APP_DSN)
+
+
+def connect_admin(target: str | None = None) -> psycopg.Connection:
+    """Superuser connection: migrations/DDL/GRANT only."""
+    return psycopg.connect(
+        target or admin_dsn(),
+        row_factory=dict_row,
+        autocommit=False,
+    )
 
 
 def connect(target: str | None = None) -> psycopg.Connection:
-    """Open a new connection with dict-row access. Caller closes it."""
+    """Application-role connection with dict-row access. Caller closes it."""
     return psycopg.connect(
         target or dsn(),
         row_factory=dict_row,
@@ -357,11 +409,13 @@ from app.infrastructure.migration_runner import (
 
 @pytest.fixture()
 def database():
-    conn = pg.connect()
+    conn = pg.connect_admin()
     migrate_database(conn)
     yield conn
-    conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
-    conn.commit()
+    admin = pg.connect_admin()
+    admin.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+    admin.commit()
+    admin.close()
     conn.close()
 
 
@@ -489,8 +543,9 @@ def migrate_database(connection: psycopg.Connection) -> int:
 
 
 def apply_migrations(target: str | None = None) -> int:
-    """Open a connection to target (or env DSN), migrate, close. Returns version."""
-    connection = pg.connect(target)
+    """Open a superuser connection (migrations need DDL/GRANT rights),
+    migrate, close. Returns version."""
+    connection = pg.connect_admin(target)
     try:
         return migrate_database(connection)
     finally:
@@ -932,7 +987,7 @@ Run: `python -c "
 import sys; sys.path.insert(0, '.')
 from app.infrastructure.migration_runner import migrate_database
 from app.infrastructure import pg
-conn = pg.connect(); print('version:', migrate_database(conn)); conn.close()
+conn = pg.connect_admin(); print('version:', migrate_database(conn)); conn.close()
 "`
 Expected: `version: 4`(0005-0008 尚未创建,只到 4)
 
@@ -1144,11 +1199,61 @@ def migrate(connection: psycopg.Connection) -> None:
             f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"
         )
         connection.execute(
+            f"DROP POLICY IF EXISTS tenant_isolation ON {table}"
+        )
+        connection.execute(
             f"""
             CREATE POLICY tenant_isolation ON {table}
             USING (tenant_id = current_setting('app.tenant_id', true))
             """
         )
+    _grant_app_role(connection)
+    _create_token_resolver(connection)
+
+
+def _grant_app_role(connection: psycopg.Connection) -> None:
+    """Grant runtime privileges to bridgesat_app.
+
+    bridgesat (superuser) owns all tables and bypasses RLS; bridgesat_app is
+    the RLS subject. Default privileges make future tables usable without
+    re-granting.
+    """
+    connection.execute("GRANT USAGE ON SCHEMA public TO bridgesat_app")
+    connection.execute(
+        "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO bridgesat_app"
+    )
+    connection.execute(
+        "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO bridgesat_app"
+    )
+    connection.execute(
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
+        "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO bridgesat_app"
+    )
+    connection.execute(
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
+        "GRANT USAGE, SELECT ON SEQUENCES TO bridgesat_app"
+    )
+
+
+def _create_token_resolver(connection: psycopg.Connection) -> None:
+    """Token resolution runs BEFORE app.tenant_id is set, so it must bypass
+    RLS. SECURITY DEFINER (owner = bridgesat superuser) + exact hash match
+    exposes only the row for the presented token."""
+    connection.execute(
+        """
+        CREATE OR REPLACE FUNCTION resolve_token(p_hash TEXT)
+        RETURNS TABLE (tenant_id TEXT, student_id TEXT)
+        LANGUAGE sql
+        SECURITY DEFINER
+        SET search_path = public
+        AS $$
+            SELECT tenant_id, student_id FROM student_tokens
+            WHERE token_hash = p_hash AND revoked_at IS NULL
+        $$
+        """
+    )
+    connection.execute("REVOKE ALL ON FUNCTION resolve_token(TEXT) FROM PUBLIC")
+    connection.execute("GRANT EXECUTE ON FUNCTION resolve_token(TEXT) TO bridgesat_app")
 ```
 
 - [ ] **Step 5: 运行迁移器验证(全部 8 个)**
@@ -1157,9 +1262,20 @@ Run: `python -c "
 import sys; sys.path.insert(0, '.')
 from app.infrastructure.migration_runner import migrate_database
 from app.infrastructure import pg
-conn = pg.connect(); print('version:', migrate_database(conn)); conn.close()
+conn = pg.connect_admin(); print('version:', migrate_database(conn)); conn.close()
 "`
 Expected: `version: 8`。再跑一次仍为 8(幂等)。
+
+- [ ] **Step 5b: 验证 RLS 在 app 角色下真正生效(双角色核心)**
+
+```python
+# 1) admin 连接插入学生
+# 2) app 角色(未设置 tenant)→ 看不到;设置 tenant_a → 看到;
+#    设置 tenant_b → 看不到;INSERT 跨租户被拒
+```
+具体验证(临时脚本,不进 git):admin 连接 `INSERT INTO students (..., tenant_id) VALUES ('stu_x', 'tenant_a')` 后,`bridgesat_app` 连接 `SELECT * FROM students` = 空;`SET app.tenant_id = 'tenant_a'` 后可读到 stu_x;`SET app.tenant_id = 'tenant_b'` 后读不到;`INSERT ... tenant_id='tenant_b'` 报 RLS 错误。另验证 `resolve_token('...')` 无需设置 tenant 即可返回租户(先造一条 student_tokens)。
+
+**注意:** 0008 的 GRANT 依赖 `bridgesat_app` 角色已存在(dev_env.py up 保证)。若直接跑测试而角色缺失,0008 迁移会失败——先 `python scripts/dev_env.py up`。
 
 - [ ] **Step 6: Commit**
 
@@ -1194,13 +1310,21 @@ TENANT = "tenant_test"
 
 @pytest.fixture()
 def repo():
+    """Test fixture template for ALL PG tasks:
+    - admin connection (superuser) for migrations + schema reset
+    - app connection (bridgesat_app) for the store under test, so RLS applies
+    """
+    admin = pg.connect_admin()
+    migrate_database(admin)
+    admin.close()
     conn = pg.connect()
-    migrate_database(conn)
     conn.execute("SELECT set_config('app.tenant_id', %s, false)", (TENANT,))
     conn.commit()
     yield StudentRepository(conn)
-    conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
-    conn.commit()
+    admin = pg.connect_admin()
+    admin.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+    admin.commit()
+    admin.close()
     conn.close()
 
 
@@ -1352,13 +1476,17 @@ TENANT = "tenant_test"
 
 @pytest.fixture()
 def store():
+    admin = pg.connect_admin()
+    migrate_database(admin)
+    admin.close()
     conn = pg.connect()
-    migrate_database(conn)
     conn.execute("SELECT set_config('app.tenant_id', %s, false)", (TENANT,))
     conn.commit()
     yield TokenStore(conn)
-    conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
-    conn.commit()
+    admin = pg.connect_admin()
+    admin.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+    admin.commit()
+    admin.close()
     conn.close()
 
 
@@ -1374,13 +1502,15 @@ def test_revoke(store) -> None:
     assert store.resolve(token) is None
 
 
-def test_resolve_other_tenant_returns_none(store) -> None:
+def test_resolve_works_from_any_tenant_context(store) -> None:
+    """Token resolution bypasses RLS via SECURITY DEFINER: it must work even
+    before app.tenant_id is set (the middleware depends on this)."""
     token = store.issue("stu_1")
     conn2 = pg.connect()
     conn2.execute("SELECT set_config('app.tenant_id', 'tenant_other', false)")
     conn2.commit()
     store2 = TokenStore(conn2)
-    assert store2.resolve(token) is None
+    assert store2.resolve(token) == "stu_1"
     conn2.close()
 
 
@@ -1442,22 +1572,19 @@ class TokenStore:
     def resolve(self, token: str) -> str | None:
         token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
         row = self.connection.execute(
-            """
-            SELECT student_id FROM student_tokens
-            WHERE token_hash = %s AND revoked_at IS NULL
-            """,
+            "SELECT student_id FROM resolve_token(%s)",
             (token_hash,),
         ).fetchone()
         return row["student_id"] if row is not None else None
 
     def resolve_tenant(self, token: str) -> tuple[str, str] | None:
-        """Return (tenant_id, student_id) for an active token, or None."""
+        """Return (tenant_id, student_id) for an active token, or None.
+
+        Uses the SECURITY DEFINER resolver so lookup works before any
+        app.tenant_id is set (RLS would otherwise hide every row)."""
         token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
         row = self.connection.execute(
-            """
-            SELECT tenant_id, student_id FROM student_tokens
-            WHERE token_hash = %s AND revoked_at IS NULL
-            """,
+            "SELECT tenant_id, student_id FROM resolve_token(%s)",
             (token_hash,),
         ).fetchone()
         return (row["tenant_id"], row["student_id"]) if row is not None else None
@@ -1544,13 +1671,17 @@ from app.infrastructure.migration_runner import migrate_database
 
 @pytest.fixture()
 def store():
+    admin = pg.connect_admin()
+    migrate_database(admin)
+    admin.close()
     conn = pg.connect()
-    migrate_database(conn)
     conn.execute("SELECT set_config('app.tenant_id', 'tenant_test', false)")
     conn.commit()
     yield EventStore(conn)
-    conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
-    conn.commit()
+    admin = pg.connect_admin()
+    admin.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+    admin.commit()
+    admin.close()
     conn.close()
 
 
@@ -1832,13 +1963,17 @@ from app.infrastructure.migration_runner import migrate_database
 
 @pytest.fixture()
 def store():
+    admin = pg.connect_admin()
+    migrate_database(admin)
+    admin.close()
     conn = pg.connect()
-    migrate_database(conn)
     conn.execute("SELECT set_config('app.tenant_id', 'tenant_test', false)")
     conn.commit()
     yield LearnerStore(conn)
-    conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
-    conn.commit()
+    admin = pg.connect_admin()
+    admin.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+    admin.commit()
+    admin.close()
     conn.close()
 
 
@@ -1938,13 +2073,17 @@ from app.memory.pg_memory import PGMemory
 
 @pytest.fixture()
 def memory():
+    admin = pg.connect_admin()
+    migrate_database(admin)
+    admin.close()
     conn = pg.connect()
-    migrate_database(conn)
     conn.execute("SELECT set_config('app.tenant_id', 'tenant_test', false)")
     conn.commit()
     yield PGMemory(conn)
-    conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
-    conn.commit()
+    admin = pg.connect_admin()
+    admin.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+    admin.commit()
+    admin.close()
     conn.close()
 
 
@@ -2019,13 +2158,17 @@ from app.memory.outbox import OutboxRepository, next_retry_delay_seconds
 
 @pytest.fixture()
 def repo():
+    admin = pg.connect_admin()
+    migrate_database(admin)
+    admin.close()
     conn = pg.connect()
-    migrate_database(conn)
     conn.execute("SELECT set_config('app.tenant_id', 'tenant_test', false)")
     conn.commit()
     yield OutboxRepository(conn, default_student_id="stu_1")
-    conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
-    conn.commit()
+    admin = pg.connect_admin()
+    admin.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+    admin.commit()
+    admin.close()
     conn.close()
 
 
@@ -2121,13 +2264,17 @@ from app.sync.service import SyncService
 
 @pytest.fixture()
 def service():
+    admin = pg.connect_admin()
+    migrate_database(admin)
+    admin.close()
     conn = pg.connect()
-    migrate_database(conn)
     conn.execute("SELECT set_config('app.tenant_id', 'tenant_test', false)")
     conn.commit()
     yield SyncService(conn)
-    conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
-    conn.commit()
+    admin = pg.connect_admin()
+    admin.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+    admin.commit()
+    admin.close()
     conn.close()
 
 
@@ -2203,13 +2350,17 @@ GOLDEN = Path("evals/retrieval/golden.jsonl")
 
 @pytest.fixture()
 def backend():
+    admin = pg.connect_admin()
+    migrate_database(admin)
+    admin.close()
     conn = pg.connect()
-    migrate_database(conn)
     conn.execute("SELECT set_config('app.tenant_id', 'tenant_demo', false)")
     conn.commit()
     yield KnowledgeBackend(conn)
-    conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
-    conn.commit()
+    admin = pg.connect_admin()
+    admin.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+    admin.commit()
+    admin.close()
     conn.close()
 
 
@@ -2283,8 +2434,10 @@ from app.infrastructure.migration_runner import migrate_database
 
 @pytest.fixture()
 def client():
+    admin = pg.connect_admin()
+    migrate_database(admin)
+    admin.close()
     conn = pg.connect()
-    migrate_database(conn)
     conn.execute("SELECT set_config('app.tenant_id', 'tenant_test', false)")
     conn.commit()
     # main.py 应用工厂化后的 client(见 Task 14 Step 3)
@@ -2298,8 +2451,8 @@ def test_tenant_isolated_student_lookup(client) -> None:
 
 - [ ] **Step 2: 重写 main.py**
 
-- `DATABASE_PATH` 删除,改为 `DATABASE_DSN = os.getenv("BRIDGESAT_DB", DEFAULT_DSN)` 与模块级连接 `database_connection = pg.connect()`(应用单连接;后续可换连接池)
-- `apply_migrations(database_connection)`(在 import 时)
+- `DATABASE_PATH` 删除,改为 `DATABASE_DSN = os.getenv("BRIDGESAT_DB", DEFAULT_APP_DSN)` 与模块级连接 `database_connection = pg.connect()`(应用单连接;后续可换连接池)
+- 迁移走 admin 连接:`_migration_admin = pg.connect_admin(); migrate_database(_migration_admin); _migration_admin.close()`(import 时)
 - `repository = StudentRepository(database_connection)`、`token_store = TokenStore(database_connection)`
 - 新增租户中间件(BaseHTTPMiddleware):
 
@@ -2460,7 +2613,7 @@ def migrate(sqlite_path: Path) -> dict[str, int]:
 
     src = sqlite3.connect(sqlite_path)
     src.row_factory = sqlite3.Row
-    dst = pg.connect()
+    dst = pg.connect_admin()
     try:
         migrate_database(dst)
         dst.execute("SELECT set_config('app.tenant_id', 'tenant_demo', false)")
@@ -2527,7 +2680,7 @@ Run: `python scripts/migrate_sqlite_to_pg.py && python -c "
 import sys; sys.path.insert(0, '.')
 from app.infrastructure import pg
 from app.infrastructure.migration_runner import migrate_database
-conn = pg.connect(); migrate_database(conn)
+conn = pg.connect_admin(); migrate_database(conn)
 conn.execute(\"SELECT set_config('app.tenant_id', 'tenant_demo', false)\")
 n = conn.execute('SELECT COUNT(*) AS n FROM students').fetchone()['n']
 print('students in PG:', n); conn.close()
