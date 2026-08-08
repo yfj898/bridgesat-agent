@@ -3,14 +3,12 @@ from __future__ import annotations
 
 import pytest
 
-from app.infrastructure.pg import connect, transaction
-
-DSN = "postgresql://bridgesat:bridgesat@localhost:5432/bridgesat"
+from app.infrastructure.pg import connect, database_version, transaction
 
 
 @pytest.fixture(scope="module")
 def pg_conn():
-    conn = connect(DSN)
+    conn = connect()
     yield conn
     conn.close()
 
@@ -25,24 +23,50 @@ def test_connect_runs_cleanup_sql(pg_conn) -> None:
     assert row["sp"] == "public"
 
 
-def test_transaction_commits(pg_conn) -> None:
+def test_database_version_zero_on_unmigrated_db() -> None:
+    conn = connect()
+    try:
+        conn.execute("DROP TABLE IF EXISTS schema_migrations")
+        assert database_version(conn) == 0
+        row = conn.execute("SELECT 1 AS one").fetchone()
+        assert row["one"] == 1
+    finally:
+        conn.rollback()
+        conn.close()
+
+
+def test_transaction_commits_across_connections(pg_conn) -> None:
+    table_name = "txn_commit_probe"
+    pg_conn.execute(f"DROP TABLE IF EXISTS {table_name}")
     with transaction(pg_conn):
-        pg_conn.execute(
-            "CREATE TEMP TABLE txn_probe (v INTEGER); INSERT INTO txn_probe VALUES (7)"
-        )
-    row = pg_conn.execute("SELECT COUNT(*) AS n FROM txn_probe").fetchone()
-    assert row["n"] == 1
+        pg_conn.execute(f"CREATE TABLE {table_name} (v INTEGER)")
+    other = connect()
+    try:
+        row = other.execute(
+            "SELECT COUNT(*) AS n FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = %s",
+            (table_name,),
+        ).fetchone()
+        assert row["n"] == 1
+    finally:
+        other.execute(f"DROP TABLE IF EXISTS {table_name}")
+        other.commit()
+        other.close()
 
 
 def test_transaction_rolls_back_on_error(pg_conn) -> None:
-    with pytest.raises(RuntimeError):
-        with transaction(pg_conn):
-            pg_conn.execute(
-                "CREATE TEMP TABLE txn_probe2 (v INTEGER); INSERT INTO txn_probe2 VALUES (1)"
-            )
-            raise RuntimeError("boom")
-    row = pg_conn.execute(
-        "SELECT COUNT(*) AS n FROM information_schema.tables "
-        "WHERE table_name = 'txn_probe2'"
-    ).fetchone()
-    assert row["n"] == 0
+    table_name = "txn_rollback_probe"
+    pg_conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+    try:
+        with pytest.raises(RuntimeError):
+            with transaction(pg_conn):
+                pg_conn.execute(f"CREATE TABLE {table_name} (v INTEGER)")
+                raise RuntimeError("boom")
+        row = pg_conn.execute(
+            "SELECT COUNT(*) AS n FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = %s",
+            (table_name,),
+        ).fetchone()
+        assert row["n"] == 0
+    finally:
+        pg_conn.execute(f"DROP TABLE IF EXISTS {table_name}")

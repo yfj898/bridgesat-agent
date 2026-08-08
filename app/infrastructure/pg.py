@@ -46,6 +46,17 @@ def transaction(connection: psycopg.Connection) -> Iterator[psycopg.Connection]:
 
 
 def database_version(connection: psycopg.Connection) -> int:
+    """Return the highest applied migration version, or 0 if none exist.
+
+    The table may not exist on an unmigrated database; a direct SELECT would
+    raise UndefinedTable and leave the connection in an aborted transaction,
+    so we check existence first with ``to_regclass``.
+    """
+    exists = connection.execute(
+        "SELECT to_regclass('public.schema_migrations') AS relation"
+    ).fetchone()["relation"]
+    if exists is None:
+        return 0
     row = connection.execute(
         "SELECT MAX(version) AS version FROM schema_migrations"
     ).fetchone()
