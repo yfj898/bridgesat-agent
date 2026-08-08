@@ -1,9 +1,8 @@
 """LearnerStore on PostgreSQL."""
 from __future__ import annotations
 
-import time
 from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
+from threading import Barrier, Event
 
 import pytest
 from psycopg.errors import NotNullViolation
@@ -25,8 +24,10 @@ TENANT = "tenant_test"
 @pytest.fixture()
 def store() -> LearnerStore:
     admin = pg.connect_admin()
-    migrate_database(admin)
-    admin.close()
+    try:
+        migrate_database(admin)
+    finally:
+        admin.close()
 
     conn = pg.connect()
     try:
@@ -88,6 +89,7 @@ def _record_evaluation(
     event: LearningEvent,
     correct: bool = True,
     misconception: str | None = None,
+    skill: str = "linear_equations",
     content_id: str = "math.linear_equations.001",
     sequence: int = 1,
     target_state: SessionState = SessionState.ANSWER_EVALUATED,
@@ -98,7 +100,7 @@ def _record_evaluation(
         event=event,
         content_id=content_id,
         content_version=1,
-        skill="linear_equations",
+        skill=skill,
         subskill="isolate_variable",
         difficulty=2,
         sequence=sequence,
@@ -115,7 +117,7 @@ def _record_evaluation(
 
 
 class _SynchronizedConnection:
-    """Delay one query while keeping the underlying connection independent."""
+    """Coordinate one query while keeping the underlying connection independent."""
 
     def __init__(self, connection, query_fragment: str, barrier: Barrier) -> None:
         self._connection = connection
@@ -126,9 +128,54 @@ class _SynchronizedConnection:
         normalized_query = " ".join(str(query).split()).upper()
         if self._query_fragment in normalized_query:
             self._barrier.wait(timeout=10)
+        return self._connection.execute(query, params)
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
+
+
+class _MisconceptionRace:
+    def __init__(self) -> None:
+        self.allow_second_count = Event()
+        self.first_count_finished = Event()
+        self.release_first = Event()
+        self.second_advisory_requested = Event()
+        self.second_count_finished = Event()
+        self.second_progress = Event()
+
+
+class _MisconceptionSynchronizedConnection:
+    """Coordinate the count without delaying the transaction by wall time."""
+
+    def __init__(self, connection, participant: str, race: _MisconceptionRace) -> None:
+        self._connection = connection
+        self._participant = participant
+        self._race = race
+
+    def execute(self, query, params=None):
+        normalized_query = " ".join(str(query).split()).upper()
+        if (
+            self._participant == "second"
+            and "PG_ADVISORY_XACT_LOCK" in normalized_query
+        ):
+            self._race.second_advisory_requested.set()
+            self._race.second_progress.set()
+
+        if "SELECT COUNT(*) AS TOTAL" in normalized_query:
+            if self._participant == "first":
+                cursor = self._connection.execute(query, params)
+                self._race.first_count_finished.set()
+                if not self._race.release_first.wait(timeout=10):
+                    raise TimeoutError("first misconception count was not released")
+                return cursor
+
+            if not self._race.allow_second_count.wait(timeout=10):
+                raise TimeoutError("second misconception count was not released")
             cursor = self._connection.execute(query, params)
-            time.sleep(0.2)
+            self._race.second_count_finished.set()
+            self._race.second_progress.set()
             return cursor
+
         return self._connection.execute(query, params)
 
     def __getattr__(self, name):
@@ -301,7 +348,8 @@ def test_concurrent_transitions_recheck_locked_session_state(
     store: LearnerStore,
 ) -> None:
     student_id, session_id = _create_question_session(store)
-    barrier = Barrier(2)
+    ready = Event()
+    barrier = Barrier(2, action=ready.set)
 
     def transition_from_independent_connection() -> str:
         connection = pg.connect()
@@ -328,13 +376,31 @@ def test_concurrent_transitions_recheck_locked_session_state(
         finally:
             connection.close()
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        results = list(
-            executor.map(
-                lambda _: transition_from_independent_connection(),
-                range(2),
-            )
+    lock_holder = pg.connect()
+    try:
+        lock_holder.execute(
+            "SELECT set_config('app.tenant_id', %s, false)",
+            (TENANT,),
         )
+        lock_holder.commit()
+        lock_holder.execute(
+            "SELECT session_id FROM study_sessions WHERE session_id = %s FOR UPDATE",
+            (session_id,),
+        )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(transition_from_independent_connection)
+                for _ in range(2)
+            ]
+            try:
+                assert ready.wait(timeout=10)
+            finally:
+                lock_holder.rollback()
+            results = [future.result(timeout=10) for future in futures]
+    finally:
+        lock_holder.rollback()
+        lock_holder.close()
 
     assert sorted(results) == ["illegal", "success"]
     assert store.get_session_state(session_id) is SessionState.ANSWER_EVALUATED
@@ -363,7 +429,8 @@ def test_concurrent_evaluations_lock_skill_projection(
     )
     store.transition_session(first_session_id, SessionState.QUESTION_ACTIVE)
 
-    barrier = Barrier(2)
+    ready = Event()
+    barrier = Barrier(2, action=ready.set)
 
     def evaluate_from_independent_connection(
         session_id: str, event_id: str
@@ -378,7 +445,7 @@ def test_concurrent_evaluations_lock_skill_projection(
             concurrent_store = LearnerStore(
                 _SynchronizedConnection(
                     connection,
-                    "SELECT ALPHA, BETA, EVIDENCE_COUNT FROM STUDENT_SKILL_STATES",
+                    "SELECT ALPHA, BETA, EVIDENCE_COUNT, CORRECT_STREAK",
                     barrier,
                 )
             )
@@ -393,16 +460,43 @@ def test_concurrent_evaluations_lock_skill_projection(
         finally:
             connection.close()
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        results = list(
-            executor.map(
-                lambda args: evaluate_from_independent_connection(*args),
-                (
+    lock_holder = pg.connect()
+    try:
+        lock_holder.execute(
+            "SELECT set_config('app.tenant_id', %s, false)",
+            (TENANT,),
+        )
+        lock_holder.commit()
+        lock_holder.execute(
+            """
+            SELECT student_id
+            FROM student_skill_states
+            WHERE student_id = %s AND skill = %s
+            FOR UPDATE
+            """,
+            (student_id, "linear_equations"),
+        )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(
+                    evaluate_from_independent_connection,
+                    session_id,
+                    event_id,
+                )
+                for session_id, event_id in (
                     (first_session_id, "event_concurrent_first"),
                     (second_session_id, "event_concurrent_second"),
-                ),
-            )
-        )
+                )
+            ]
+            try:
+                assert ready.wait(timeout=10)
+            finally:
+                lock_holder.rollback()
+            results = [future.result(timeout=10) for future in futures]
+    finally:
+        lock_holder.rollback()
+        lock_holder.close()
 
     assert sorted(results) == [2, 3]
     state = store.get_skill_state(student_id, "linear_equations")
@@ -410,6 +504,87 @@ def test_concurrent_evaluations_lock_skill_projection(
     assert state.alpha == 5.0
     assert state.evidence_count == 3
     assert state.correct_streak == 3
+
+
+def test_concurrent_non_core_misconceptions_serialize_evidence_projection(
+    store: LearnerStore,
+) -> None:
+    student_id, first_session_id = _create_question_session(store)
+    second_session_id = "session_misconception_second"
+    store.create_session(student_id, second_session_id)
+    for state in (
+        SessionState.PROFILE_READY,
+        SessionState.DIAGNOSTIC_ACTIVE,
+        SessionState.DIAGNOSTIC_COMPLETE,
+        SessionState.PLAN_READY,
+        SessionState.QUESTION_ACTIVE,
+    ):
+        store.transition_session(second_session_id, state)
+
+    race = _MisconceptionRace()
+
+    def evaluate_from_independent_connection(
+        participant: str,
+        session_id: str,
+        event_id: str,
+        content_id: str,
+    ) -> object:
+        connection = pg.connect()
+        try:
+            connection.execute(
+                "SELECT set_config('app.tenant_id', %s, false)",
+                (TENANT,),
+            )
+            connection.commit()
+            concurrent_store = LearnerStore(
+                _MisconceptionSynchronizedConnection(connection, participant, race)
+            )
+            evidence, _ = _record_evaluation(
+                concurrent_store,
+                student_id=student_id,
+                session_id=session_id,
+                event=_evaluation_event(student_id, session_id, event_id),
+                correct=False,
+                misconception="sign_error",
+                skill="non_core_skill",
+                content_id=content_id,
+            )
+            assert evidence is not None
+            return evidence
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(
+            evaluate_from_independent_connection,
+            "first",
+            first_session_id,
+            "event_misconception_first",
+            "math.non_core.001",
+        )
+        try:
+            assert race.first_count_finished.wait(timeout=10)
+            race.allow_second_count.set()
+            second_future = executor.submit(
+                evaluate_from_independent_connection,
+                "second",
+                second_session_id,
+                "event_misconception_second",
+                "math.non_core.002",
+            )
+            assert race.second_progress.wait(timeout=10)
+            if not race.second_count_finished.is_set():
+                assert race.second_advisory_requested.is_set()
+        finally:
+            race.release_first.set()
+        first_evidence = first_future.result(timeout=10)
+        second_evidence = second_future.result(timeout=10)
+
+    assert first_evidence.state is MisconceptionState.OBSERVED
+    assert second_evidence.state is MisconceptionState.SUSPECTED
+    assert store.count_misconception_evidence(
+        student_id, "non_core_skill", "sign_error"
+    ) == (2, 2)
 
 
 def test_record_answer_rolls_back_after_answer_attempt_constraint_failure(

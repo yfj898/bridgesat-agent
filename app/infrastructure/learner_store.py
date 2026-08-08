@@ -305,6 +305,18 @@ class LearnerStore:
                 skill_state = state
 
             if misconception is not None:
+                # Lock order is session row, core skill row, then misconception key.
+                self.connection.execute(
+                    """
+                    SELECT pg_advisory_xact_lock(
+                        hashtextextended(
+                            json_build_array(%s::text, %s::text, %s::text)::text,
+                            0
+                        )
+                    )
+                    """,
+                    (student_id, skill, misconception),
+                )
                 counts = self.connection.execute(
                     """
                     SELECT COUNT(*) AS total,
