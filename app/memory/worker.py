@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any
+
+import psycopg
 
 from .outbox import CLAIM_LEASE_SECONDS, OutboxRepository, utc_now_iso
 
@@ -27,13 +28,13 @@ DISPATCH_BY_OPERATION = {
 class OutboxWorker:
     def __init__(
         self,
-        database_path: Path,
+        connection: psycopg.Connection,
         index: Any | None = None,
         *,
         batch_size: int = 20,
         lease_seconds: int = CLAIM_LEASE_SECONDS,
     ) -> None:
-        self.outbox = OutboxRepository(database_path)
+        self.outbox = OutboxRepository(connection)
         self.index = index
         self.batch_size = batch_size
         self.lease_seconds = lease_seconds

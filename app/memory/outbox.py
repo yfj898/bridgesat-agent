@@ -1,6 +1,6 @@
 """Transactional memory outbox (MEMORY_CONSISTENCY §3.4, §4, §5).
 
-SQLite is the authoritative store; the outbox is delivery intent for
+PostgreSQL is the authoritative store; the outbox is delivery intent for
 asynchronous derived indexes (Mnemis). ``enqueue`` must be called inside the
 caller's transaction so episode/fact writes and outbox rows commit atomically.
 The worker then moves rows pending -> processing -> indexed | retrying ->
@@ -10,13 +10,11 @@ dead_letter using the fixed spec schedule.
 from __future__ import annotations
 
 import json
-import sqlite3
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
 
-from app.infrastructure.database import connect, transaction
+import psycopg
 
 OUTBOX_STATUSES = (
     "pending",
@@ -72,7 +70,7 @@ def utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _row_to_record(row: sqlite3.Row) -> OutboxRecord:
+def _row_to_record(row: dict) -> OutboxRecord:
     return OutboxRecord(
         outbox_id=row["outbox_id"],
         student_id=row["student_id"],
@@ -91,13 +89,13 @@ def _row_to_record(row: sqlite3.Row) -> OutboxRecord:
 
 
 class OutboxRepository:
-    def __init__(self, database_path: Path, *, default_student_id: str | None = None) -> None:
-        self.database_path = database_path
+    def __init__(self, connection: psycopg.Connection, *, default_student_id: str | None = None) -> None:
+        self.connection = connection
         self.default_student_id = default_student_id
 
     def enqueue(
         self,
-        connection: sqlite3.Connection,
+        connection: psycopg.Connection,
         *,
         student_id: str,
         aggregate_type: str,
@@ -110,23 +108,24 @@ class OutboxRepository:
         """Insert a pending outbox row inside the caller's transaction.
 
         Idempotent: the same (student, aggregate, version, operation) pair
-        yields a single row; repeated delivery creates no duplicate index work.
+        yields a single row; repeated delivery creates no duplicate index
+        work. The unique (tenant_id, idempotency_key) index absorbs races.
         """
         key = outbox_idempotency_key(student_id, aggregate_type, aggregate_id, version, operation)
-        existing = connection.execute(
-            "SELECT outbox_id FROM memory_outbox WHERE idempotency_key = ?", (key,)
-        ).fetchone()
-        if existing is not None:
-            return existing["outbox_id"]
         outbox_id = f"out_{uuid.uuid4().hex[:12]}"
         timestamp = now or utc_now_iso()
-        connection.execute(
+        inserted = connection.execute(
             """
             INSERT INTO memory_outbox (
-                outbox_id, student_id, aggregate_type, aggregate_id, operation,
-                payload_json, idempotency_key, status, attempt_count,
+                outbox_id, tenant_id, student_id, aggregate_type, aggregate_id,
+                operation, payload_json, idempotency_key, status, attempt_count,
                 next_attempt_at, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)
+            ) VALUES (
+                %s, current_setting('app.tenant_id'), %s, %s, %s, %s, %s, %s,
+                'pending', 0, %s, %s
+            )
+            ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+            RETURNING outbox_id
             """,
             (
                 outbox_id,
@@ -139,8 +138,16 @@ class OutboxRepository:
                 timestamp,
                 timestamp,
             ),
-        )
-        return outbox_id
+        ).fetchone()
+        if inserted is not None:
+            return inserted["outbox_id"]
+        existing = connection.execute(
+            "SELECT outbox_id FROM memory_outbox WHERE idempotency_key = %s",
+            (key,),
+        ).fetchone()
+        if existing is None:
+            raise RuntimeError("outbox enqueue conflict without existing row")
+        return existing["outbox_id"]
 
     def claim_due(
         self,
@@ -154,119 +161,136 @@ class OutboxRepository:
         Claims pending/retrying/deletion_pending rows that are due, plus
         processing rows whose lease expired (crashed worker). A fresh claim
         gets ``lease_deadline`` as its next_attempt_at, so it is not
-        double-processed while the lease is alive.
+        double-processed while the lease is alive. SKIP LOCKED keeps
+        concurrent workers from double-claiming.
         """
         timestamp = now or utc_now_iso()
         lease = lease_deadline or (
-            datetime.fromisoformat(timestamp) + timedelta_seconds(CLAIM_LEASE_SECONDS)
+            datetime.fromisoformat(timestamp) + timedelta(seconds=CLAIM_LEASE_SECONDS)
         ).isoformat()
-        claimed: list[OutboxRecord] = []
-        with connect(self.database_path) as connection:
-            with transaction(connection):
-                rows = connection.execute(
+        try:
+            rows = self.connection.execute(
+                """
+                SELECT * FROM memory_outbox
+                WHERE (status IN ('pending', 'retrying', 'deletion_pending')
+                       AND next_attempt_at <= %s)
+                   OR (status = 'processing' AND next_attempt_at <= %s)
+                ORDER BY next_attempt_at, created_at
+                LIMIT %s
+                FOR UPDATE SKIP LOCKED
+                """,
+                (timestamp, timestamp, batch_size),
+            ).fetchall()
+            claimed: list[OutboxRecord] = []
+            for row in rows:
+                self.connection.execute(
                     """
-                    SELECT * FROM memory_outbox
-                    WHERE (status IN ('pending', 'retrying', 'deletion_pending')
-                           AND next_attempt_at <= ?)
-                       OR (status = 'processing' AND next_attempt_at <= ?)
-                    ORDER BY next_attempt_at, created_at
-                    LIMIT ?
+                    UPDATE memory_outbox
+                    SET status = 'processing', next_attempt_at = %s
+                    WHERE outbox_id = %s
                     """,
-                    (timestamp, timestamp, batch_size),
-                ).fetchall()
-                for row in rows:
-                    connection.execute(
-                        """
-                        UPDATE memory_outbox
-                        SET status = 'processing', next_attempt_at = ?
-                        WHERE outbox_id = ?
-                        """,
-                        (lease, row["outbox_id"]),
-                    )
-                    claimed.append(_row_to_record(row))
-        return claimed
+                    (lease, row["outbox_id"]),
+                )
+                claimed.append(_row_to_record(row))
+            self.connection.commit()
+            return claimed
+        except BaseException:
+            self.connection.rollback()
+            raise
 
     def complete(self, outbox_id: str, *, now: str | None = None) -> None:
         timestamp = now or utc_now_iso()
-        with connect(self.database_path) as connection:
-            connection.execute(
-                "UPDATE memory_outbox SET status = 'indexed', completed_at = ? WHERE outbox_id = ?",
-                (timestamp, outbox_id),
+        try:
+            self.connection.execute(
+                "UPDATE memory_outbox SET status = %s, completed_at = %s WHERE outbox_id = %s",
+                ("indexed", timestamp, outbox_id),
             )
+            self.connection.commit()
+        except BaseException:
+            self.connection.rollback()
+            raise
 
     def mark_deleted(self, outbox_id: str, *, now: str | None = None) -> None:
         timestamp = now or utc_now_iso()
-        with connect(self.database_path) as connection:
-            connection.execute(
-                "UPDATE memory_outbox SET status = 'deleted', completed_at = ? WHERE outbox_id = ?",
-                (timestamp, outbox_id),
+        try:
+            self.connection.execute(
+                "UPDATE memory_outbox SET status = %s, completed_at = %s WHERE outbox_id = %s",
+                ("deleted", timestamp, outbox_id),
             )
+            self.connection.commit()
+        except BaseException:
+            self.connection.rollback()
+            raise
 
     def mark_failed(self, outbox_id: str, error: str, *, now: str | None = None) -> str:
         """Record a failed delivery attempt; returns the new status."""
         timestamp = now or utc_now_iso()
-        with connect(self.database_path) as connection:
-            with transaction(connection):
-                row = connection.execute(
-                    "SELECT attempt_count FROM memory_outbox WHERE outbox_id = ?", (outbox_id,)
-                ).fetchone()
-                if row is None:
-                    raise KeyError(outbox_id)
-                attempts = row["attempt_count"] + 1
-                delay = next_retry_delay_seconds(attempts)
-                if delay is None:
-                    status = "dead_letter"
-                    next_attempt = timestamp
-                else:
-                    status = "retrying"
-                    next_attempt = (
-                        datetime.fromisoformat(timestamp) + timedelta_seconds(delay)
-                    ).isoformat()
-                connection.execute(
-                    """
-                    UPDATE memory_outbox
-                    SET status = ?, attempt_count = ?, next_attempt_at = ?,
-                        last_error = ?
-                    WHERE outbox_id = ?
-                    """,
-                    (status, attempts, next_attempt, error[:500], outbox_id),
-                )
-        return status
+        try:
+            row = self.connection.execute(
+                "SELECT attempt_count FROM memory_outbox WHERE outbox_id = %s",
+                (outbox_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(outbox_id)
+            attempts = row["attempt_count"] + 1
+            delay = next_retry_delay_seconds(attempts)
+            if delay is None:
+                status = "dead_letter"
+                next_attempt = timestamp
+            else:
+                status = "retrying"
+                next_attempt = (
+                    datetime.fromisoformat(timestamp) + timedelta(seconds=delay)
+                ).isoformat()
+            self.connection.execute(
+                """
+                UPDATE memory_outbox
+                SET status = %s, attempt_count = %s, next_attempt_at = %s,
+                    last_error = %s
+                WHERE outbox_id = %s
+                """,
+                (status, attempts, next_attempt, error[:500], outbox_id),
+            )
+            self.connection.commit()
+            return status
+        except BaseException:
+            self.connection.rollback()
+            raise
 
     def get(self, outbox_id: str) -> OutboxRecord | None:
-        with connect(self.database_path) as connection:
-            row = connection.execute(
-                "SELECT * FROM memory_outbox WHERE outbox_id = ?", (outbox_id,)
-            ).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM memory_outbox WHERE outbox_id = %s", (outbox_id,)
+        ).fetchone()
         if row is None:
             return None
         return _row_to_record(row)
 
     def list_by_status(self, status: str) -> list[OutboxRecord]:
-        with connect(self.database_path) as connection:
-            rows = connection.execute(
-                "SELECT * FROM memory_outbox WHERE status = ? ORDER BY created_at", (status,)
-            ).fetchall()
+        rows = self.connection.execute(
+            "SELECT * FROM memory_outbox WHERE status = %s ORDER BY created_at",
+            (status,),
+        ).fetchall()
         return [_row_to_record(row) for row in rows]
 
     def consistency_metrics(self, *, now: str | None = None) -> dict:
         """Required metrics from MEMORY_CONSISTENCY §13."""
         timestamp = now or utc_now_iso()
         now_dt = datetime.fromisoformat(timestamp)
-        with connect(self.database_path) as connection:
-            pending = connection.execute(
-                "SELECT COUNT(*) AS c FROM memory_outbox WHERE status = 'pending'"
-            ).fetchone()["c"]
-            dead = connection.execute(
-                "SELECT COUNT(*) AS c FROM memory_outbox WHERE status = 'dead_letter'"
-            ).fetchone()["c"]
-            oldest_row = connection.execute(
-                """
-                SELECT created_at FROM memory_outbox
-                WHERE status = 'pending'
-                ORDER BY created_at ASC LIMIT 1
-                """
-            ).fetchone()
+        pending = self.connection.execute(
+            "SELECT COUNT(*) AS c FROM memory_outbox WHERE status = %s",
+            ("pending",),
+        ).fetchone()["c"]
+        dead = self.connection.execute(
+            "SELECT COUNT(*) AS c FROM memory_outbox WHERE status = %s",
+            ("dead_letter",),
+        ).fetchone()["c"]
+        oldest_row = self.connection.execute(
+            """
+            SELECT created_at FROM memory_outbox
+            WHERE status = 'pending'
+            ORDER BY created_at ASC LIMIT 1
+            """
+        ).fetchone()
         oldest_age = None
         if oldest_row is not None:
             oldest_age = max(
@@ -277,9 +301,3 @@ class OutboxRepository:
             "outbox_dead_letter_count": dead,
             "outbox_oldest_age_seconds": oldest_age,
         }
-
-
-def timedelta_seconds(seconds: int) -> timedelta:
-    from datetime import timedelta
-
-    return timedelta(seconds=seconds)

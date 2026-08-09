@@ -1,13 +1,14 @@
-"""Transactional memory outbox tests on PostgreSQL (MEMORY_CONSISTENCY §3.4,
-§4, §5).
+"""OutboxRepository on PostgreSQL.
 
-Covers idempotent enqueue inside the caller's transaction, due claiming,
-completion, the fixed retry schedule, dead-lettering after five attempts, and
-the required consistency metrics.
+Ports the transactional outbox contract (MEMORY_CONSISTENCY §3.4, §4, §5):
+idempotent enqueue inside the caller's transaction, due claiming with lease,
+completion, the fixed retry schedule, dead-lettering after five attempts,
+tenant isolation, and the consistency metrics.
 """
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -22,14 +23,16 @@ from app.memory.outbox import (
     outbox_idempotency_key,
 )
 
+TENANT = "tenant_test"
+
 
 @pytest.fixture()
-def repo() -> OutboxRepository:
+def repo():
     admin = pg.connect_admin()
     migrate_database(admin)
     admin.close()
     conn = pg.connect()
-    conn.execute("SELECT set_config('app.tenant_id', %s, false)", ("tenant_test",))
+    conn.execute("SELECT set_config('app.tenant_id', %s, false)", (TENANT,))
     conn.commit()
     learner = LearnerStore(conn)
     student_id, _ = learner.create_student("Ari", 20, 1200)
@@ -90,30 +93,63 @@ def test_version_change_creates_new_row(repo: OutboxRepository) -> None:
     assert repo.get(second).idempotency_key.endswith(":2:upsert_episode")
 
 
-def test_outbox_write_and_episode_write_share_one_transaction() -> None:
+def test_cross_tenant_same_key_generates_separate_rows() -> None:
+    """Idempotency is per tenant: identical keys in different tenants must
+    not collide under RLS or the unique (tenant_id, idempotency_key) index."""
+    admin = pg.connect_admin()
+    migrate_database(admin)
+    admin.close()
+
+    channel = uuid.uuid4().hex[:8]
+    students: dict[str, str] = {}
+    for tenant in (f"tenant_{channel}_a", f"tenant_{channel}_b"):
+        conn = pg.connect()
+        conn.execute("SELECT set_config('app.tenant_id', %s, false)", (tenant,))
+        conn.commit()
+        learner = LearnerStore(conn)
+        student_id, _ = learner.create_student("Ari", 20, 1200)
+        repo = OutboxRepository(conn, default_student_id=student_id)
+        outbox_id = _enqueue(repo)
+        students[tenant] = (outbox_id, student_id)
+        conn.close()
+
+    cleanup = pg.connect_admin()
+    try:
+        rows = cleanup.execute(
+            "SELECT tenant_id FROM memory_outbox WHERE student_id = %s",
+            (students[f"tenant_{channel}_a"][1],),
+        ).fetchall()
+        cleanup.rollback()
+        assert {r["tenant_id"] for r in rows} == {f"tenant_{channel}_a"}
+    finally:
+        cleanup.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+        cleanup.commit()
+        cleanup.close()
+
+
+def test_outbox_write_rolls_back_with_caller_transaction() -> None:
     """The enqueue must run inside the caller's transaction: rolling the
     caller back must also roll back the outbox row."""
     admin = pg.connect_admin()
     migrate_database(admin)
     admin.close()
     conn = pg.connect()
-    conn.execute("SELECT set_config('app.tenant_id', %s, false)", ("tenant_test",))
+    conn.execute("SELECT set_config('app.tenant_id', %s, false)", (TENANT,))
     conn.commit()
     repo = OutboxRepository(conn)
     try:
-        with pytest.raises(RuntimeError):
-            with pg.transaction(conn):
-                repo.enqueue(
-                    conn,
-                    student_id="stu_tx",
-                    aggregate_type="episode",
-                    aggregate_id="ep_1",
-                    operation="upsert_episode",
-                    payload={},
-                    version=1,
-                )
-                raise RuntimeError("caller rolls back")
-    finally:
+        with pg.transaction(conn):
+            repo.enqueue(
+                conn,
+                student_id="stu_rb",
+                aggregate_type="episode",
+                aggregate_id="ep_1",
+                operation="upsert_episode",
+                payload={},
+                version=1,
+            )
+            raise RuntimeError("caller rolls back")
+    except RuntimeError:
         pass
     count = conn.execute("SELECT COUNT(*) AS c FROM memory_outbox").fetchone()["c"]
     assert count == 0
