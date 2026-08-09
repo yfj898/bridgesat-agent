@@ -1,20 +1,17 @@
 from __future__ import annotations
 
-import sqlite3
+import json
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path
+
+import psycopg
 
 from app.domain.events import LearningEvent
 from app.domain.memory import (
     EPISODE_MIN_CONFIDENCE,
     Episode,
-    InterventionStat,
-    MemoryFact,
     outcome_component_score,
 )
-
-from app.infrastructure.database import connect, transaction
 
 from .outbox import OutboxRepository
 
@@ -33,9 +30,9 @@ class EpisodeBuilder:
     content and policy versions, and confidence >= 0.50.
     """
 
-    def __init__(self, database_path: Path) -> None:
-        self.database_path = database_path
-        self.outbox = OutboxRepository(database_path)
+    def __init__(self, connection: psycopg.Connection) -> None:
+        self.connection = connection
+        self.outbox = OutboxRepository(connection)
 
     def build_candidate(
         self,
@@ -81,9 +78,7 @@ class EpisodeBuilder:
             created_at=now,
             updated_at=now,
         )
-        with connect(self.database_path) as connection:
-            with transaction(connection):
-                self._insert_episode(connection, episode)
+        self._insert_episode(self.connection, episode)
         return episode
 
     def validate(self, episode: Episode) -> Episode:
@@ -107,57 +102,67 @@ class EpisodeBuilder:
                 "updated_at": utc_now_iso(),
             }
         )
-        with connect(self.database_path) as connection:
-            with transaction(connection):
-                connection.execute(
-                    "UPDATE learning_episodes SET status = ?, updated_at = ? WHERE episode_id = ?",
-                    (status, updated.updated_at, episode.episode_id),
+        try:
+            self.connection.execute(
+                "UPDATE learning_episodes SET status = %s, updated_at = %s WHERE episode_id = %s",
+                (status, updated.updated_at, episode.episode_id),
+            )
+            if status == "validated":
+                self.outbox.enqueue(
+                    self.connection,
+                    student_id=episode.student_id,
+                    aggregate_type="episode",
+                    aggregate_id=episode.episode_id,
+                    operation="upsert_episode",
+                    payload=updated.model_dump(),
+                    version=1,
+                    now=updated.updated_at,
                 )
-                if status == "validated":
-                    self.outbox.enqueue(
-                        connection,
-                        student_id=episode.student_id,
-                        aggregate_type="episode",
-                        aggregate_id=episode.episode_id,
-                        operation="upsert_episode",
-                        payload=updated.model_dump(),
-                        version=1,
-                        now=updated.updated_at,
-                    )
+            self.connection.commit()
+        except BaseException:
+            self.connection.rollback()
+            raise
         return updated
 
-    def _insert_episode(self, connection: sqlite3.Connection, episode: Episode) -> None:
-        connection.execute(
-            """
-            INSERT INTO learning_episodes (
-                episode_id, student_id, session_id, skill, misconception,
-                intervention, outcome_json, effectiveness, evidence_event_ids_json,
-                summary, confidence, status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                episode.episode_id,
-                episode.student_id,
-                episode.session_id,
-                episode.skill,
-                episode.misconception,
-                episode.intervention,
-                sqlite3_json(episode.outcome),
-                episode.effectiveness,
-                sqlite3_json(episode.evidence_event_ids),
-                episode.summary,
-                episode.confidence,
-                episode.status,
-                episode.created_at,
-                episode.updated_at,
-            ),
-        )
+    def _insert_episode(self, connection: psycopg.Connection, episode: Episode) -> None:
+        try:
+            connection.execute(
+                """
+                INSERT INTO learning_episodes (
+                    tenant_id, episode_id, student_id, session_id, skill, misconception,
+                    intervention, outcome_json, effectiveness, evidence_event_ids_json,
+                    summary, confidence, status, created_at, updated_at
+                ) VALUES (
+                    current_setting('app.tenant_id'), %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s
+                )
+                """,
+                (
+                    episode.episode_id,
+                    episode.student_id,
+                    episode.session_id,
+                    episode.skill,
+                    episode.misconception,
+                    episode.intervention,
+                    _json(episode.outcome),
+                    episode.effectiveness,
+                    _json(episode.evidence_event_ids),
+                    episode.summary,
+                    episode.confidence,
+                    episode.status,
+                    episode.created_at,
+                    episode.updated_at,
+                ),
+            )
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
 
     def get_episode(self, episode_id: str) -> Episode | None:
-        with connect(self.database_path) as connection:
-            row = connection.execute(
-                "SELECT * FROM learning_episodes WHERE episode_id = ?", (episode_id,)
-            ).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM learning_episodes WHERE episode_id = %s", (episode_id,)
+        ).fetchone()
         if row is None:
             return None
         return _row_to_episode(row)
@@ -170,26 +175,25 @@ class EpisodeBuilder:
         misconception: str | None = None,
         limit: int = 20,
     ) -> list[Episode]:
-        clauses = ["student_id = ?", "status = 'validated'"]
+        clauses = ["student_id = %s", "status = 'validated'"]
         params: list[object] = [student_id]
         if skill is not None:
-            clauses.append("skill = ?")
+            clauses.append("skill = %s")
             params.append(skill)
         if misconception is not None:
-            clauses.append("misconception = ?")
+            clauses.append("misconception = %s")
             params.append(misconception)
         where = " AND ".join(clauses)
         params.append(limit)
-        with connect(self.database_path) as connection:
-            rows = connection.execute(
-                f"""
-                SELECT * FROM learning_episodes
-                WHERE {where}
-                ORDER BY created_at DESC
-                LIMIT ?
-                """,
-                params,
-            ).fetchall()
+        rows = self.connection.execute(
+            f"""
+            SELECT * FROM learning_episodes
+            WHERE {where}
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            params,
+        ).fetchall()
         return [_row_to_episode(row) for row in rows]
 
     def has_successful_episode(self, *, student_id: str, skill: str, misconception: str | None) -> bool:
@@ -203,15 +207,11 @@ def effectiveness_successful(episode: Episode) -> bool:
     return episode.effectiveness >= 0.6
 
 
-def sqlite3_json(value) -> str:
-    import json
-
+def _json(value) -> str:
     return json.dumps(value, sort_keys=True)
 
 
-def _row_to_episode(row: sqlite3.Row) -> Episode:
-    import json
-
+def _row_to_episode(row: dict) -> Episode:
     return Episode(
         episode_id=row["episode_id"],
         student_id=row["student_id"],

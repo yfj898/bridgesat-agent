@@ -1,3 +1,10 @@
+"""PGMemory on PostgreSQL: episode recall, semantic facts, intervention stats.
+
+Semantic fact formation and promotion rules (observation -> inference ->
+stable), episode recall ordering, and intervention windows are preserved
+from the original SQLiteMemory tests and run against the PG schema.
+"""
+
 from __future__ import annotations
 
 import pytest
@@ -70,7 +77,12 @@ def _validated_episode(
     builder.validate(episode)
 
 
-def test_recall_episodes(env: tuple[PGMemory, EpisodeBuilder, str]) -> None:
+def test_recall_episodes_empty_before_data(env) -> None:
+    memory, _, student_id = env
+    assert memory.recall_episodes(student_id=student_id, skill="linear_equations") == []
+
+
+def test_recall_episodes(env) -> None:
     memory, builder, student_id = env
     _validated_episode(builder, student_id=student_id, session_id="ses-1", outcome_content_id="t-1", event_suffix="1")
     _validated_episode(builder, student_id=student_id, session_id="ses-1", outcome_content_id="t-2", event_suffix="2")
@@ -80,6 +92,7 @@ def test_recall_episodes(env: tuple[PGMemory, EpisodeBuilder, str]) -> None:
     )
     assert len(recalled) == 2
     assert all(e.status == "validated" for e in recalled)
+    assert recalled[0].created_at >= recalled[1].created_at
 
     other = memory.recall_episodes(
         student_id=student_id, skill="linear_equations", misconception="inverse_operation_error"
@@ -87,7 +100,7 @@ def test_recall_episodes(env: tuple[PGMemory, EpisodeBuilder, str]) -> None:
     assert other == []
 
 
-def test_semantic_fact_formation(env: tuple[PGMemory, EpisodeBuilder, str]) -> None:
+def test_semantic_fact_formation(env) -> None:
     memory, builder, student_id = env
     _validated_episode(builder, student_id=student_id, session_id="ses-1", outcome_content_id="t-1", event_suffix="1")
     episode = builder.list_validated_episodes(student_id=student_id)[0]
@@ -106,10 +119,12 @@ def test_semantic_fact_formation(env: tuple[PGMemory, EpisodeBuilder, str]) -> N
     assert len(facts) == 1
     assert facts[0].normalized_key == "linear_equations\x1fsign_error\x1fSHOW_WORKED_EXAMPLE"
 
+    fetched = memory.get_fact(facts[0].fact_id)
+    assert fetched is not None
+    assert fetched.fact_id == facts[0].fact_id
 
-def test_fact_promotes_to_stable_across_sessions(
-    env: tuple[PGMemory, EpisodeBuilder, str],
-) -> None:
+
+def test_fact_promotes_to_stable_across_sessions(env) -> None:
     memory, builder, student_id = env
     for i in range(3):
         session = f"ses-{i + 1}"
@@ -129,7 +144,7 @@ def test_fact_promotes_to_stable_across_sessions(
     assert facts[0].confidence >= 0.7
 
 
-def test_intervention_stats_windows(env: tuple[PGMemory, EpisodeBuilder, str]) -> None:
+def test_intervention_stats_windows(env) -> None:
     memory, _, student_id = env
     stat = memory.record_intervention_outcome(
         student_id=student_id,
@@ -170,3 +185,26 @@ def test_intervention_stats_windows(env: tuple[PGMemory, EpisodeBuilder, str]) -
     )
     assert same.immediate_attempts == 2
     assert same.effectiveness("immediate") == pytest.approx(0.5)
+    assert memory.get_intervention_stat(same.stat_id).stat_id == same.stat_id
+
+
+def test_recall_excludes_non_validated_episodes(env) -> None:
+    memory, builder, student_id = env
+    episode = builder.build_candidate(
+        student_id=student_id,
+        session_id="ses-x",
+        skill="linear_equations",
+        misconception="sign_error",
+        intervention="SHOW_WORKED_EXAMPLE",
+        context_event=make_event("ses-x", "ctx-x", student_id),
+        evidence_events=[make_event("ses-x", "ev-x", student_id)],
+        outcome_event=make_event("ses-x", "out-x", student_id),
+        outcome_correct=False,
+        outcome_hint_level=2,
+        outcome_content_id="t-1",
+        teaching_content_id="t-1",
+        summary="failed attempt",
+    )
+    validated = builder.validate(episode)
+    assert validated.status == "insufficient_outcome"
+    assert memory.recall_episodes(student_id=student_id, skill="linear_equations") == []

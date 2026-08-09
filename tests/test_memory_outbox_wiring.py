@@ -4,26 +4,35 @@ delivery rows inside the same transaction that writes them
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from app.domain.events import LearningEvent, LearningEventType
-from app.infrastructure import migration_runner
-from app.infrastructure.database import connect
+from app.infrastructure import pg
 from app.infrastructure.learner_store import LearnerStore
+from app.infrastructure.migration_runner import migrate_database
 from app.memory.episode_builder import EpisodeBuilder
 from app.memory.outbox import OutboxRepository
-from app.memory.sqlite_backend import SQLiteMemory
+from app.memory.pg_memory import PGMemory
 
 
 @pytest.fixture()
-def env(tmp_path: Path) -> tuple[Path, str]:
-    db = tmp_path / "wiring.db"
-    migration_runner.apply_migrations(db)
-    learner = LearnerStore(db)
+def env() -> tuple[object, str]:
+    admin = pg.connect_admin()
+    migrate_database(admin)
+    admin.close()
+    conn = pg.connect()
+    conn.execute("SELECT set_config('app.tenant_id', %s, false)", ("tenant_test",))
+    conn.commit()
+    learner = LearnerStore(conn)
     student_id, _ = learner.create_student("Ari", 20, 1200)
-    return db, student_id
+    yield conn, student_id
+    conn.close()
+    cleanup = pg.connect_admin()
+    try:
+        cleanup.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+        cleanup.commit()
+    finally:
+        cleanup.close()
 
 
 def _event(session_id: str, event_id: str, student_id: str) -> LearningEvent:
@@ -66,11 +75,11 @@ def _episode(
 
 
 def test_validated_episode_enqueues_upsert_in_same_write(
-    env: tuple[Path, str]
+    env: tuple[object, str]
 ) -> None:
-    db, student_id = env
-    builder = EpisodeBuilder(db)
-    repo = OutboxRepository(db)
+    conn, student_id = env
+    builder = EpisodeBuilder(conn)
+    repo = OutboxRepository(conn)
 
     _episode(builder, student_id=student_id, session_id="s1", episode_id="ep_ok")
 
@@ -85,11 +94,11 @@ def test_validated_episode_enqueues_upsert_in_same_write(
 
 
 def test_insufficient_outcome_episode_enqueues_nothing(
-    env: tuple[Path, str]
+    env: tuple[object, str]
 ) -> None:
-    db, student_id = env
-    builder = EpisodeBuilder(db)
-    repo = OutboxRepository(db)
+    conn, student_id = env
+    builder = EpisodeBuilder(conn)
+    repo = OutboxRepository(conn)
 
     _episode(builder, student_id=student_id, session_id="s1", episode_id="ep_bad", valid=False)
 
@@ -97,11 +106,11 @@ def test_insufficient_outcome_episode_enqueues_nothing(
     assert repo.list_by_status("indexed") == []
 
 
-def test_fact_upsert_enqueues_upsert_fact(env: tuple[Path, str]) -> None:
-    db, student_id = env
-    builder = EpisodeBuilder(db)
-    memory = SQLiteMemory(db)
-    repo = OutboxRepository(db)
+def test_fact_upsert_enqueues_upsert_fact(env: tuple[object, str]) -> None:
+    conn, student_id = env
+    builder = EpisodeBuilder(conn)
+    memory = PGMemory(conn)
+    repo = OutboxRepository(conn)
 
     _episode(builder, student_id=student_id, session_id="s1", episode_id="ep_f1")
     episode = builder.get_episode("ep_f1")
@@ -118,12 +127,12 @@ def test_fact_upsert_enqueues_upsert_fact(env: tuple[Path, str]) -> None:
 
 
 def test_fact_version_bump_creates_new_delivery(
-    env: tuple[Path, str]
+    env: tuple[object, str]
 ) -> None:
-    db, student_id = env
-    builder = EpisodeBuilder(db)
-    memory = SQLiteMemory(db)
-    repo = OutboxRepository(db)
+    conn, student_id = env
+    builder = EpisodeBuilder(conn)
+    memory = PGMemory(conn)
+    repo = OutboxRepository(conn)
 
     for session, ep in (("s1", "ep_a"), ("s2", "ep_b")):
         _episode(builder, student_id=student_id, session_id=session, episode_id=ep)
@@ -138,15 +147,14 @@ def test_fact_version_bump_creates_new_delivery(
 
 
 def test_rollback_of_episode_write_removes_outbox_row(
-    env: tuple[Path, str]
+    env: tuple[object, str]
 ) -> None:
-    db, student_id = env
-    repo = OutboxRepository(db)
+    conn, student_id = env
+    repo = OutboxRepository(conn)
     before = len(repo.list_by_status("pending"))
-    with connect(db) as connection:
-        connection.execute("BEGIN IMMEDIATE")
+    try:
         repo.enqueue(
-            connection,
+            conn,
             student_id=student_id,
             aggregate_type="episode",
             aggregate_id="ep_rollback",
@@ -154,5 +162,9 @@ def test_rollback_of_episode_write_removes_outbox_row(
             payload={"episode_id": "ep_rollback"},
             version=1,
         )
-        connection.rollback()
+        conn.rollback()
+    finally:
+        conn.execute(
+            "SELECT set_config('app.tenant_id', %s, false)", ("tenant_test",)
+        )
     assert len(repo.list_by_status("pending")) == before

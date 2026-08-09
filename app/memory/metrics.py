@@ -1,40 +1,38 @@
 """Memory consistency monitoring (MEMORY_CONSISTENCY §13).
 
 One snapshot of the nine required metrics: outbox health, index success and
-latency, SQLite vs indexed episode counts, deletion pending count, and the
-memory fallback rate. SQLite counts come from the authoritative store; index
-counts come from the configured index when it exposes them.
+latency, PostgreSQL vs indexed episode counts, deletion pending count, and
+the memory fallback rate. PostgreSQL counts come from the authoritative
+store; index counts come from the configured index when it exposes them.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-from app.infrastructure.database import connect
+import psycopg
 
 from .outbox import OutboxRepository
 
 
 def memory_consistency_metrics(
-    database_path: Path,
+    connection: psycopg.Connection,
     index: Any | None = None,
     fallback: Any | None = None,
 ) -> dict:
-    outbox = OutboxRepository(database_path).consistency_metrics()
-    with connect(database_path) as connection:
-        sqlite_episodes = connection.execute(
-            "SELECT COUNT(*) AS c FROM learning_episodes WHERE status = 'validated'"
-        ).fetchone()["c"]
-        deletion_pending = connection.execute(
-            """
-            SELECT COUNT(*) AS c FROM student_deletions
-            WHERE state IN ('requested', 'sqlite_deleted', 'index_deletion_pending')
-            """
-        ).fetchone()["c"]
-        indexed_outbox_rows = connection.execute(
-            "SELECT COUNT(*) AS c FROM memory_outbox WHERE status = 'indexed'"
-        ).fetchone()["c"]
+    outbox = OutboxRepository(connection).consistency_metrics()
+    sqlite_episodes = connection.execute(
+        "SELECT COUNT(*) AS c FROM learning_episodes WHERE status = 'validated'"
+    ).fetchone()["c"]
+    deletion_pending = connection.execute(
+        """
+        SELECT COUNT(*) AS c FROM student_deletions
+        WHERE state IN ('requested', 'sqlite_deleted', 'index_deletion_pending')
+        """
+    ).fetchone()["c"]
+    indexed_outbox_rows = connection.execute(
+        "SELECT COUNT(*) AS c FROM memory_outbox WHERE status = 'indexed'"
+    ).fetchone()["c"]
 
     indexed_episodes = None
     if index is not None:

@@ -5,7 +5,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from .episode_builder import EpisodeBuilder
-from .sqlite_backend import SQLiteMemory
+from .pg_memory import PGMemory
 
 
 class MemoryMode(StrEnum):
@@ -48,16 +48,16 @@ def build_mnemis_index(database_path: Path):
 
 
 class MemoryProvider:
-    """Facade over the authoritative SQLite memory plus optional Mnemis.
+    """Facade over the authoritative PostgreSQL memory plus optional Mnemis.
 
-    In MVP phase 1 only SQLite exists; Mnemis is an enhanced-mode adapter added
-    later. The provider always exposes recall_episodes so the policy can query
-    learner memory regardless of mode.
+    In MVP phase 1 only PostgreSQL exists; Mnemis is an enhanced-mode adapter
+    added later. The provider always exposes recall_episodes so the policy
+    can query learner memory regardless of mode.
     """
 
-    def __init__(self, database_path: Path) -> None:
-        self.sqlite = SQLiteMemory(database_path)
-        self.episodes = EpisodeBuilder(database_path)
+    def __init__(self, connection) -> None:
+        self.sqlite = PGMemory(connection)
+        self.episodes = EpisodeBuilder(connection)
         self.mode = memory_mode()
         self.mnemis = None
 

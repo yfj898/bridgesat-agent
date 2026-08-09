@@ -4,18 +4,30 @@ import pytest
 
 from app.domain.events import LearningEvent, LearningEventType
 from app.domain.memory import outcome_component_score
-from app.infrastructure import migration_runner
+from app.infrastructure import pg
 from app.infrastructure.learner_store import LearnerStore
+from app.infrastructure.migration_runner import migrate_database
 from app.memory.episode_builder import EpisodeBuilder, effectiveness_successful
 
 
 @pytest.fixture()
-def env(tmp_path: Path) -> tuple[EpisodeBuilder, str]:
-    db = tmp_path / "memory.db"
-    migration_runner.apply_migrations(db)
-    learner = LearnerStore(db)
+def env() -> tuple[EpisodeBuilder, str]:
+    admin = pg.connect_admin()
+    migrate_database(admin)
+    admin.close()
+    conn = pg.connect()
+    conn.execute("SELECT set_config('app.tenant_id', %s, false)", ("tenant_test",))
+    conn.commit()
+    learner = LearnerStore(conn)
     student_id, _ = learner.create_student("Ari", 20, 1200)
-    return EpisodeBuilder(db), student_id
+    yield EpisodeBuilder(conn), student_id
+    conn.close()
+    cleanup = pg.connect_admin()
+    try:
+        cleanup.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+        cleanup.commit()
+    finally:
+        cleanup.close()
 
 
 def make_event(
