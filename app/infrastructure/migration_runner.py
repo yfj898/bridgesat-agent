@@ -17,7 +17,7 @@ from .pg import transaction
 
 MIGRATION_DIR = Path(__file__).resolve().parent / "migrations_pg"
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 
 class UnsupportedDatabaseError(RuntimeError):

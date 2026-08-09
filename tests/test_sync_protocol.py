@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
 
 import pytest
 
-from app.infrastructure.migration_runner import apply_migrations
+from app.infrastructure import pg
+from app.infrastructure.migration_runner import migrate_database
 from app.sync.service import SyncService
 from app.sync.versioned_scoring import QuestionVersionError, VersionedAnswerKey
 
@@ -78,9 +78,20 @@ def _envelope(
 
 
 @pytest.fixture()
-def service(tmp_path: Path) -> SyncService:
-    apply_migrations(tmp_path / "test.db")
-    return SyncService(tmp_path / "test.db")
+def service() -> SyncService:
+    admin = pg.connect_admin()
+    migrate_database(admin)
+    admin.close()
+    conn = pg.connect()
+    conn.execute("SELECT set_config('app.tenant_id', 'tenant_test', false)")
+    conn.commit()
+    yield SyncService(conn)
+    conn.rollback()
+    admin = pg.connect_admin()
+    admin.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+    admin.commit()
+    admin.close()
+    conn.close()
 
 
 @pytest.fixture()
@@ -92,7 +103,7 @@ def registered(service: SyncService) -> SyncService:
 
 def _seed_student(service: SyncService, student_id: str = STUDENT_ID) -> None:
     from app.domain.events import compute_integrity_hash, utc_now_iso
-    from app.infrastructure.database import transaction
+    from app.infrastructure.pg import transaction
 
     now = utc_now_iso()
     event = {
@@ -113,34 +124,38 @@ def _seed_student(service: SyncService, student_id: str = STUDENT_ID) -> None:
             {"name": "Test Student", "daily_minutes": 20, "target_score": 1200},
         ),
     }
-    with connect(service.db) as connection:
-        with transaction(connection):
-            connection.execute(
-                """
-                INSERT INTO students (
-                    id, name, daily_minutes, target_score, mastery_json,
-                    status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, '{}', 'active', ?, ?)
-                """,
-                (student_id, "Test Student", 20, 1200, now, now),
+    with transaction(service.connection):
+        service.connection.execute(
+            """
+            INSERT INTO students (
+                tenant_id, id, name, daily_minutes, target_score, mastery_json,
+                status, created_at, updated_at
+            ) VALUES (
+                current_setting('app.tenant_id'), %s, %s, %s, %s, '{}', 'active', %s, %s
             )
-            connection.execute(
-                """
-                INSERT INTO learning_events (
-                    event_id, student_id, session_id, event_type, payload_json,
-                    policy_version, content_version, occurred_at, received_at,
-                    device_id, device_sequence, origin, integrity_hash
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    event["event_id"], event["student_id"], event["session_id"],
-                    event["event_type"], json.dumps(event["payload"]),
-                    event["policy_version"], event["content_version"],
-                    event["occurred_at"], event["received_at"],
-                    event["device_id"], event["device_sequence"],
-                    event["origin"], event["integrity_hash"],
-                ),
+            """,
+            (student_id, "Test Student", 20, 1200, now, now),
+        )
+        service.connection.execute(
+            """
+            INSERT INTO learning_events (
+                tenant_id, event_id, student_id, session_id, event_type, payload_json,
+                policy_version, content_version, occurred_at, received_at,
+                device_id, device_sequence, origin, integrity_hash
+            ) VALUES (
+                current_setting('app.tenant_id'), %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s
             )
+            """,
+            (
+                event["event_id"], event["student_id"], event["session_id"],
+                event["event_type"], json.dumps(event["payload"]),
+                event["policy_version"], event["content_version"],
+                event["occurred_at"], event["received_at"],
+                event["device_id"], event["device_sequence"],
+                event["origin"], event["integrity_hash"],
+            ),
+        )
 
 
 def _process(service: SyncService, events: list[dict], device_id: str = DEVICE_A):
@@ -209,14 +224,14 @@ def test_duplicate_event_is_acknowledged_not_reapplied(service: SyncService) -> 
     assert second.duplicate_event_ids == ["evt_1"]
     assert second.accepted_event_ids == []
 
-    with connect(service.db) as connection:
+    with transaction(service.connection) as connection:
         count = connection.execute(
             "SELECT COUNT(*) AS total FROM learning_events WHERE event_id = 'evt_1'"
         ).fetchone()["total"]
     assert count == 1
 
 
-from app.infrastructure.database import connect, transaction  # noqa: E402
+from app.infrastructure.pg import transaction  # noqa: E402
 
 
 def test_partial_batch_resumed_after_throttle(service: SyncService) -> None:
@@ -238,7 +253,7 @@ def test_version_bound_correct_answer(service: SyncService) -> None:
     service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
     response = _process(service, [_envelope(event_id="evt_1")])
     assert response.accepted_event_ids == ["evt_1"]
-    with connect(service.db) as connection:
+    with transaction(service.connection) as connection:
         row = connection.execute(
             "SELECT correct, validity FROM answer_attempts WHERE event_id = 'evt_1'"
         ).fetchone()
@@ -260,7 +275,7 @@ def test_version_bound_wrong_answer_maps_misconception(service: SyncService) -> 
         },
     )
     _process(service, [envelope])
-    with connect(service.db) as connection:
+    with transaction(service.connection) as connection:
         evidence = connection.execute(
             "SELECT misconception FROM misconception_evidence WHERE event_id = 'evt_1'"
         ).fetchone()
@@ -357,7 +372,7 @@ def test_repeated_attempt_id_non_scoring(service: SyncService) -> None:
     )
     response = _process(service, [first, second])
     assert response.accepted_event_ids == ["evt_1", "evt_2"]
-    with connect(service.db) as connection:
+    with transaction(service.connection) as connection:
         rows = connection.execute(
             "SELECT event_id, attempt_id, validity, weight FROM answer_attempts "
             "WHERE attempt_id = 'att_1' OR attempt_id LIKE 'att_1#%' ORDER BY event_id"
@@ -380,9 +395,9 @@ def test_parallel_branch_same_question_reduced_weight(service: SyncService) -> N
     second = _process(service, [device_b], device_id=DEVICE_B)
     assert first.accepted_event_ids == ["evt_1"]
     assert second.accepted_event_ids == ["evt_2"]
-    with connect(service.db) as connection:
+    with transaction(service.connection) as connection:
         rows = connection.execute(
-            "SELECT event_id, weight FROM answer_attempts WHERE session_id = ? AND content_id = ? ORDER BY event_id",
+            "SELECT event_id, weight FROM answer_attempts WHERE session_id = %s AND content_id = %s ORDER BY event_id",
             (session, Q_RATIOS),
         ).fetchall()
     assert rows[0]["weight"] == pytest.approx(1.0)
@@ -412,13 +427,13 @@ def test_late_event_after_completion_revises_summary(service: SyncService) -> No
     response = _process(service, [late])
     assert response.accepted_event_ids == ["evt_3"]
     assert any(c.conflict_type == "SUMMARY_REVISED" for c in response.conflicts)
-    with connect(service.db) as connection:
+    with transaction(service.connection) as connection:
         state = connection.execute(
-            "SELECT session_state FROM study_sessions WHERE session_id = ?",
+            "SELECT session_state FROM study_sessions WHERE session_id = %s",
             (SESSION_ID,),
         ).fetchone()
     assert state["session_state"] == "SESSION_COMPLETED"
-    with connect(service.db) as connection:
+    with transaction(service.connection) as connection:
         conflicts = connection.execute(
             "SELECT conflict_type FROM sync_conflicts WHERE event_id = 'evt_3'"
         ).fetchall()
@@ -433,8 +448,13 @@ def test_refresh_restart_recovery(service: SyncService) -> None:
     _seed_student(service)
     service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
     _process(service, [_envelope(event_id="evt_1")])
-    restarted = SyncService(service.db)
+    restarted_conn = pg.connect()
+    restarted_conn.execute("SELECT set_config('app.tenant_id', 'tenant_test', false)")
+    restarted_conn.commit()
+    restarted = SyncService(restarted_conn)
     snapshot = restarted.build_snapshot(STUDENT_ID)
+    restarted_conn.rollback()
+    restarted_conn.close()
     assert snapshot.snapshot_version >= 1
     assert snapshot.server_cursor.startswith("cursor_")
     assert snapshot.student["id"] == STUDENT_ID
@@ -498,33 +518,33 @@ def test_versioned_answer_key_version_mismatch() -> None:
 # Projection rebuild from the immutable event log (API_AND_OPERATIONS §7)
 # ----------------------------------------------------------------------
 
-def _projection_snapshot(db: Path) -> dict[str, list[tuple]]:
+def _projection_snapshot(connection) -> dict[str, list[tuple]]:
     def rows(sql: str, params: tuple = ()) -> list[tuple]:
-        with connect(db) as connection:
+        with transaction(connection):
             return [tuple(r) for r in connection.execute(sql, params).fetchall()]
 
     return {
         "sessions": rows(
             "SELECT session_id, student_id, session_state FROM study_sessions "
-            "WHERE student_id = ? ORDER BY session_id",
+            "WHERE student_id = %s ORDER BY session_id",
             (STUDENT_ID,),
         ),
         "attempts": rows(
             "SELECT attempt_id, event_id, session_id, content_id, version, sequence, "
             "selected_choice_id, correct, hint_level, weight, validity, occurred_at "
-            "FROM answer_attempts WHERE student_id = ? ORDER BY event_id",
+            "FROM answer_attempts WHERE student_id = %s ORDER BY event_id",
             (STUDENT_ID,),
         ),
         "skills": rows(
             "SELECT skill, alpha, beta, mastery, confidence, evidence_count, "
             "correct_streak, incorrect_streak, projection_origin "
-            "FROM student_skill_states WHERE student_id = ? ORDER BY skill",
+            "FROM student_skill_states WHERE student_id = %s ORDER BY skill",
             (STUDENT_ID,),
         ),
         "evidence": rows(
             "SELECT event_id, session_id, skill, subskill, misconception, "
             "source_label, confidence_label, state, item_id, item_version "
-            "FROM misconception_evidence WHERE student_id = ? ORDER BY event_id",
+            "FROM misconception_evidence WHERE student_id = %s ORDER BY event_id",
             (STUDENT_ID,),
         ),
     }
@@ -565,30 +585,29 @@ def test_rebuild_projection_from_events_restores_state(service: SyncService) -> 
     assert response.rejected_events == []
     assert len(response.accepted_event_ids) == 5
 
-    original = _projection_snapshot(service.db)
+    original = _projection_snapshot(service.connection)
     assert original["attempts"]
     assert original["evidence"]
 
-    with connect(service.db) as connection:
-        with transaction(connection):
-            connection.execute(
-                "DELETE FROM answer_attempts WHERE student_id = ?", (STUDENT_ID,)
-            )
-            connection.execute(
-                "DELETE FROM misconception_evidence WHERE student_id = ?", (STUDENT_ID,)
-            )
-            connection.execute(
-                "DELETE FROM study_sessions WHERE student_id = ?", (STUDENT_ID,)
-            )
-            connection.execute(
-                "UPDATE student_skill_states SET mastery = 0.99, confidence = 0.99 "
-                "WHERE student_id = ?",
-                (STUDENT_ID,),
-            )
+    with transaction(service.connection):
+        service.connection.execute(
+            "DELETE FROM answer_attempts WHERE student_id = %s", (STUDENT_ID,)
+        )
+        service.connection.execute(
+            "DELETE FROM misconception_evidence WHERE student_id = %s", (STUDENT_ID,)
+        )
+        service.connection.execute(
+            "DELETE FROM study_sessions WHERE student_id = %s", (STUDENT_ID,)
+        )
+        service.connection.execute(
+            "UPDATE student_skill_states SET mastery = 0.99, confidence = 0.99 "
+            "WHERE student_id = %s",
+            (STUDENT_ID,),
+        )
 
-    report = rebuild_student(service.db, STUDENT_ID, service)
+    report = rebuild_student(service.connection, STUDENT_ID, service)
     assert report["rejected"] == []
     assert report["events_replayed"] == 5
     assert report["skipped_server_events"] == 1  # STUDENT_CREATED is not a sync event
 
-    assert _projection_snapshot(service.db) == original
+    assert _projection_snapshot(service.connection) == original

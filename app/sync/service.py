@@ -25,15 +25,15 @@ import json
 import threading
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path
+
+import psycopg
 
 from app.domain.learner import SkillState
 from app.domain.sessions import SessionState
-from app.infrastructure.database import connect, transaction
 from app.infrastructure.event_store import EventStore
 from app.infrastructure.learner_store import LearnerStore
-from app.infrastructure.migration_runner import apply_migrations
-from app.memory.sqlite_backend import SQLiteMemory
+from app.infrastructure.pg import transaction
+from app.memory.pg_memory import PGMemory
 
 from .protocol import (
     MAX_EVENTS_PER_BATCH,
@@ -65,12 +65,11 @@ class DeviceRevokedError(RuntimeError):
 
 
 class SyncService:
-    def __init__(self, database_path: Path) -> None:
-        self.db = database_path
-        apply_migrations(database_path)
-        self.events = EventStore(database_path)
-        self.learner = LearnerStore(database_path)
-        self.memory = SQLiteMemory(database_path)
+    def __init__(self, connection: psycopg.Connection) -> None:
+        self.connection = connection
+        self.events = EventStore(connection)
+        self.learner = LearnerStore(connection)
+        self.memory = PGMemory(connection)
         self.answer_keys = VersionedAnswerKey()
         # Serializes same-student batch processing so concurrent device
         # syncs cannot interleave SELECT-then-UPDATE projection steps
@@ -100,11 +99,12 @@ class SyncService:
             raise KeyError(f"Unknown student {student_id}")
         device_id = device_id or f"dev_{uuid.uuid4().hex[:12]}"
         now = _utc_now_iso()
-        with connect(self.db) as connection:
-            connection.execute(
+        with transaction(self.connection):
+            self.connection.execute(
                 """
-                INSERT INTO devices (device_id, student_id, device_name, status, created_at)
-                VALUES (?, ?, ?, 'active', ?)
+                INSERT INTO devices (
+                    tenant_id, device_id, student_id, device_name, status, created_at
+                ) VALUES (current_setting('app.tenant_id'), %s, %s, %s, 'active', %s)
                 """,
                 (device_id, student_id, device_name, now),
             )
@@ -112,26 +112,26 @@ class SyncService:
 
     def revoke_device(self, device_id: str, student_id: str) -> None:
         now = _utc_now_iso()
-        with connect(self.db) as connection:
-            cursor = connection.execute(
-                "UPDATE devices SET status = 'revoked', revoked_at = ? "
-                "WHERE device_id = ? AND student_id = ?",
+        with transaction(self.connection):
+            cursor = self.connection.execute(
+                "UPDATE devices SET status = 'revoked', revoked_at = %s "
+                "WHERE device_id = %s AND student_id = %s",
                 (now, device_id, student_id),
             )
             if cursor.rowcount == 0:
                 raise DeviceNotFoundError(f"Device {device_id} not found")
 
     def _student_exists(self, student_id: str) -> bool:
-        with connect(self.db) as connection:
-            row = connection.execute(
-                "SELECT 1 FROM students WHERE id = ?", (student_id,)
+        with transaction(self.connection):
+            row = self.connection.execute(
+                "SELECT 1 FROM students WHERE id = %s", (student_id,)
             ).fetchone()
-            return row is not None
+        return row is not None
 
     def _verify_device(self, device_id: str, student_id: str) -> None:
-        with connect(self.db) as connection:
-            row = connection.execute(
-                "SELECT status FROM devices WHERE device_id = ? AND student_id = ?",
+        with transaction(self.connection):
+            row = self.connection.execute(
+                "SELECT status FROM devices WHERE device_id = %s AND student_id = %s",
                 (device_id, student_id),
             ).fetchone()
         if row is None:
@@ -268,10 +268,10 @@ class SyncService:
         Authoritative scope is the request (token-verified) device, not the
         client-claims envelope fields.
         """
-        with connect(self.db) as connection:
-            row = connection.execute(
+        with transaction(self.connection):
+            row = self.connection.execute(
                 "SELECT last_device_sequence FROM devices "
-                "WHERE device_id = ? AND student_id = ?",
+                "WHERE device_id = %s AND student_id = %s",
                 (request.device_id, request.student_id),
             ).fetchone()
         if row is None:
@@ -281,11 +281,11 @@ class SyncService:
     def _advance_device_sequence(
         self, device_id: str, student_id: str, batch_max: int
     ) -> None:
-        with connect(self.db) as connection:
-            connection.execute(
+        with transaction(self.connection):
+            self.connection.execute(
                 """
-                UPDATE devices SET last_device_sequence = ?
-                WHERE device_id = ? AND student_id = ?
+                UPDATE devices SET last_device_sequence = %s
+                WHERE device_id = %s AND student_id = %s
                 """,
                 (batch_max, device_id, student_id),
             )
@@ -376,11 +376,10 @@ class SyncService:
         insert_event_row: bool = True,
     ) -> None:
         received_at = _utc_now_iso()
-        with connect(self.db) as connection:
-            with transaction(connection):
-                if insert_event_row:
-                    self._insert_learning_event_row(connection, envelope, received_at)
-                self._ensure_session(connection, envelope, SessionState.NEW.value)
+        with transaction(self.connection):
+            if insert_event_row:
+                self._insert_learning_event_row(self.connection, envelope, received_at)
+            self._ensure_session(self.connection, envelope, SessionState.NEW.value)
         accepted.append(envelope.event_id)
 
     def _apply_session_completed(
@@ -393,33 +392,36 @@ class SyncService:
         insert_event_row: bool = True,
     ) -> None:
         received_at = _utc_now_iso()
-        with connect(self.db) as connection:
-            with transaction(connection):
-                if insert_event_row:
-                    self._insert_learning_event_row(connection, envelope, received_at)
-                row = connection.execute(
-                    "SELECT session_state FROM study_sessions WHERE session_id = ?",
-                    (envelope.session_id,),
-                ).fetchone()
-                if row is None:
-                    connection.execute(
-                        """
-                        INSERT INTO study_sessions (session_id, student_id, session_state, started_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?)
-                        """,
-                        (envelope.session_id, envelope.student_id,
-                         SessionState.SESSION_COMPLETED.value, received_at, received_at),
+        with transaction(self.connection):
+            if insert_event_row:
+                self._insert_learning_event_row(self.connection, envelope, received_at)
+            row = self.connection.execute(
+                "SELECT session_state FROM study_sessions WHERE session_id = %s",
+                (envelope.session_id,),
+            ).fetchone()
+            if row is None:
+                self.connection.execute(
+                    """
+                    INSERT INTO study_sessions (
+                        tenant_id, session_id, student_id, session_state,
+                        started_at, updated_at
+                    ) VALUES (
+                        current_setting('app.tenant_id'), %s, %s, %s, %s, %s
                     )
-                elif row["session_state"] != SessionState.SESSION_COMPLETED.value:
-                    connection.execute(
-                        """
-                        UPDATE study_sessions
-                        SET session_state = ?, completed_at = ?, updated_at = ?
-                        WHERE session_id = ?
-                        """,
-                        (SessionState.SESSION_COMPLETED.value, received_at, received_at,
-                         envelope.session_id),
-                    )
+                    """,
+                    (envelope.session_id, envelope.student_id,
+                     SessionState.SESSION_COMPLETED.value, received_at, received_at),
+                )
+            elif row["session_state"] != SessionState.SESSION_COMPLETED.value:
+                self.connection.execute(
+                    """
+                    UPDATE study_sessions
+                    SET session_state = %s, completed_at = %s, updated_at = %s
+                    WHERE session_id = %s
+                    """,
+                    (SessionState.SESSION_COMPLETED.value, received_at, received_at,
+                     envelope.session_id),
+                )
         accepted.append(envelope.event_id)
 
     def _apply_answer_submitted(
@@ -467,14 +469,14 @@ class SyncService:
             return
 
         received_at = _utc_now_iso()
-        with connect(self.db) as connection:
-            with transaction(connection):
+        connection = self.connection
+        with transaction(connection):
                 if insert_event_row:
                     self._insert_learning_event_row(connection, envelope, received_at)
                 self._ensure_session(connection, envelope, SessionState.QUESTION_ACTIVE.value)
 
                 existing_attempt = connection.execute(
-                    "SELECT 1 FROM answer_attempts WHERE event_id = ?",
+                    "SELECT 1 FROM answer_attempts WHERE event_id = %s",
                     (envelope.event_id,),
                 ).fetchone()
                 if existing_attempt is not None:
@@ -485,7 +487,7 @@ class SyncService:
                 prior_same_attempt = connection.execute(
                     """
                     SELECT COUNT(*) AS total FROM answer_attempts
-                    WHERE session_id = ? AND attempt_id = ?
+                    WHERE session_id = %s AND attempt_id = %s
                     """,
                     (envelope.session_id, attempt_id),
                 ).fetchone()["total"]
@@ -495,7 +497,7 @@ class SyncService:
                     stored_attempt_id = attempt_id
 
                 session_row = connection.execute(
-                    "SELECT session_state FROM study_sessions WHERE session_id = ?",
+                    "SELECT session_state FROM study_sessions WHERE session_id = %s",
                     (envelope.session_id,),
                 ).fetchone()
                 late_event = bool(
@@ -506,7 +508,7 @@ class SyncService:
                 prior_same_item = connection.execute(
                     """
                     SELECT COUNT(*) AS total FROM answer_attempts
-                    WHERE session_id = ? AND content_id = ? AND validity = 'valid'
+                    WHERE session_id = %s AND content_id = %s AND validity = 'valid'
                     """,
                     (envelope.session_id, question_id),
                 ).fetchone()["total"]
@@ -536,10 +538,13 @@ class SyncService:
                 connection.execute(
                     """
                     INSERT INTO answer_attempts (
-                        attempt_id, event_id, student_id, session_id, content_id,
-                        version, sequence, selected_choice_id, correct, hint_level,
-                        weight, validity, occurred_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        tenant_id, attempt_id, event_id, student_id, session_id,
+                        content_id, version, sequence, selected_choice_id, correct,
+                        hint_level, weight, validity, occurred_at
+                    ) VALUES (
+                        current_setting('app.tenant_id'), %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s
+                    )
                     """,
                     (
                         stored_attempt_id,
@@ -633,10 +638,13 @@ class SyncService:
         connection.execute(
             """
             INSERT INTO student_skill_states (
-                student_id, skill, alpha, beta, mastery, confidence,
+                tenant_id, student_id, skill, alpha, beta, mastery, confidence,
                 evidence_count, correct_streak, incorrect_streak,
                 last_practiced_at, review_due_at, projection_origin, updated_at
-            ) VALUES (?, ?, 2.0, 2.0, 0.5, 0.0, 0, 0, 0, NULL, NULL, 'sync', ?)
+            ) VALUES (
+                current_setting('app.tenant_id'), %s, %s, 2.0, 2.0, 0.5, 0.0,
+                0, 0, 0, NULL, NULL, 'sync', %s
+            )
             ON CONFLICT(student_id, skill) DO NOTHING
             """,
             (student_id, skill, now),
@@ -645,7 +653,7 @@ class SyncService:
             """
             SELECT alpha, beta, evidence_count, correct_streak, incorrect_streak,
                    last_practiced_at, review_due_at
-            FROM student_skill_states WHERE student_id = ? AND skill = ?
+            FROM student_skill_states WHERE student_id = %s AND skill = %s
             """,
             (student_id, skill),
         ).fetchone()
@@ -663,10 +671,10 @@ class SyncService:
         connection.execute(
             """
             UPDATE student_skill_states
-            SET alpha = ?, beta = ?, mastery = ?, confidence = ?,
-                evidence_count = ?, correct_streak = ?, incorrect_streak = ?,
-                last_practiced_at = ?, updated_at = ?
-            WHERE student_id = ? AND skill = ?
+            SET alpha = %s, beta = %s, mastery = %s, confidence = %s,
+                evidence_count = %s, correct_streak = %s, incorrect_streak = %s,
+                last_practiced_at = %s, updated_at = %s
+            WHERE student_id = %s AND skill = %s
             """,
             (
                 state.alpha, state.beta, state.mastery, state.confidence,
@@ -689,11 +697,13 @@ class SyncService:
         connection.execute(
             """
             INSERT INTO misconception_evidence (
-                evidence_id, student_id, session_id, event_id, skill, subskill,
-                misconception, source_label, confidence_label, state,
+                tenant_id, evidence_id, student_id, session_id, event_id, skill,
+                subskill, misconception, source_label, confidence_label, state,
                 item_id, item_version, observed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'offline_distractor', 'high',
-                      'confirmed_offline', ?, ?, ?)
+            ) VALUES (
+                current_setting('app.tenant_id'), %s, %s, %s, %s, %s, %s, %s,
+                'offline_distractor', 'high', 'confirmed_offline', %s, %s, %s
+            )
             """,
             (
                 evidence_id,
@@ -719,9 +729,11 @@ class SyncService:
         connection.execute(
             """
             INSERT INTO sync_conflicts (
-                conflict_id, event_id, student_id, session_id, conflict_type,
-                detail_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                tenant_id, conflict_id, event_id, student_id, session_id,
+                conflict_type, detail_json, created_at
+            ) VALUES (
+                current_setting('app.tenant_id'), %s, %s, %s, %s, %s, %s, %s
+            )
             """,
             (
                 f"cf_{uuid.uuid4().hex[:12]}",
@@ -741,14 +753,18 @@ class SyncService:
         default_state: str,
     ) -> None:
         row = connection.execute(
-            "SELECT 1 FROM study_sessions WHERE session_id = ?",
+            "SELECT 1 FROM study_sessions WHERE session_id = %s",
             (envelope.session_id,),
         ).fetchone()
         if row is None:
             connection.execute(
                 """
-                INSERT INTO study_sessions (session_id, student_id, session_state, started_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO study_sessions (
+                    tenant_id, session_id, student_id, session_state,
+                    started_at, updated_at
+                ) VALUES (
+                    current_setting('app.tenant_id'), %s, %s, %s, %s, %s
+                )
                 """,
                 (envelope.session_id, envelope.student_id, default_state,
                  envelope.device_occurred_at or _utc_now_iso(), _utc_now_iso()),
@@ -762,7 +778,7 @@ class SyncService:
         now: str,
     ) -> None:
         row = connection.execute(
-            "SELECT session_state FROM study_sessions WHERE session_id = ?",
+            "SELECT session_state FROM study_sessions WHERE session_id = %s",
             (session_id,),
         ).fetchone()
         if row is None or row["session_state"] == SessionState.SESSION_COMPLETED.value:
@@ -770,7 +786,7 @@ class SyncService:
         if row["session_state"] != target.value:
             connection.execute(
                 """
-                UPDATE study_sessions SET session_state = ?, updated_at = ? WHERE session_id = ?
+                UPDATE study_sessions SET session_state = %s, updated_at = %s WHERE session_id = %s
                 """,
                 (target.value, now, session_id),
             )
@@ -784,10 +800,13 @@ class SyncService:
         connection.execute(
             """
             INSERT INTO learning_events (
-                event_id, student_id, session_id, event_type, payload_json,
+                tenant_id, event_id, student_id, session_id, event_type, payload_json,
                 policy_version, content_version, occurred_at, received_at,
                 device_id, device_sequence, origin, integrity_hash
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'offline', ?)
+            ) VALUES (
+                current_setting('app.tenant_id'), %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, 'offline', %s
+            )
             """,
             self._event_row(envelope, received_at)[:11] + (envelope.integrity_hash,),
         )
@@ -797,39 +816,37 @@ class SyncService:
     # ------------------------------------------------------------------
 
     def build_snapshot(self, student_id: str) -> SnapshotResponse:
-        with connect(self.db) as connection:
+        with transaction(self.connection) as connection:
             student_row = connection.execute(
-                "SELECT * FROM students WHERE id = ?", (student_id,)
+                "SELECT * FROM students WHERE id = %s", (student_id,)
             ).fetchone()
             if student_row is None:
                 raise KeyError(f"Unknown student {student_id}")
             skill_rows = connection.execute(
-                "SELECT * FROM student_skill_states WHERE student_id = ?",
+                "SELECT * FROM student_skill_states WHERE student_id = %s",
                 (student_id,),
             ).fetchall()
             session_row = connection.execute(
                 """
-                SELECT * FROM study_sessions WHERE student_id = ?
+                SELECT * FROM study_sessions WHERE student_id = %s
                 ORDER BY updated_at DESC LIMIT 1
                 """,
                 (student_id,),
             ).fetchone()
             plan_row = connection.execute(
                 """
-                SELECT * FROM study_plans WHERE student_id = ?
+                SELECT * FROM study_plans WHERE student_id = %s
                 ORDER BY created_at DESC LIMIT 1
                 """,
                 (student_id,),
             ).fetchone()
             event_count = connection.execute(
-                "SELECT COUNT(*) AS total FROM learning_events WHERE student_id = ?",
+                "SELECT COUNT(*) AS total FROM learning_events WHERE student_id = %s",
                 (student_id,),
             ).fetchone()["total"]
             latest = connection.execute(
-                """
-                SELECT MAX(rowid) AS max_rowid FROM learning_events
-                """
-            ).fetchone()["max_rowid"]
+                "SELECT COUNT(*) AS total FROM learning_events"
+            ).fetchone()["total"]
 
         skill_states = [
             {
@@ -875,14 +892,14 @@ class SyncService:
         )
 
     def _intervention_stats(self, student_id: str) -> list[dict]:
-        with connect(self.db) as connection:
+        with transaction(self.connection) as connection:
             rows = connection.execute(
                 """
                 SELECT skill, misconception, intervention, difficulty_band,
                        immediate_correct, immediate_attempts, immediate_weight,
                        short_term_correct, short_term_attempts, short_term_weight,
                        delayed_correct, delayed_attempts, delayed_weight
-                FROM intervention_stats WHERE student_id = ?
+                FROM intervention_stats WHERE student_id = %s
                 """,
                 (student_id,),
             ).fetchall()

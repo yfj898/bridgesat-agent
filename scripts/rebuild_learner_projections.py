@@ -14,8 +14,7 @@ For each student (or `--student` only) this:
 3. reports row counts before and after.
 
 Usage:
-    python scripts/rebuild_learner_projections.py [--db content/registry.db]
-                                                  [--student STUDENT_ID]
+    python scripts/rebuild_learner_projections.py [--student STUDENT_ID]
 """
 
 from __future__ import annotations
@@ -25,15 +24,15 @@ import json
 import sys
 from pathlib import Path
 
+import psycopg
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.infrastructure.database import connect, transaction
-from app.infrastructure.migration_runner import apply_migrations
+from app.infrastructure import pg
+from app.infrastructure.pg import transaction
 from app.sync.protocol import SyncConflict, SyncErrorCode, SyncRejectedEvent
 from app.sync.service import SyncService
-
-DEFAULT_DB = ROOT / "content" / "registry.db"
 
 PROJECTION_TABLES = (
     "study_sessions",
@@ -56,47 +55,44 @@ REPLAYABLE_EVENT_TYPES = {
 }
 
 
-def _student_ids(db: Path, student_id: str | None) -> list[str]:
+def _student_ids(connection: psycopg.Connection, student_id: str | None) -> list[str]:
     if student_id:
         return [student_id]
-    with connect(db) as connection:
+    with transaction(connection):
         rows = connection.execute(
             "SELECT DISTINCT student_id FROM learning_events ORDER BY student_id"
         ).fetchall()
         return [row["student_id"] for row in rows]
 
 
-def _counts(db: Path, student_id: str) -> dict[str, int]:
+def _counts(connection: psycopg.Connection, student_id: str) -> dict[str, int]:
     counts: dict[str, int] = {}
-    with connect(db) as connection:
+    with transaction(connection):
         for table in PROJECTION_TABLES:
             counts[table] = connection.execute(
-                f"SELECT COUNT(*) AS total FROM {table} WHERE student_id = ?",
+                f"SELECT COUNT(*) AS total FROM {table} WHERE student_id = %s",
                 (student_id,),
             ).fetchone()["total"]
     return counts
 
 
-def _clear_projections(db: Path, student_id: str) -> None:
-    # Recovery operation: projection rows reference each other, so foreign
-    # key checks are disabled for the explicit rebuild (the immutable
-    # learning_events log is never touched).
-    with connect(db) as connection:
-        connection.execute("PRAGMA foreign_keys = OFF")
-        with transaction(connection):
-            for table in PROJECTION_TABLES:
-                connection.execute(
-                    f"DELETE FROM {table} WHERE student_id = ?", (student_id,)
-                )
+def _clear_projections(connection: psycopg.Connection, student_id: str) -> None:
+    # Recovery operation: projection rows are derived state; the immutable
+    # learning_events log is never touched.
+    with transaction(connection):
+        for table in PROJECTION_TABLES:
+            connection.execute(
+                f"DELETE FROM {table} WHERE student_id = %s", (student_id,)
+            )
 
 
-def _events_for(db: Path, student_id: str) -> list[dict]:
-    with connect(db) as connection:
+def _events_for(connection: psycopg.Connection, student_id: str) -> list[dict]:
+    with transaction(connection):
         return [
             dict(row)
             for row in connection.execute(
-                "SELECT * FROM learning_events WHERE student_id = ? "
-                "ORDER BY occurred_at, received_at, rowid",
+                "SELECT * FROM learning_events WHERE student_id = %s "
+                "ORDER BY occurred_at, received_at",
                 (student_id,),
             ).fetchall()
         ]
@@ -124,12 +120,14 @@ def _envelope_from_row(row: dict):
     )
 
 
-def rebuild_student(db: Path, student_id: str, sync: SyncService) -> dict:
-    before = _counts(db, student_id)
-    events = _events_for(db, student_id)
+def rebuild_student(
+    connection: psycopg.Connection, student_id: str, sync: SyncService
+) -> dict:
+    before = _counts(connection, student_id)
+    events = _events_for(connection, student_id)
     replayable = [row for row in events if row["event_type"] in REPLAYABLE_EVENT_TYPES]
     skipped = len(events) - len(replayable)
-    _clear_projections(db, student_id)
+    _clear_projections(connection, student_id)
 
     accepted: list[str] = []
     rejected: list[SyncRejectedEvent] = []
@@ -145,7 +143,7 @@ def rebuild_student(db: Path, student_id: str, sync: SyncService) -> dict:
             insert_event_row=False,
         )
 
-    after = _counts(db, student_id)
+    after = _counts(connection, student_id)
     return {
         "student_id": student_id,
         "events_replayed": len(replayable),
@@ -160,17 +158,18 @@ def rebuild_student(db: Path, student_id: str, sync: SyncService) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--db", type=Path, default=DEFAULT_DB)
     parser.add_argument("--student", default=None, help="rebuild one student only")
+    parser.add_argument(
+        "--tenant", default="tenant_demo", help="tenant to rebuild under (default tenant_demo)"
+    )
     args = parser.parse_args()
 
-    if not args.db.is_file():
-        print(f"Database {args.db} not found", file=sys.stderr)
-        return 1
-    apply_migrations(args.db)
-    sync = SyncService(args.db)
+    conn = pg.connect()
+    conn.execute("SELECT set_config('app.tenant_id', %s, false)", (args.tenant,))
+    conn.commit()
+    sync = SyncService(conn)
 
-    reports = [rebuild_student(args.db, sid, sync) for sid in _student_ids(args.db, args.student)]
+    reports = [rebuild_student(conn, sid, sync) for sid in _student_ids(conn, args.student)]
     failed = [r for r in reports if r["rejected"] or r["events_replayed"] != r["accepted"]]
     for report in reports:
         status = "OK" if report not in failed else "FAIL"
@@ -179,8 +178,10 @@ def main() -> int:
               f"projection rows {sum(report['projection_rows_after'].values())}")
     if failed:
         print(json.dumps(failed, indent=2), file=sys.stderr)
+        conn.close()
         return 2
     print(f"Rebuilt projections for {len(reports)} student(s).")
+    conn.close()
     return 0
 
 
