@@ -53,10 +53,10 @@ The project is not a chatbot, a generic document-QA application, or a collection
 | Layer | Technology | Reason |
 |---|---|---|
 | API | FastAPI | Existing project foundation and rapid iteration |
-| Authoritative data | SQLite with migrations | Local-first, reproducible, restart-safe |
+| Authoritative data | PostgreSQL with migrations | Local-first, reproducible, restart-safe |
 | Student client | Mobile-first PWA | Weak-network and offline requirement |
 | Offline data | IndexedDB | Session, content pack, memory snapshot, pending events |
-| Core knowledge retrieval | metadata + SQLite FTS5 | Fast, deterministic, easy to package offline |
+| Core knowledge retrieval | metadata + PostgreSQL tsvector | Fast, deterministic, easy to package offline |
 | Knowledge structure | reviewed skill/subskill/prerequisite graph | Education-specific hierarchy and explainability |
 | Core memory | event log + episodes + aggregates | Reliable cross-session behavior |
 | Advanced memory | Mnemis adapter | Similar and global long-term recall |
@@ -69,7 +69,7 @@ The project is not a chatbot, a generic document-QA application, or a collection
 | LightRAG | online relationship retrieval improves golden RAG results | remove from demo path if setup, latency, or accuracy is worse than local hybrid retrieval |
 | A-RAG-style tools | complex planning benefits from iterative retrieval | disable if it exceeds step/token budget or does not improve plan correctness |
 | RAG-Anything | approved multimodal documents are actually available | omit if all competition content is structured JSON/Markdown |
-| Embedding reranker | Recall@3 or intervention-content match improves | retain FTS5-only path if gain is negligible |
+| Embedding reranker | Recall@3 or intervention-content match improves | retain tsvector-only path if gain is negligible |
 
 ### 3.3 Explicitly excluded from the MVP
 
@@ -90,7 +90,7 @@ The project is not a chatbot, a generic document-QA application, or a collection
 ┌──────────────────────────────────────────────────────────┐
 │ Plane A: Offline deterministic learning core             │
 │ session state, answer checking, mastery, hints, policy,  │
-│ local FTS5, prerequisite graph, IndexedDB event queue    │
+│ local tsvector, prerequisite graph, IndexedDB event queue    │
 └──────────────────────────┬───────────────────────────────┘
                            │ optional online context
 ┌──────────────────────────▼───────────────────────────────┐
@@ -102,7 +102,7 @@ The project is not a chatbot, a generic document-QA application, or a collection
 ┌──────────────────────────▼───────────────────────────────┐
 │ Plane C: Cross-session learner memory                    │
 │ events, episodes, semantic facts, strategy statistics,   │
-│ Mnemis System-1/System-2, SQLite fallback                │
+│ Mnemis System-1/System-2, PostgreSQL fallback         │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -145,7 +145,7 @@ app/
 │   └── citations.py
 ├── memory/
 │   ├── interfaces.py
-│   ├── sqlite_backend.py
+│   ├── pg_memory.py
 │   ├── mnemis_backend.py
 │   ├── fallback_backend.py
 │   ├── episode_builder.py
@@ -302,7 +302,7 @@ Retrieval sequence:
 ```text
 license and audience filter
   -> metadata match
-  -> FTS5 query
+  -> tsvector query
   -> one-hop prerequisite expansion
   -> weighted rank
   -> citation validator
@@ -419,7 +419,7 @@ System-2 is never required for answering or submitting an objective question.
 ```text
 Mnemis call
   -> strict timeout or error
-  -> SQLite episode search and strategy aggregates
+  -> PostgreSQL episode search and strategy aggregates
   -> local client snapshot if offline
 ```
 
@@ -549,9 +549,9 @@ Compare:
 
 ```text
 metadata only
-FTS5
-FTS5 + hierarchy
-FTS5 + hierarchy + embeddings
+tsvector
+tsvector + hierarchy
+tsvector + hierarchy + embeddings
 optional LightRAG
 ```
 
@@ -628,7 +628,7 @@ These are engineering targets, not claimed results until measured:
 
 ### August 8 — reliable memory baseline
 
-- SQLite episodic memory;
+- PostgreSQL episodic memory;
 - episode builder;
 - strategy-effectiveness aggregate;
 - second-session memory-aware policy;
@@ -638,7 +638,7 @@ These are engineering targets, not claimed results until measured:
 
 - content registry;
 - skill hierarchy;
-- FTS5 retrieval;
+- tsvector retrieval;
 - citation and license validator;
 - retrieval golden set.
 
@@ -647,7 +647,7 @@ These are engineering targets, not claimed results until measured:
 - pin dependencies;
 - map learning episodes to base/hierarchical graph objects;
 - implement System-1 and Global Selection adapter;
-- add timeout, cache, and SQLite fallback.
+- add timeout, cache, and PostgreSQL fallback.
 
 ### August 11 — offline proof
 
@@ -659,7 +659,7 @@ These are engineering targets, not claimed results until measured:
 ### August 12 — content and optional enhancement gate
 
 - expand reviewed content;
-- run FTS5/hierarchy baseline;
+- run tsvector/hierarchy baseline;
 - test LightRAG only if the baseline is stable;
 - use RAG-Anything only for approved multimodal sources.
 
@@ -694,7 +694,7 @@ These are engineering targets, not claimed results until measured:
 
 Go when:
 
-- two-session SQLite memory is already working;
+- two-session PostgreSQL memory is already working;
 - official code can run in the available environment;
 - evidence IDs can be returned;
 - fallback is verified.
@@ -718,7 +718,7 @@ No-go when:
 
 - the corpus is too small to show benefit;
 - indexing or deployment consumes submission-critical time;
-- local FTS5 + hierarchy is equally accurate.
+- local tsvector + hierarchy is equally accurate.
 
 ### A-RAG-style retrieval
 
@@ -735,7 +735,7 @@ Go only when a licensed multimodal source is included and the parsed output can 
 | Risk | Control |
 |---|---|
 | Technology stacking hides the product | demo one learner story and one clear decision loop |
-| Mnemis research code is incomplete | authoritative SQLite memory and adapter boundary |
+| Mnemis research code is incomplete | authoritative PostgreSQL memory and adapter boundary |
 | LightRAG setup consumes remaining time | local retrieval is the submission baseline |
 | Incorrect or restricted educational content | source registry, license gate, human review |
 | Student memory creates fixed labels | confidence, contradiction, decay, neutral language |
@@ -760,4 +760,4 @@ BridgeSAT is ready when all of the following are visible in one reliable flow:
 9. Reconnection synchronizes each event exactly once.
 10. Golden evaluations and an honest result report are available.
 
-The next implementation task is the event-driven session and two-session SQLite memory loop. Mnemis integration begins only after that proof passes.
+The next implementation task is the event-driven session and two-session PostgreSQL memory loop. Mnemis integration begins only after that proof passes.

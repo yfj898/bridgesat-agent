@@ -1,17 +1,17 @@
-"""Governed SQLite FTS5 retrieval backend.
+"""Governed PostgreSQL tsvector retrieval backend.
 
 Implements the fixed retrieval order from plan section 8:
 
     review_status=published + audience filter
     -> license/source filter
     -> skill/subskill/misconception filter
-    -> SQLite FTS5
+    -> PostgreSQL tsvector (websearch_to_tsquery)
     -> at most two-hop prerequisite expansion
     -> deterministic reranking
     -> citation/version/license validation
     -> approved content or an explicit no-result
 
-The FTS index is derived from published content packs only (see
+The tsvector index is derived from published content packs only (see
 ``index_pack``); the content registry stays authoritative.
 """
 
@@ -20,10 +20,11 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
-from app.infrastructure.database import connect
-from app.infrastructure.migration_runner import apply_migrations
+import psycopg
+
 from app.knowledge import citations
 from app.knowledge.citations import PUBLISHED_STATUS, RESTRICTED_SOURCES
 from app.knowledge.hierarchy import prerequisites_of
@@ -95,6 +96,10 @@ STOPWORDS = frozenset(
 # content-bearing terms, otherwise the result is an explicit no-result.
 MIN_BARE_QUERY_TERM_HITS = 2
 
+# Candidates beyond this window have no fts_rank contribution in the fixed
+# reranker; their lexical position should not break a semantic tie.
+FTS_TIE_BREAK_WINDOW = 5
+
 
 @dataclass(frozen=True)
 class RetrievalResult:
@@ -143,7 +148,9 @@ def _indexed_body(item: dict) -> str:
         )
     parts = [
         item.get("prompt", ""),
-        " ".join(hint.get("text", "") for hint in item.get("hints", [])),
+        " ".join(
+            hint.get("text", "") for hint in item.get("hints", []) if hint
+        ),
         item.get("worked_explanation", ""),
     ]
     misconceptions = set((item.get("misconception_map") or {}).values())
@@ -200,13 +207,13 @@ def _to_result(record: dict, score: float, rank: int) -> RetrievalResult:
     )
 
 
-def index_pack(database_path: Path, pack_dir: Path) -> dict:
-    """Index a published pack's items and lessons into the FTS5 table.
+def index_pack(connection: psycopg.Connection, pack_dir: Path) -> dict:
+    """Index a published pack's items and lessons into the tsvector table.
 
     Restricted sources (for example GSM8K) are rejected outright; they must
-    never enter the FTS index or any retrieval path.
+    never enter the index or any retrieval path. Indexing is a rebuild: the
+    table is cleared and repopulated from the pack.
     """
-    apply_migrations(database_path)
     manifest = json.loads((pack_dir / "manifest.json").read_text(encoding="utf-8"))
     if manifest.get("status") != PUBLISHED_STATUS:
         raise UnpublishedPackError(f"Pack {pack_dir.name} is not published")
@@ -214,7 +221,10 @@ def index_pack(database_path: Path, pack_dir: Path) -> dict:
     rows: list[dict] = []
     item_count = 0
     lesson_count = 0
-    for file_name, content_type in (("items.jsonl", "question"), ("lessons.jsonl", "lesson")):
+    for file_name, content_type in (
+        ("items.jsonl", "question"),
+        ("lessons.jsonl", "lesson"),
+    ):
         path = pack_dir / file_name
         if not path.is_file():
             continue
@@ -251,19 +261,27 @@ def index_pack(database_path: Path, pack_dir: Path) -> dict:
             else:
                 item_count += 1
 
-    import sqlite3
-    from datetime import UTC, datetime
-
-    with connect(database_path) as connection:
-        with connection:
-            connection.execute("DELETE FROM knowledge_fts")
-            connection.executemany(
+    with connection.transaction():
+        connection.execute("DELETE FROM knowledge_fts")
+        with connection.cursor() as cursor:
+            cursor.executemany(
                 """
                 INSERT INTO knowledge_fts (
                     content_id, version, content_type, target_skill,
                     target_subskill, audience, license_id, license_name,
                     source_id, review_status, body
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (content_id) DO UPDATE SET
+                    version = EXCLUDED.version,
+                    content_type = EXCLUDED.content_type,
+                    target_skill = EXCLUDED.target_skill,
+                    target_subskill = EXCLUDED.target_subskill,
+                    audience = EXCLUDED.audience,
+                    license_id = EXCLUDED.license_id,
+                    license_name = EXCLUDED.license_name,
+                    source_id = EXCLUDED.source_id,
+                    review_status = EXCLUDED.review_status,
+                    body = EXCLUDED.body
                 """,
                 [
                     (
@@ -282,29 +300,29 @@ def index_pack(database_path: Path, pack_dir: Path) -> dict:
                     for row in rows
                 ],
             )
-            connection.execute(
-                """
-                INSERT INTO knowledge_index_log (
-                    indexed_at, pack_id, pack_version, item_count, lesson_count, status
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    datetime.now(UTC).isoformat(),
-                    manifest["pack_id"],
-                    manifest["pack_version"],
-                    item_count,
-                    lesson_count,
-                    "indexed",
-                ),
-            )
+        connection.execute(
+            """
+            INSERT INTO knowledge_index_log (
+                indexed_at, pack_id, pack_version, item_count, lesson_count, status
+            ) VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                datetime.now(UTC).isoformat(),
+                manifest["pack_id"],
+                manifest["pack_version"],
+                item_count,
+                lesson_count,
+                "indexed",
+            ),
+        )
     return {"items": item_count, "lessons": lesson_count}
 
 
 class KnowledgeBackend:
-    """SQLite FTS5 retrieval with the fixed governed pipeline."""
+    """PostgreSQL tsvector retrieval with the fixed governed pipeline."""
 
-    def __init__(self, database_path: Path, *, weights: dict | None = None) -> None:
-        self.database_path = database_path
+    def __init__(self, connection: psycopg.Connection, *, weights: dict | None = None) -> None:
+        self.connection = connection
         self.weights = weights or WEIGHTS_V1
 
     # --- pipeline steps ----------------------------------------------------
@@ -325,22 +343,19 @@ class KnowledgeBackend:
     ) -> RetrievalResponse:
         started = time.perf_counter()
         recently_shown = recently_shown or set()
-        apply_migrations(self.database_path)
 
         expanded_skills = prerequisites_of(skill, max_hops=2) if skill else []
 
-        candidates: list[dict] = []
-        with connect(self.database_path) as connection:
-            candidates = self._search(
-                connection,
-                query,
-                audience=audience,
-                allowed_licenses=allowed_licenses,
-                skill=skill,
-                subskill=subskill,
-                misconception=misconception,
-                expanded_skills=expanded_skills,
-            )
+        candidates = self._search(
+            self.connection,
+            query,
+            audience=audience,
+            allowed_licenses=allowed_licenses,
+            skill=skill,
+            subskill=subskill,
+            misconception=misconception,
+            expanded_skills=expanded_skills,
+        )
 
         scored = self._rerank(
             candidates,
@@ -390,58 +405,62 @@ class KnowledgeBackend:
         misconception: str | None,
         expanded_skills: list[str],
     ) -> list[dict]:
+        if not allowed_licenses:
+            return []
+
         base_sql = """
             SELECT content_id, version, content_type, target_skill,
                    target_subskill, audience, license_id, license_name,
                    source_id, review_status, body
             FROM knowledge_fts
-            WHERE audience = ?
-              AND review_status = ?
-              AND license_id IN (%s)
-              AND source_id NOT IN (%s)
+            WHERE audience = %s
+              AND review_status = %s
+              AND license_id IN ({license_ph})
+              AND source_id NOT IN ({source_ph})
         """
         params: list[object] = [audience, PUBLISHED_STATUS]
-        placeholders_license = ",".join("?" * len(allowed_licenses))
+        placeholders_license = ",".join(["%s"] * len(allowed_licenses))
         params.extend(allowed_licenses)
-        placeholders_sources = ",".join("?" * len(RESTRICTED_SOURCES))
+        placeholders_sources = ",".join(["%s"] * len(RESTRICTED_SOURCES))
         params.extend(RESTRICTED_SOURCES)
 
-        sql = base_sql % (placeholders_license, placeholders_sources)
+        sql = base_sql.format(
+            license_ph=placeholders_license, source_ph=placeholders_sources
+        )
 
         has_metadata_filter = False
         if skill:
-            sql += " AND target_skill IN (%s)" % ",".join("?" * len(expanded_skills))
+            sql += " AND target_skill IN (%s)" % ",".join(["%s"] * len(expanded_skills))
             params.extend(expanded_skills)
             has_metadata_filter = True
         if subskill:
-            sql += " AND target_subskill = ?"
+            sql += " AND target_subskill = %s"
             params.append(subskill)
             has_metadata_filter = True
         if misconception:
-            sql += " AND body LIKE ?"
+            sql += " AND body LIKE %s"
             params.append(f"%{misconception}%")
             has_metadata_filter = True
 
-        # FTS5 is the semantic recall step: a bare query with no FTS match
-        # and no metadata filter is an explicit no-result. A query whose
-        # only lexical overlap is stopwords or a single content word is also
-        # treated as no-result: it is too far outside the pack to answer.
+        match = self._match_phrase(query)
         fts_hits: list[tuple[str, float]] = []
         if query.strip():
             try:
                 fts_sql = (
-                    "SELECT content_id, bm25(knowledge_fts) AS _bm25 "
-                    "FROM knowledge_fts "
+                    # Cover-density rank is the PG relevance signal; the
+                    # lexical rank keeps OR-heavy queries close to SQLite
+                    # BM25 ordering by accounting for frequency and length.
+                    "SELECT content_id, "
+                    "ts_rank_cd(body_tsv, q.tsv) AS _rank, "
+                    "ts_rank(body_tsv, q.tsv) AS _lexical_rank "
+                    "FROM knowledge_fts, websearch_to_tsquery('english', %s) AS q(tsv) "
                     + sql.split("FROM knowledge_fts", 1)[1].lstrip("\n ")
-                    + " AND knowledge_fts MATCH ? "
-                    + "ORDER BY bm25(knowledge_fts)"
+                    + " AND body_tsv @@ q.tsv "
+                    + "ORDER BY _lexical_rank DESC, _rank DESC, content_id"
                 )
-                fts_rows = connection.execute(
-                    fts_sql, [*params, self._match_phrase(query)]
-                ).fetchall()
-                # bm25() returns negative scores, more negative = better.
+                fts_rows = connection.execute(fts_sql, [match, *params]).fetchall()
                 fts_hits = [
-                    (row["content_id"], -row["_bm25"]) for row in fts_rows
+                    (row["content_id"], float(row["_rank"])) for row in fts_rows
                 ]
             except Exception:
                 fts_hits = []
@@ -463,7 +482,9 @@ class KnowledgeBackend:
             term_hits = 0
             for token in content_terms[:8]:
                 row = connection.execute(
-                    "SELECT 1 AS hit FROM knowledge_fts WHERE knowledge_fts MATCH ? LIMIT 1",
+                    "SELECT 1 AS hit FROM knowledge_fts, "
+                    "websearch_to_tsquery('english', %s) AS q(tsv) "
+                    "WHERE body_tsv @@ q.tsv LIMIT 1",
                     [f'"{token}"'],
                 ).fetchone()
                 if row:
@@ -473,7 +494,7 @@ class KnowledgeBackend:
 
         if not has_metadata_filter:
             hit_ids = [content_id for content_id, _ in fts_hits]
-            sql += " AND content_id IN (%s)" % ",".join("?" * len(hit_ids))
+            sql += " AND content_id IN (%s)" % ",".join(["%s"] * len(hit_ids))
             params.extend(hit_ids)
 
         rows = connection.execute(sql, params).fetchall()
@@ -493,10 +514,10 @@ class KnowledgeBackend:
 
     @staticmethod
     def _match_phrase(query: str) -> str:
-        """Turn a free-text query into a safe FTS5 MATCH expression.
+        """Turn a free-text query into a safe websearch_to_tsquery input.
 
         Terms are OR-joined so any single lexical overlap recalls the row;
-        the reranker uses bm25 rank position to separate relevant results.
+        the ranker uses ts_rank_cd position to separate relevant results.
         """
         tokens = [token.strip('"') for token in query.replace('"', " ").split()]
         terms = [
@@ -529,7 +550,7 @@ class KnowledgeBackend:
         for record in candidates:
             score = 0.0
             if record["_fts_hit"]:
-                # Stronger bm25 (better position) contributes more; the top
+                # Stronger ts_rank position contributes more; the top
                 # hit gets the full weight, later hits fade out.
                 score += self.weights["fts_rank"] * max(
                     0.0, 1.0 - 0.25 * record["_fts_position"]
@@ -558,5 +579,15 @@ class KnowledgeBackend:
                 score += 0.25 * min(overlap, 4)
             scored.append((record, score))
 
-        scored.sort(key=lambda pair: (-pair[1], pair[0]["content_id"], pair[0]["version"]))
+        scored.sort(
+            key=lambda pair: (
+                -pair[1],
+                pair[0]["_fts_position"]
+                if pair[0]["_fts_hit"]
+                and pair[0]["_fts_position"] <= FTS_TIE_BREAK_WINDOW
+                else 99,
+                pair[0]["content_id"],
+                pair[0]["version"],
+            )
+        )
         return scored

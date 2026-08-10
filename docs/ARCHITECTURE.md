@@ -6,7 +6,7 @@
 - Architecture version: 0.2.0-draft
 - Target: AceSAT Education AI-Agent competition MVP
 - Primary client: mobile browser / installable PWA
-- Primary deployment: single-node FastAPI application with SQLite
+- Primary deployment: single-node FastAPI application with PostgreSQL
 - Core principle: the learning loop must continue when the network, LLM provider, vector service, graph database, or Mnemis integration is unavailable
 
 This document is the architecture baseline for implementation, testing, deployment, and the competition demonstration. Any major feature should map to a component, event, state transition, evaluation scenario, and failure fallback defined here.
@@ -14,7 +14,7 @@ This document is the architecture baseline for implementation, testing, deployme
 Normative companion specifications:
 
 - `PEDAGOGY_SPEC.md`: curriculum, item, mastery, misconception, intervention, and fairness contracts;
-- `MEMORY_CONSISTENCY.md`: SQLite authority, episode formation, outbox, Mnemis consistency, correction, and deletion;
+- `MEMORY_CONSISTENCY.md`: PostgreSQL authority, episode formation, outbox, Mnemis consistency, correction, and deletion;
 - `SYNC_PROTOCOL.md`: offline event envelope, idempotency, ordering, conflicts, snapshots, and retries;
 - `THREAT_MODEL.md`: privacy, prompt injection, memory poisoning, web security, crawler, and model-provider threats;
 - `API_AND_OPERATIONS.md`: endpoint conventions, authentication, migration, deployment, performance, and accessibility;
@@ -113,10 +113,10 @@ The competition implementation uses a layered design rather than placing every n
 
 | Capability | Required implementation | Conditional enhancement | Not in the core path |
 |---|---|---|---|
-| Operational state | SQLite event store | PostgreSQL after the competition | Graph database as source of truth |
-| Offline retrieval | metadata filters + SQLite FTS5 + local skill graph | compact local embedding index if measured useful | cloud-only retrieval |
+| Operational state | PostgreSQL event store | dedicated vector store after the competition | Graph database as source of truth |
+| Offline retrieval | metadata filters + PostgreSQL tsvector + local skill graph | compact local embedding index if measured useful | cloud-only retrieval |
 | Educational hierarchy | reviewed SAT skill/subskill/prerequisite graph inspired by HiRAG | LightRAG adapter for richer online graph retrieval | a second independent HiRAG service |
-| Long-term learner memory | validated learning episodes + SQLite aggregates | Mnemis dual-route retrieval | raw chat-history vector search as the only memory |
+| Long-term learner memory | validated learning episodes + PostgreSQL aggregates | Mnemis dual-route retrieval | raw chat-history vector search as the only memory |
 | Complex retrieval control | deterministic query router | A-RAG-style keyword/semantic/chunk-read tools for planning queries | autonomous iterative retrieval for every question |
 | Multimodal ingestion | reviewed JSON/Markdown content import | RAG-Anything batch parsing for licensed PDFs, tables, and formulas | runtime PDF parsing on student devices |
 | Answer evaluation | deterministic answer keys and rubric logic | bounded model assistance for free-form explanations | LLM-only grading of objective questions |
@@ -167,17 +167,17 @@ New frameworks are accepted only when they improve a named evaluation metric wit
 └───────────────┬─────────────────────┬──────────────────────┘
                 │                     │
                 ▼                     ▼
-┌────────────────────────┐   ┌──────────────────────────────┐
-│ SQLite Operational DB  │   │ Optional Mnemis Backend      │
-│                        │   │                              │
-│ students               │   │ episodic graph memory       │
-│ sessions               │   │ hierarchical memory         │
-│ attempts               │   │ similarity recall           │
-│ events                 │   │ global memory selection      │
-│ memory facts           │   │                              │
-│ intervention stats     │   │ Graphiti / graph store       │
-│ FTS knowledge index    │   └──────────────────────────────┘
-└───────────────┬────────┘
+┌───────────────────────────┐   ┌──────────────────────────────┐
+│ PostgreSQL Operational DB │   │ Optional Mnemis Backend      │
+│                           │   │                              │
+│ students                  │   │ episodic graph memory       │
+│ sessions                  │   │ hierarchical memory         │
+│ attempts                  │   │ similarity recall           │
+│ events                    │   │ global memory selection      │
+│ memory facts              │   │                              │
+│ intervention stats        │   │ Graphiti / graph store       │
+│ tsvector knowledge index  │   └──────────────────────────────┘
+└────────────────┬──────────┘
                 ▼
 ┌────────────────────────────────────────────────────────────┐
 │             Governed Content Ingestion Pipeline            │
@@ -198,7 +198,7 @@ Reasons:
 
 - the project has a short implementation window;
 - a single-node application is easier to demonstrate and recover;
-- SQLite is sufficient for the expected demo workload;
+- PostgreSQL is sufficient for the expected demo workload;
 - offline capability matters more than horizontal scale;
 - module boundaries can be preserved without network boundaries;
 - optional Mnemis and embedding services can still be accessed behind adapters.
@@ -360,7 +360,7 @@ Stores:
 
 Primary storage:
 
-- server: SQLite session state;
+- server: PostgreSQL session state;
 - client: IndexedDB active-session snapshot.
 
 Working memory must remain fully usable without Mnemis.
@@ -449,7 +449,7 @@ class StudentMemoryBackend:
 Required implementations:
 
 ```text
-SQLiteStudentMemory
+PGMemory
 MnemisStudentMemory
 FallbackStudentMemory
 ```
@@ -458,7 +458,7 @@ Fallback order:
 
 ```text
 Mnemis within a strict timeout
-  -> SQLite episodic and aggregate queries
+  -> PostgreSQL episodic and aggregate queries
   -> local client snapshot when offline
 ```
 
@@ -473,7 +473,7 @@ BridgeSAT therefore owns the full memory lifecycle:
 ```text
 raw learning events
   -> validated learning episode
-  -> SQLite authoritative storage
+  -> PostgreSQL authoritative storage
   -> asynchronous Mnemis indexing
   -> System-1 similar recall or System-2 global selection
   -> evidence-bounded policy input
@@ -483,14 +483,14 @@ Route policy:
 
 | Trigger | Memory route |
 |---|---|
-| Current streak or session resume | SQLite working memory |
-| Repeated known misconception | Mnemis System-1 with SQLite fallback |
+| Current streak or session resume | PostgreSQL working memory |
+| Repeated known misconception | Mnemis System-1 with PostgreSQL fallback |
 | Intervention selection | strategy aggregate + similar episodes |
 | New session plan | semantic profile + optional System-1 |
 | Multi-skill bottleneck or weekly plan | Mnemis System-2 Global Selection |
 | Offline operation | local memory snapshot only |
 
-Mnemis calls must have a strict timeout, return evidence IDs, and never block answer submission. Indexing may be asynchronous because SQLite remains the authoritative store.
+Mnemis calls must have a strict timeout, return evidence IDs, and never block answer submission. Indexing may be asynchronous because PostgreSQL remains the authoritative store.
 
 It must not be used for answer validation, mastery updates, direct state mutation, offline operation, mandatory session startup, or unrestricted generation of persistent facts.
 
@@ -643,7 +643,7 @@ The RAG knowledge base is separate from student memory.
 structured teaching need
   -> license, audience, language, and offline-availability filter
   -> skill/subskill/misconception metadata filter
-  -> local FTS5 lexical retrieval
+  -> local PostgreSQL tsvector lexical retrieval
   -> local prerequisite-graph expansion
   -> optional online LightRAG retrieval
   -> reciprocal-rank or weighted fusion
@@ -652,7 +652,7 @@ structured teaching need
   -> reviewed content block
 ```
 
-The MVP must work with metadata filtering, FTS5, and the reviewed prerequisite graph alone. Embeddings and LightRAG are enhancements, not hard dependencies.
+The MVP must work with metadata filtering, PostgreSQL tsvector, and the reviewed prerequisite graph alone. Embeddings and LightRAG are enhancements, not hard dependencies.
 
 ### 12.3 Retrieval levels
 
@@ -662,7 +662,7 @@ Used for answer keys, a known hint ID, an explicitly linked micro-lesson, or an 
 
 #### Level 1 — local hierarchy-aware retrieval
 
-Used for normal student practice. It combines metadata filtering, FTS5, misconception alignment, and one- or two-hop expansion over the reviewed skill prerequisite graph. This level must remain available offline when the relevant content pack is installed.
+Used for normal student practice. It combines metadata filtering, PostgreSQL tsvector, misconception alignment, and one- or two-hop expansion over the reviewed skill prerequisite graph. This level must remain available offline when the relevant content pack is installed.
 
 #### Level 2 — LightRAG online enhancement
 
@@ -795,7 +795,7 @@ Prefer event merging over whole-profile replacement. Incompatible session branch
 
 ## 15. Data model
 
-Minimum SQLite tables:
+Minimum PostgreSQL tables:
 
 ```text
 students
@@ -1004,7 +1004,7 @@ evals/
 - effective interventions rank above ineffective ones when evidence is sufficient;
 - contradictory evidence reduces confidence;
 - archived memories do not normally control decisions;
-- SQLite fallback works when Mnemis is unavailable.
+- PostgreSQL fallback works when Mnemis is unavailable.
 
 ### 21.3 RAG evaluation
 
@@ -1046,14 +1046,14 @@ decision-explanation coverage
 | Failure | Required behavior |
 |---|---|
 | No network | Continue with local session, content pack, and compact policy |
-| Mnemis unavailable | Use SQLite episodic and aggregate memory |
+| Mnemis unavailable | Use PostgreSQL episodic and aggregate memory |
 | Graph database unavailable | Disable global selection; preserve core memory queries |
-| Embedding model unavailable | Use metadata and FTS5 retrieval |
+| Embedding model unavailable | Use metadata and PostgreSQL tsvector retrieval |
 | LLM unavailable | Use deterministic templates and classifiers |
 | Missing content | Do not fabricate; choose another approved action or explain unavailable content |
 | Duplicate sync | Acknowledge but do not reapply |
 | Browser refresh | Restore active session from IndexedDB |
-| Server restart | Rebuild current state from SQLite state and events |
+| Server restart | Rebuild current state from PostgreSQL state and events |
 | Stale content pack | Continue a compatible session or require an explicit update |
 | Corrupt event | Reject it and preserve the remaining queue |
 
@@ -1066,7 +1066,7 @@ Competition deployment:
 ```text
 static PWA assets
   + FastAPI application
-  + SQLite database
+  + PostgreSQL database
   + local reviewed content packs
   + optional external model API
   + optional Mnemis/Graphiti backend
@@ -1078,13 +1078,13 @@ Recommended modes:
 
 ```text
 BRIDGESAT_MODE=local
-  SQLite memory
-  FTS5 retrieval
+  PostgreSQL memory
+  tsvector retrieval
   no external model required
 
 BRIDGESAT_MODE=enhanced
-  SQLite + Mnemis
-  FTS5 + embeddings
+  PostgreSQL + Mnemis
+  tsvector + embeddings
   optional LLM explanation
 ```
 
@@ -1104,7 +1104,7 @@ BRIDGESAT_MODE=enhanced
 
 ### Phase 2: base memory loop
 
-- SQLite episodic memory;
+- PostgreSQL episodic memory;
 - learning-episode construction;
 - semantic memory facts;
 - intervention-effectiveness statistics;
@@ -1117,7 +1117,7 @@ BRIDGESAT_MODE=enhanced
 - license gate;
 - independent safe crawler and importers;
 - content normalization and review;
-- FTS5 retrieval;
+- tsvector retrieval;
 - citations;
 - versioned content packs.
 
@@ -1138,7 +1138,7 @@ BRIDGESAT_MODE=enhanced
 - hierarchical memory graph;
 - global selection prototype;
 - timeout, fallback, and observability;
-- controlled evaluation against SQLite-only memory.
+- controlled evaluation against PostgreSQL-only memory.
 
 ### Phase 6: presentation and evidence
 
@@ -1161,7 +1161,7 @@ BRIDGESAT_MODE=enhanced
 2. **Deployment shape**: a modular monolith appropriate for the competition timeline.
 3. **Agent control**: bounded actions, state transitions, event logging, and policy priorities.
 4. **Memory model**: working, episodic, semantic, and teaching-strategy memory have separate roles.
-5. **Mnemis boundary**: optional advanced memory with required SQLite fallback.
+5. **Mnemis boundary**: optional advanced memory with required PostgreSQL fallback.
 6. **RAG boundary**: educational knowledge is separate from learner memory.
 7. **Data governance**: source registry, license gate, review queue, and attribution.
 8. **Offline path**: local state, content packs, event queues, and idempotent synchronization.
@@ -1252,7 +1252,7 @@ Implement in this order:
 1. `learning_events` and `agent_events`;
 2. session state machine;
 3. `learning_episodes` construction;
-4. SQLite memory backend;
+4. PostgreSQL memory backend;
 5. intervention-effectiveness aggregation;
 6. memory-aware policy decision;
 7. two-session golden test;

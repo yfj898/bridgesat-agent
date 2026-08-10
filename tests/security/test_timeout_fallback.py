@@ -1,8 +1,7 @@
-"""Acceptance test 8: LLM timeout triggers deterministic fallback.
+"""Acceptance test 8: LLM timeout triggers deterministic PG fallback.
 
-THREAT_MODEL.md section 5.11 and plan section 10: Mnemis/LLM calls have a
-strict timeout (800 ms); on timeout or unavailability the SQLite route
-returns the same bounded actions, and Mnemis failure never blocks the
+Mnemis/LLM calls have a strict timeout; on timeout or unavailability the PG
+route returns the same bounded actions, and Mnemis failure never blocks the
 learning loop. The route choice is recorded so fallback is measurable.
 """
 
@@ -10,9 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import time
-from pathlib import Path
 
-from app.infrastructure.learner_store import LearnerStore
+import psycopg
+
 from app.memory.episode_builder import EpisodeBuilder
 from app.memory.fallback_backend import FallbackStudentMemory
 from app.memory.mnemis_backend import MnemisUnavailableError
@@ -20,7 +19,7 @@ from app.memory.mnemis_backend import MnemisUnavailableError
 
 class TimeoutThenFailAdapter:
     async def recall_similar(self, query: dict) -> list[dict]:
-        await asyncio.sleep(0.9)  # exceeds the 800 ms budget
+        await asyncio.sleep(2.0)  # materially exceeds the 800 ms budget
         raise MnemisUnavailableError("mnemis timed out")
 
     async def health(self) -> bool:
@@ -41,8 +40,8 @@ def _episode_event(session_id: str, event_id: str, student_id: str):
     )
 
 
-def _seed_episode(db: Path, student_id: str) -> None:
-    builder = EpisodeBuilder(db)
+def _seed_episode(connection: psycopg.Connection, student_id: str) -> None:
+    builder = EpisodeBuilder(connection)
     episode = builder.build_candidate(
         student_id=student_id,
         session_id="ses-1",
@@ -61,49 +60,50 @@ def _seed_episode(db: Path, student_id: str) -> None:
     builder.validate(episode)
 
 
-def test_mnemis_timeout_returns_sqlite_hits_within_budget(db: Path, two_students) -> None:
-    (a, _), _ = two_students
-    _seed_episode(db, a)
+def test_mnemis_timeout_returns_pg_hits_within_budget(db: psycopg.Connection, two_students) -> None:
+    (student_id, _), _ = two_students
+    _seed_episode(db, student_id)
     memory = FallbackStudentMemory(
         db, mnemis=TimeoutThenFailAdapter(), timeout_ms=800
     )
     started = time.perf_counter()
     result = asyncio.run(
         memory.recall_similar(
-            student_id=a, skill="linear_equations", misconception="sign_error"
+            student_id=student_id, skill="linear_equations", misconception="sign_error"
         )
     )
     elapsed_ms = (time.perf_counter() - started) * 1000
-    assert result.route == "sqlite"
+    assert result.route == "pg"
     assert len(result.hits) == 1
     assert result.hits[0].episode_id.startswith("ep_")
-    assert result.hits[0].retrieval_route == "sqlite"
-    # The 800 ms budget is the ceiling for the Mnemis attempt; the whole
-    # fallback must still complete promptly (well under 2 x budget).
-    assert elapsed_ms < 1600, f"fallback took {elapsed_ms:.0f} ms"
+    assert result.hits[0].retrieval_route == "pg"
+    # The adapter must hit the 800 ms timeout, while the authoritative PG
+    # fallback remains prompt instead of waiting for the adapter's full sleep.
+    assert 700 <= elapsed_ms < 1200, f"fallback took {elapsed_ms:.0f} ms"
 
 
-def test_mnemis_unavailable_never_raises_to_caller(db: Path, two_students) -> None:
-    (a, _), _ = two_students
-    _seed_episode(db, a)
+def test_mnemis_unavailable_never_raises_to_caller(db: psycopg.Connection, two_students) -> None:
+    (student_id, _), _ = two_students
+    _seed_episode(db, student_id)
     memory = FallbackStudentMemory(db, mnemis=TimeoutThenFailAdapter(), timeout_ms=800)
     result = asyncio.run(
         memory.recall_similar(
-            student_id=a, skill="linear_equations", misconception="sign_error"
+            student_id=student_id, skill="linear_equations", misconception="sign_error"
         )
     )
     metrics = memory.recall_metrics()
+    assert result.route == "pg"
     assert metrics["memory_fallback_rate"] == 1.0
-    assert metrics["memory_route_counts"] == {"sqlite": 1}
+    assert metrics["memory_route_counts"] == {"pg": 1}
 
 
-def test_sqlite_route_drives_the_same_bounded_action(db: Path, two_students) -> None:
-    (a, _), _ = two_students
-    _seed_episode(db, a)
+def test_pg_route_drives_the_same_bounded_action(db: psycopg.Connection, two_students) -> None:
+    (student_id, _), _ = two_students
+    _seed_episode(db, student_id)
     memory = FallbackStudentMemory(db, mnemis=TimeoutThenFailAdapter(), timeout_ms=800)
     result = asyncio.run(
         memory.recall_similar(
-            student_id=a, skill="linear_equations", misconception="sign_error"
+            student_id=student_id, skill="linear_equations", misconception="sign_error"
         )
     )
     from app.agent.policy import PolicyInput, decide_next_action
@@ -112,7 +112,7 @@ def test_sqlite_route_drives_the_same_bounded_action(db: Path, two_students) -> 
 
     outcome = decide_next_action(
         PolicyInput(
-            student_id=a,
+            student_id=student_id,
             session_id="ses-2",
             skill="linear_equations",
             subskill="sign_handling",

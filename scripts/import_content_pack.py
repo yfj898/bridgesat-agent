@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Import a built content pack into the content registry and FTS index.
+"""Import a built content pack into the PostgreSQL content registry.
 
 Usage:
-    python scripts/import_content_pack.py [--db PATH] [--pack PATH]
+    python scripts/import_content_pack.py [--db DSN] [--admin-db DSN]
+                                          [--pack PATH]
 
-Default database is BRIDGESAT_DB or ./data/bridgesat.db; default pack is the
-latest built bridgesat-math pack under content/packs/.
+Publishing runs on the admin connection (the app role has SELECT only on the
+shared content tables); the tsvector index is rebuilt on the same admin
+connection; verification runs on a clean app-role connection.
 """
 
 from __future__ import annotations
@@ -20,11 +22,9 @@ sys.path.insert(0, str(ROOT))
 
 from app.content_pipeline.contracts import PACKS_DIR
 from app.content_pipeline.importing import import_pack, verify_import
+from app.infrastructure import pg
+from app.infrastructure.migration_runner import migrate_database
 from app.knowledge.local_backend import index_pack
-
-
-def _default_db() -> Path:
-    return Path(os.getenv("BRIDGESAT_DB", ROOT / "data" / "bridgesat.db"))
 
 
 def _default_pack() -> Path:
@@ -37,16 +37,37 @@ def _default_pack() -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--db", type=Path, default=None)
+    parser.add_argument("--db", default=None, help="PostgreSQL application DSN")
+    parser.add_argument("--admin-db", default=None, help="PostgreSQL admin DSN")
     parser.add_argument("--pack", type=Path, default=None)
     args = parser.parse_args()
 
-    db = args.db or _default_db()
     pack = args.pack or _default_pack()
-    inserted = import_pack(db, pack)
-    summary = verify_import(db)
-    indexed = index_pack(db, pack)
-    print(f"Imported {inserted} items from {pack.name} into {db}")
+    target = args.db or pg.dsn()
+    admin_target = args.admin_db or pg.admin_dsn()
+
+    admin = None
+    connection = None
+    try:
+        admin = pg.connect_admin(admin_target)
+        connection = pg.connect(target)
+        pg.assert_safe_app_role(connection)
+        try:
+            pg.assert_matching_database(admin, connection)
+        except RuntimeError as exc:
+            print(f"Refusing to run: {exc}", file=sys.stderr)
+            return 2
+        admin.rollback()
+        connection.rollback()
+        migrate_database(admin)
+        inserted = import_pack(admin, pack)
+        indexed = index_pack(admin, pack)
+        summary = verify_import(connection)
+    finally:
+        pg.quiet_close(connection)
+        pg.quiet_close(admin)
+
+    print(f"Imported {inserted} items from {pack.name} into {target}")
     print(f"Registry: {summary}")
     print(f"Indexed: {indexed}")
     return 0

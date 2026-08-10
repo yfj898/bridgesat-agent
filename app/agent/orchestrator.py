@@ -3,7 +3,8 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
+
+import psycopg
 
 from app.agent.policy import PolicyInput, decide_next_action
 from app.domain.events import (
@@ -19,7 +20,7 @@ from app.domain.sessions import SessionState
 from app.infrastructure.event_store import EventStore
 from app.infrastructure.learner_store import LearnerStore
 from app.memory.episode_builder import EpisodeBuilder
-from app.memory.sqlite_backend import SQLiteMemory
+from app.memory.pg_memory import PGMemory
 
 MISCONCEPTION_MAP_FIELD = "misconception_map"
 
@@ -96,12 +97,12 @@ class SessionOrchestrator:
     attached client the behavior is identical to the deterministic policy.
     """
 
-    def __init__(self, database_path: Path, llm=None) -> None:
-        self.db = database_path
-        self.events = EventStore(database_path)
-        self.learner = LearnerStore(database_path)
-        self.memory = SQLiteMemory(database_path)
-        self.episodes = EpisodeBuilder(database_path)
+    def __init__(self, connection: psycopg.Connection, llm=None) -> None:
+        self.connection = connection
+        self.events = EventStore(connection)
+        self.learner = LearnerStore(connection)
+        self.memory = PGMemory(connection)
+        self.episodes = EpisodeBuilder(connection)
         self.llm = llm
 
     def _content_version(self, item: ContentItem) -> str:

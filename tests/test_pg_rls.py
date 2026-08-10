@@ -72,7 +72,49 @@ def test_app_role_cannot_insert_other_tenants_row(migrated) -> None:
         app.close()
 
 
+def test_app_role_isolates_legacy_mastery_imports(migrated) -> None:
+    columns = {
+        row["column_name"]
+        for row in migrated.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' "
+            "AND table_name = 'legacy_mastery_imports'"
+        ).fetchall()
+    }
+    assert "tenant_id" in columns
+
+    migrated.execute(
+        "INSERT INTO legacy_mastery_imports "
+        "(import_id, student_id, mastery_json, imported_at, tenant_id) "
+        "VALUES (%s, %s, %s, %s, %s), (%s, %s, %s, %s, %s)",
+        (
+            "legacy-a",
+            "student-a",
+            "{}",
+            "2026-01-01",
+            "tenant_a",
+            "legacy-b",
+            "student-b",
+            "{}",
+            "2026-01-01",
+            "tenant_b",
+        ),
+    )
+    migrated.commit()
+
+    app = pg.connect()
+    try:
+        app.execute("SET app.tenant_id = 'tenant_a'")
+        rows = app.execute(
+            "SELECT import_id FROM legacy_mastery_imports ORDER BY import_id"
+        ).fetchall()
+        assert rows == [{"import_id": "legacy-a"}]
+    finally:
+        app.close()
+
+
 def test_resolve_token_bypasses_rls_for_app_role(migrated) -> None:
+    _insert_student(migrated, "stu_1", "tenant_a")
     migrated.execute(
         "INSERT INTO student_tokens "
         "(token_id, tenant_id, student_id, token_hash, created_at) "
@@ -92,6 +134,7 @@ def test_resolve_token_bypasses_rls_for_app_role(migrated) -> None:
 
 
 def test_resolve_token_cannot_be_hijacked_by_temp_table(migrated) -> None:
+    _insert_student(migrated, "stu_real", "tenant_real")
     migrated.execute(
         "INSERT INTO student_tokens "
         "(token_id, tenant_id, student_id, token_hash, created_at) "
@@ -119,3 +162,82 @@ def test_resolve_token_cannot_be_hijacked_by_temp_table(migrated) -> None:
         assert rows == [{"tenant_id": "tenant_real", "student_id": "stu_real"}]
     finally:
         app.close()
+
+
+def test_resolve_token_rejects_non_active_student(migrated) -> None:
+    _insert_student(migrated, "stu_pending", "tenant_pending")
+    migrated.execute(
+        "INSERT INTO student_tokens "
+        "(token_id, tenant_id, student_id, token_hash, created_at) "
+        "VALUES (%s, %s, %s, %s, %s)",
+        (
+            "tok_pending",
+            "tenant_pending",
+            "stu_pending",
+            "pendinghash",
+            "2026-01-01",
+        ),
+    )
+    migrated.execute(
+        "UPDATE students SET status = 'deletion_pending' WHERE id = %s",
+        ("stu_pending",),
+    )
+    migrated.commit()
+
+    app = pg.connect()
+    try:
+        rows = app.execute("SELECT * FROM resolve_token('pendinghash')").fetchall()
+        assert rows == []
+    finally:
+        app.close()
+
+
+def test_app_role_rejects_effective_membership_in_tenant_table_owner(
+    migrated,
+) -> None:
+    import uuid
+
+    owner_role = f"task1_owner_{uuid.uuid4().hex}"
+    migrated.execute(f'CREATE ROLE "{owner_role}" NOLOGIN')
+    migrated.execute(f'ALTER TABLE public.students OWNER TO "{owner_role}"')
+    migrated.execute(f'GRANT "{owner_role}" TO bridgesat_app')
+    migrated.commit()
+
+    try:
+        with pytest.raises(RuntimeError, match="non-owner"):
+            pg.connect()
+    finally:
+        migrated.execute(f'REVOKE "{owner_role}" FROM bridgesat_app')
+        migrated.execute('ALTER TABLE public.students OWNER TO bridgesat')
+        migrated.execute(f'DROP ROLE "{owner_role}"')
+        migrated.commit()
+
+
+def test_app_role_rejects_set_role_capability_for_tenant_table_owner(
+    migrated,
+) -> None:
+    import uuid
+
+    owner_role = f"task1_set_role_owner_{uuid.uuid4().hex}"
+    migrated.execute(f'CREATE ROLE "{owner_role}" NOLOGIN')
+    try:
+        migrated.execute("ALTER ROLE bridgesat_app NOINHERIT")
+        migrated.execute(f'ALTER TABLE public.students OWNER TO "{owner_role}"')
+        migrated.execute(f'GRANT "{owner_role}" TO bridgesat_app')
+        migrated.commit()
+
+        membership = migrated.execute(
+            "SELECT pg_has_role(%s, %s, 'USAGE') AS usage, "
+            "pg_has_role(%s, %s, 'SET') AS can_set",
+            ("bridgesat_app", owner_role, "bridgesat_app", owner_role),
+        ).fetchone()
+        assert membership == {"usage": False, "can_set": True}
+
+        with pytest.raises(RuntimeError, match="non-owner"):
+            pg.connect()
+    finally:
+        migrated.execute(f'REVOKE "{owner_role}" FROM bridgesat_app')
+        migrated.execute('ALTER TABLE public.students OWNER TO bridgesat')
+        migrated.execute('ALTER ROLE bridgesat_app INHERIT')
+        migrated.execute(f'DROP ROLE "{owner_role}"')
+        migrated.commit()

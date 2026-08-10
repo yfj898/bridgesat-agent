@@ -3,8 +3,8 @@
 
 Measures on-device latency budgets on this machine:
 
-- local policy p95 < 150 ms   (decide_next_action, 2000 varied calls)
-- FTS5 p95 < 200 ms           (KnowledgeBackend.retrieve, dev+golden queries)
+- local policy p95 < 150 ms   (decide_next_action, varied calls)
+- PostgreSQL tsvector p95 < 200 ms (KnowledgeBackend, approved pack queries)
 - session restore p95 < 500 ms (SyncService.build_snapshot, seeded student)
 - sync throughput             (process_batch, informational)
 - memory footprint            (max RSS, informational)
@@ -13,29 +13,34 @@ Measures on-device latency budgets on this machine:
 Writes reports/performance_eval.json.
 
 Usage:
-    python scripts/run_performance_evals.py
+    python scripts/run_performance_evals.py [--db DSN] [--admin-db DSN]
+        [--tenant LABEL]
 """
 
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
+import hashlib
 import json
 import resource
-import statistics
 import sys
-import tempfile
 import time
+import uuid
 from pathlib import Path
+from typing import Iterator
+
+import psycopg
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.agent.policy import decide_next_action, PolicyInput
+from app.agent.policy import PolicyInput, decide_next_action
 from app.domain.sessions import SessionState
-from app.domain.events import LearningEventType
-from app.infrastructure.migration_runner import apply_migrations
-from app.knowledge.local_backend import KnowledgeBackend
+from app.infrastructure import pg
 from app.infrastructure.learner_store import LearnerStore
+from app.infrastructure.migration_runner import migrate_database
+from app.knowledge.local_backend import KnowledgeBackend
 from app.question_bank import packs_root
 from app.sync.protocol import SyncEventEnvelope, SyncRequest
 from app.sync.service import SyncService
@@ -43,7 +48,7 @@ from app.sync.service import SyncService
 REPORT_JSON = ROOT / "reports" / "performance_eval.json"
 
 PACK_VERSION = "0.1.0"
-KNOWLEDGE_DB = ROOT / "content" / "registry.db"
+PACK_DIR = packs_root() / f"bridgesat-math-{PACK_VERSION}"
 
 TARGETS = {
     "local_policy_p95_ms": 150.0,
@@ -51,10 +56,45 @@ TARGETS = {
     "session_restore_p95_ms": 500.0,
 }
 
+# Tenant-owned tables are cleaned row-by-row. Content/index tables are global
+# and intentionally are not touched by benchmark cleanup.
+TENANT_CLEANUP_ORDER = (
+    "memory_outbox",
+    "student_deletions",
+    "student_memory_facts",
+    "learning_episodes",
+    "intervention_stats",
+    "agent_events",
+    "misconception_evidence",
+    "answer_attempts",
+    "session_items",
+    "study_sessions",
+    "study_plans",
+    "student_skill_states",
+    "learning_events",
+    "session_branches",
+    "sync_conflicts",
+    "devices",
+    "student_tokens",
+    "students",
+)
+
+
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than zero")
+    return parsed
+
 
 def _percentiles(samples: list[float]) -> dict[str, float]:
     ordered = sorted(samples)
     n = len(ordered)
+    if n == 0:
+        raise ValueError("sample count must be greater than zero")
 
     def pct(p: float) -> float:
         if n == 1:
@@ -72,6 +112,71 @@ def _percentiles(samples: list[float]) -> dict[str, float]:
         "p95_ms": round(pct(0.95), 2),
         "max_ms": round(ordered[-1], 2),
     }
+
+
+def _migrate(admin_target: str, app_target: str) -> None:
+    admin = None
+    app = None
+    try:
+        admin = pg.connect_admin(admin_target)
+        app = pg.connect(app_target)
+        pg.assert_safe_app_role(app)
+        pg.assert_matching_database(admin, app)
+        migrate_database(admin)
+    finally:
+        pg.quiet_close(app)
+        pg.quiet_close(admin)
+
+
+@contextmanager
+def _tenant_connection(target: str, tenant_id: str) -> Iterator[psycopg.Connection]:
+    connection = pg.connect(target)
+    try:
+        pg.assert_safe_app_role(connection)
+        connection.execute(
+            "SELECT set_config('app.tenant_id', %s, false)",
+            (tenant_id,),
+        )
+        connection.commit()
+        yield connection
+    finally:
+        pg.quiet_close(connection)
+
+
+def _cleanup_tenant(admin_target: str, app_target: str, tenant_id: str) -> None:
+    admin = None
+    app = None
+    try:
+        admin = pg.connect_admin(admin_target)
+        app = pg.connect(app_target)
+        pg.assert_safe_app_role(app)
+        pg.assert_matching_database(admin, app)
+        app.execute(
+            "SELECT set_config('app.tenant_id', %s, false)",
+            (tenant_id,),
+        )
+        app.commit()
+        for table in TENANT_CLEANUP_ORDER:
+            admin.execute(f"DELETE FROM {table} WHERE tenant_id = %s", (tenant_id,))
+        admin.commit()
+    finally:
+        pg.quiet_close(app)
+        pg.quiet_close(admin)
+
+
+def _new_tenant(label: str) -> str:
+    return f"{label}_{uuid.uuid4().hex}"
+
+
+def _require_knowledge_index(connection: psycopg.Connection) -> None:
+    row = connection.execute(
+        "SELECT COUNT(*) AS total FROM knowledge_fts"
+    ).fetchone()
+    if row is None or int(row["total"]) <= 0:
+        raise RuntimeError(
+            "knowledge_fts is empty in the evaluated PostgreSQL database; "
+            "run scripts/import_content_pack.py before the performance eval"
+        )
 
 
 def bench_local_policy(n: int = 2000) -> dict:
@@ -109,7 +214,8 @@ def bench_local_policy(n: int = 2000) -> dict:
     return _percentiles(samples)
 
 
-def bench_fts5(n: int = 200) -> dict:
+def bench_fts5(connection: psycopg.Connection, n: int = 200) -> dict:
+    """Benchmark the compatibility-labelled FTS gate on PG tsvector."""
     queries = [
         {"query": "solve linear equation isolate variable", "skill": "linear_equations"},
         {"query": "unit rate ratio parts per minute", "skill": "ratios_percentages"},
@@ -119,7 +225,7 @@ def bench_fts5(n: int = 200) -> dict:
         {"query": "integer operations negative numbers", "skill": "integer_operations"},
     ]
     samples: list[float] = []
-    backend = KnowledgeBackend(KNOWLEDGE_DB)
+    backend = KnowledgeBackend(connection)
     for i in range(n):
         entry = queries[i % len(queries)]
         started = time.perf_counter()
@@ -129,8 +235,6 @@ def bench_fts5(n: int = 200) -> dict:
 
 
 def _integrity(event_type: str, payload: dict) -> str:
-    import hashlib
-
     digest = hashlib.sha256()
     digest.update(event_type.encode("utf-8"))
     digest.update(b"\x00")
@@ -140,19 +244,19 @@ def _integrity(event_type: str, payload: dict) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
-def _seed_snapshot_student(db: Path) -> str:
-    from app.question_bank import packs_root
-
-    items_path = packs_root() / f"bridgesat-math-{PACK_VERSION}" / "items.jsonl"
+def _seed_snapshot_student(
+    connection: psycopg.Connection, *, namespace: str
+) -> tuple[str, str]:
+    items_path = PACK_DIR / "items.jsonl"
     items = [json.loads(line) for line in items_path.open(encoding="utf-8") if line.strip()]
     by_skill: dict[str, list[dict]] = {}
     for item in items:
         by_skill.setdefault(item["target_skill"], []).append(item)
 
-    sync = SyncService(db)
-    learner = LearnerStore(db)
+    sync = SyncService(connection)
+    learner = LearnerStore(connection)
     student_id, _ = learner.create_student("Perf Student", 20, 1200)
-    device_id = "perf_device"
+    device_id = f"perf_device_{namespace}"
     sync.register_device(student_id, "perf laptop", device_id=device_id)
 
     now = "2026-08-07T12:00:00+08:00"
@@ -160,7 +264,7 @@ def _seed_snapshot_student(db: Path) -> str:
     sequence = 1
 
     for session_no in range(1, 13):
-        session_id = f"perf_session_{session_no:02d}"
+        session_id = f"perf_{namespace}_session_{session_no:02d}"
         previous: list[str] = []
         picks = [
             (by_skill["linear_equations"][session_no % 5], True),
@@ -169,12 +273,12 @@ def _seed_snapshot_student(db: Path) -> str:
             (by_skill["systems_equations"][session_no % 4], True),
         ]
         for item, correct in picks:
-            presented_event_id = f"perf_{session_id}_p_{sequence}"
+            presented_event_id = f"perf_{namespace}_{session_id}_p_{sequence}"
             envelopes.append(SyncEventEnvelope(
                 event_id=presented_event_id,
                 student_id=student_id,
                 session_id=session_id,
-                session_branch_id="branch_perf_device",
+                session_branch_id=f"branch_{namespace}",
                 device_id=device_id,
                 device_sequence=sequence,
                 event_type="CONTENT_PRESENTED",
@@ -196,13 +300,13 @@ def _seed_snapshot_student(db: Path) -> str:
                 "question_version": 1,
                 "selected_choice_id": selected,
                 "hint_level": 0,
-                "attempt_id": f"perf_att_{item['id']}_{session_no}",
+                "attempt_id": f"perf_{namespace}_att_{item['id']}_{session_no}",
             }
             envelopes.append(SyncEventEnvelope(
-                event_id=f"perf_{session_id}_a_{sequence}",
+                event_id=f"perf_{namespace}_{session_id}_a_{sequence}",
                 student_id=student_id,
                 session_id=session_id,
-                session_branch_id="branch_perf_device",
+                session_branch_id=f"branch_{namespace}",
                 device_id=device_id,
                 device_sequence=sequence,
                 event_type="ANSWER_SUBMITTED",
@@ -219,10 +323,10 @@ def _seed_snapshot_student(db: Path) -> str:
             previous = [envelopes[-1].event_id]
         session_payload = {"summary": f"perf session {session_no}"}
         envelopes.append(SyncEventEnvelope(
-            event_id=f"perf_{session_id}_s_{sequence}",
+            event_id=f"perf_{namespace}_{session_id}_s_{sequence}",
             student_id=student_id,
             session_id=session_id,
-            session_branch_id="branch_perf_device",
+            session_branch_id=f"branch_{namespace}",
             device_id=device_id,
             device_sequence=sequence,
             event_type="SESSION_COMPLETED",
@@ -245,30 +349,40 @@ def _seed_snapshot_student(db: Path) -> str:
             raise RuntimeError(
                 f"perf seeding rejected: {[r.code for r in response.rejected_events]}"
             )
-    return student_id
+    return student_id, device_id
 
 
-def bench_session_restore(n: int = 100) -> dict:
-    with tempfile.TemporaryDirectory() as tmp:
-        db = Path(tmp) / "perf.db"
-        apply_migrations(db)
-        student_id = _seed_snapshot_student(db)
-        sync = SyncService(db)
-        sync.build_snapshot(student_id)  # warm
-        samples: list[float] = []
-        for _ in range(n):
-            started = time.perf_counter()
-            sync.build_snapshot(student_id)
-            samples.append((time.perf_counter() - started) * 1000)
-        return _percentiles(samples)
+def bench_session_restore(
+    connection: psycopg.Connection, student_id: str, n: int = 100
+) -> dict:
+    sync = SyncService(connection)
+    sync.build_snapshot(student_id)  # warm
+    samples: list[float] = []
+    for _ in range(n):
+        started = time.perf_counter()
+        sync.build_snapshot(student_id)
+        samples.append((time.perf_counter() - started) * 1000)
+    return _percentiles(samples)
 
 
-def bench_sync_throughput(db: Path, student_id: str, device_id: str) -> float:
-    sync = SyncService(db)
+def bench_sync_throughput(
+    connection: psycopg.Connection,
+    student_id: str,
+    device_id: str,
+    *,
+    namespace: str,
+) -> float:
+    sync = SyncService(connection)
+    sequence_row = connection.execute(
+        "SELECT last_device_sequence FROM devices WHERE device_id = %s AND student_id = %s",
+        (device_id, student_id),
+    ).fetchone()
+    if sequence_row is None:
+        raise RuntimeError("throughput device is not registered")
+    sequence_start = int(sequence_row["last_device_sequence"])
     items = [
         json.loads(line)
-        for line in (packs_root() / f"bridgesat-math-{PACK_VERSION}" / "items.jsonl")
-        .open(encoding="utf-8").read().splitlines()
+        for line in PACK_DIR.joinpath("items.jsonl").open(encoding="utf-8")
         if line.strip()
     ]
     now = "2026-08-07T13:00:00+08:00"
@@ -280,15 +394,15 @@ def bench_sync_throughput(db: Path, student_id: str, device_id: str) -> float:
                 "question_version": 1,
                 "selected_choice_id": item["answer_choice_id"],
                 "hint_level": 0,
-                "attempt_id": f"perf_tput_att_{i}_{len(envelopes)}",
+                "attempt_id": f"perf_{namespace}_tput_att_{i}_{len(envelopes)}",
             }
             envelopes.append(SyncEventEnvelope(
-                event_id=f"perf_tput_{i}_{len(envelopes)}",
+                event_id=f"perf_{namespace}_tput_{i}_{len(envelopes)}",
                 student_id=student_id,
-                session_id="perf_tput_session",
-                session_branch_id="branch_perf_device",
+                session_id=f"perf_{namespace}_tput_session",
+                session_branch_id=f"branch_{namespace}",
                 device_id=device_id,
-                device_sequence=len(envelopes) + 1,
+                device_sequence=sequence_start + len(envelopes) + 1,
                 event_type="ANSWER_SUBMITTED",
                 payload=payload,
                 content_pack_version=PACK_VERSION,
@@ -310,66 +424,85 @@ def bench_sync_throughput(db: Path, student_id: str, device_id: str) -> float:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--db", default=None, help="PostgreSQL application DSN")
+    parser.add_argument("--admin-db", default=None, help="PostgreSQL admin DSN")
+    parser.add_argument("--tenant", default=None, help="label for an isolated benchmark tenant")
     parser.add_argument("--json", type=Path, default=REPORT_JSON)
-    parser.add_argument("--samples-policy", type=int, default=2000)
-    parser.add_argument("--samples-fts5", type=int, default=200)
-    parser.add_argument("--samples-restore", type=int, default=100)
+    parser.add_argument("--samples-policy", type=_positive_int, default=2000)
+    parser.add_argument("--samples-fts5", type=_positive_int, default=200)
+    parser.add_argument("--samples-restore", type=_positive_int, default=100)
     args = parser.parse_args()
 
-    rss_before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    target = args.db or pg.dsn()
+    admin_target = args.admin_db or pg.admin_dsn()
+    tenant_id = _new_tenant(args.tenant or "perf")
+    namespace = uuid.uuid4().hex[:12]
+    migrated = False
+    try:
+        _migrate(admin_target, target)
+        migrated = True
 
-    policy = bench_local_policy(args.samples_policy)
-    fts5 = bench_fts5(args.samples_fts5)
-    restore = bench_session_restore(args.samples_restore)
+        policy = bench_local_policy(args.samples_policy)
+        with _tenant_connection(target, tenant_id) as connection:
+            _require_knowledge_index(connection)
+            fts5 = bench_fts5(connection, args.samples_fts5)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        db = Path(tmp) / "tput.db"
-        apply_migrations(db)
-        sync = SyncService(db)
-        learner = LearnerStore(db)
-        student_id, _ = learner.create_student("Tput Student", 20, 1200)
-        sync.register_device(student_id, "perf laptop", device_id="perf_device")
-        throughput = bench_sync_throughput(db, student_id, "perf_device")
+        with _tenant_connection(target, tenant_id) as connection:
+            student_id, device_id = _seed_snapshot_student(
+                connection, namespace=namespace
+            )
+            restore = bench_session_restore(connection, student_id, args.samples_restore)
+            throughput = bench_sync_throughput(
+                connection,
+                student_id,
+                device_id,
+                namespace=namespace,
+            )
 
-    rss_after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        rss_after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
 
-    results = {
-        "local_policy": {**policy,
-                         "target_p95_ms": TARGETS["local_policy_p95_ms"],
-                         "passed": policy["p95_ms"] < TARGETS["local_policy_p95_ms"]},
-        "fts5": {**fts5,
-                 "target_p95_ms": TARGETS["fts5_p95_ms"],
-                 "passed": fts5["p95_ms"] < TARGETS["fts5_p95_ms"]},
-        "session_restore": {**restore,
-                            "target_p95_ms": TARGETS["session_restore_p95_ms"],
-                            "passed": restore["p95_ms"] < TARGETS["session_restore_p95_ms"]},
-    }
-    passed = all(v["passed"] for v in results.values())
+        results = {
+            "local_policy": {**policy,
+                             "target_p95_ms": TARGETS["local_policy_p95_ms"],
+                             "passed": policy["p95_ms"] < TARGETS["local_policy_p95_ms"]},
+            "fts5": {**fts5,
+                     "target_p95_ms": TARGETS["fts5_p95_ms"],
+                     "passed": fts5["p95_ms"] < TARGETS["fts5_p95_ms"]},
+            "session_restore": {**restore,
+                                "target_p95_ms": TARGETS["session_restore_p95_ms"],
+                                "passed": restore["p95_ms"] < TARGETS["session_restore_p95_ms"]},
+        }
+        passed = all(v["passed"] for v in results.values())
 
-    summary = {
-        "schema_version": "1.0",
-        "label": "controlled internal test (on-device latency, this machine)",
-        "results": results,
-        "sync_throughput_events_per_sec": round(throughput, 1),
-        "max_rss_mb": round(rss_after / 1024, 1),
-        "mnemis_timeout_nonblocking": "covered by tests: tests/test_memory*",
-        "targets": TARGETS,
-        "all_gates_passed": passed,
-    }
+        summary = {
+            "schema_version": "1.0",
+            "label": "controlled internal test (on-device latency, this machine)",
+            "tenant_id": tenant_id,
+            "results": results,
+            "sync_throughput_events_per_sec": round(throughput, 1),
+            "max_rss_mb": round(rss_after / 1024, 1),
+            "mnemis_timeout_nonblocking": "covered by tests: tests/test_memory*",
+            "targets": TARGETS,
+            "all_gates_passed": passed,
+        }
 
-    args.json.parent.mkdir(parents=True, exist_ok=True)
-    args.json.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+        args.json.parent.mkdir(parents=True, exist_ok=True)
+        args.json.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
 
-    print(json.dumps({
-        "label": summary["label"],
-        "all_gates_passed": passed,
-        "local_policy_p95_ms": results["local_policy"]["p95_ms"],
-        "fts5_p95_ms": results["fts5"]["p95_ms"],
-        "session_restore_p95_ms": results["session_restore"]["p95_ms"],
-        "sync_throughput_events_per_sec": summary["sync_throughput_events_per_sec"],
-        "max_rss_mb": summary["max_rss_mb"],
-    }, indent=2))
-    return 0 if passed else 2
+        print(json.dumps({
+            "label": summary["label"],
+            "tenant_id": summary["tenant_id"],
+            "all_gates_passed": passed,
+            "local_policy_p95_ms": results["local_policy"]["p95_ms"],
+            "fts5_p95_ms": results["fts5"]["p95_ms"],
+            "session_restore_p95_ms": results["session_restore"]["p95_ms"],
+            "sync_throughput_events_per_sec": summary["sync_throughput_events_per_sec"],
+            "max_rss_mb": summary["max_rss_mb"],
+        }, indent=2))
+        return 0 if passed else 2
+    finally:
+        if migrated:
+            _cleanup_tenant(admin_target, target, tenant_id)
 
 
 if __name__ == "__main__":

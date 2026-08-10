@@ -10,9 +10,12 @@ dead_letter using the fixed spec schedule.
 from __future__ import annotations
 
 import json
+import asyncio
 import uuid
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import AsyncIterator, Iterator, Sequence
 
 import psycopg
 
@@ -29,6 +32,142 @@ OUTBOX_STATUSES = (
 RETRY_DELAY_SECONDS: tuple[int, ...] = (0, 5, 30, 300, 1800)
 MAX_ATTEMPTS = len(RETRY_DELAY_SECONDS)
 CLAIM_LEASE_SECONDS = 60
+STUDENT_LOCK_NAMESPACE = "bridgesat:memory:student:"
+
+
+def student_lock_key(student_id: str) -> str:
+    return f"{STUDENT_LOCK_NAMESPACE}{student_id}"
+
+
+def ensure_active_student(
+    connection: psycopg.Connection, student_id: str
+) -> None:
+    """Lock and validate the authoritative student before memory writes."""
+    student = connection.execute(
+        """
+        SELECT status
+        FROM students
+        WHERE id = %s
+          AND tenant_id = current_setting('app.tenant_id', true)
+        FOR UPDATE
+        """,
+        (student_id,),
+    ).fetchone()
+    if student is None:
+        raise ValueError(f"Student {student_id} does not belong to the current tenant")
+    if student["status"] != "active":
+        raise ValueError(
+            f"Student {student_id} is not active (status={student['status']})"
+        )
+    deletion = connection.execute(
+        """
+        SELECT state
+        FROM student_deletions
+        WHERE student_id = %s
+          AND tenant_id = current_setting('app.tenant_id', true)
+        FOR UPDATE
+        """,
+        (student_id,),
+    ).fetchone()
+    if deletion is not None:
+        raise ValueError(
+            f"Student {student_id} has a deletion state ({deletion['state']})"
+        )
+
+
+def _close_connection(connection: psycopg.Connection) -> None:
+    try:
+        connection.close()
+    except BaseException:
+        pass
+
+
+def _release_student_lock(connection: psycopg.Connection, key: str) -> None:
+    row = connection.execute(
+        "SELECT pg_advisory_unlock(hashtextextended(%s, 0)) AS unlocked",
+        (key,),
+    ).fetchone()
+    if row is None or not row["unlocked"]:
+        raise RuntimeError("student advisory lock was not held during release")
+
+
+@contextmanager
+def student_advisory_lock(
+    connection: psycopg.Connection, student_id: str
+) -> Iterator[None]:
+    """Hold the session-level lock shared by rebuilds and outbox workers."""
+    key = student_lock_key(student_id)
+    acquired = False
+    primary_error: BaseException | None = None
+    try:
+        connection.execute(
+            "SELECT pg_advisory_lock(hashtextextended(%s, 0))", (key,)
+        )
+        acquired = True
+        yield
+    except BaseException as exc:
+        primary_error = exc
+        raise
+    finally:
+        if acquired:
+            try:
+                _release_student_lock(connection, key)
+            except BaseException:
+                _close_connection(connection)
+                if primary_error is None:
+                    raise
+        elif primary_error is not None:
+            _close_connection(connection)
+
+
+@asynccontextmanager
+async def student_advisory_lock_async(
+    connection: psycopg.Connection,
+    student_id: str,
+    *,
+    poll_interval: float = 0.05,
+) -> AsyncIterator[None]:
+    """Poll for the shared student lock without blocking the event loop."""
+    key = student_lock_key(student_id)
+    acquired = False
+    cancelled = False
+    primary_error: BaseException | None = None
+    try:
+        while not acquired:
+            row = connection.execute(
+                "SELECT pg_try_advisory_lock(hashtextextended(%s, 0)) AS acquired",
+                (key,),
+            ).fetchone()
+            acquired = row is not None and bool(row["acquired"])
+            if not acquired:
+                await asyncio.sleep(poll_interval)
+        try:
+            yield
+        except asyncio.CancelledError as exc:
+            cancelled = True
+            primary_error = exc
+            raise
+        except BaseException as exc:
+            primary_error = exc
+            raise
+    except asyncio.CancelledError as exc:
+        cancelled = True
+        primary_error = exc
+        raise
+    except BaseException as exc:
+        primary_error = exc
+        raise
+    finally:
+        release_error: BaseException | None = None
+        if acquired:
+            try:
+                _release_student_lock(connection, key)
+            except BaseException as exc:
+                release_error = exc
+        if cancelled or release_error is not None or (not acquired and primary_error is not None):
+            _close_connection(connection)
+        if release_error is not None and primary_error is None:
+            raise release_error
 
 
 @dataclass
@@ -46,6 +185,7 @@ class OutboxRecord:
     last_error: str | None
     created_at: str
     completed_at: str | None
+    claim_token: str | None = None
 
 
 def outbox_idempotency_key(
@@ -85,6 +225,7 @@ def _row_to_record(row: dict) -> OutboxRecord:
         last_error=row["last_error"],
         created_at=row["created_at"],
         completed_at=row["completed_at"],
+        claim_token=row.get("claim_token"),
     )
 
 
@@ -155,6 +296,8 @@ class OutboxRepository:
         now: str | None = None,
         batch_size: int = 20,
         lease_deadline: str | None = None,
+        student_id: str | None = None,
+        outbox_ids: Sequence[str] | None = None,
     ) -> list[OutboxRecord]:
         """Claim due rows and mark them processing.
 
@@ -165,73 +308,162 @@ class OutboxRepository:
         concurrent workers from double-claiming.
         """
         timestamp = now or utc_now_iso()
+        if outbox_ids is not None and not outbox_ids:
+            return []
         lease = lease_deadline or (
             datetime.fromisoformat(timestamp) + timedelta(seconds=CLAIM_LEASE_SECONDS)
         ).isoformat()
+        conditions = [
+            "tenant_id = current_setting('app.tenant_id')",
+            "((status IN ('pending', 'retrying', 'deletion_pending') "
+            "AND next_attempt_at <= %s) "
+            "OR (status = 'processing' AND next_attempt_at <= %s))",
+        ]
+        params: list[object] = [timestamp, timestamp]
+        if student_id is not None:
+            conditions.append("student_id = %s")
+            params.append(student_id)
+        if outbox_ids is not None:
+            conditions.append("outbox_id = ANY(%s)")
+            params.append(sorted(outbox_ids))
+        params.append(batch_size)
         try:
             rows = self.connection.execute(
-                """
+                f"""
                 SELECT * FROM memory_outbox
-                WHERE (status IN ('pending', 'retrying', 'deletion_pending')
-                       AND next_attempt_at <= %s)
-                   OR (status = 'processing' AND next_attempt_at <= %s)
+                WHERE {' AND '.join(conditions)}
                 ORDER BY next_attempt_at, created_at
                 LIMIT %s
                 FOR UPDATE SKIP LOCKED
                 """,
-                (timestamp, timestamp, batch_size),
+                params,
             ).fetchall()
             claimed: list[OutboxRecord] = []
             for row in rows:
+                claim_token = uuid.uuid4().hex
                 self.connection.execute(
                     """
                     UPDATE memory_outbox
-                    SET status = 'processing', next_attempt_at = %s
+                    SET status = 'processing', next_attempt_at = %s,
+                        claim_token = %s
                     WHERE outbox_id = %s
+                      AND tenant_id = current_setting('app.tenant_id')
                     """,
-                    (lease, row["outbox_id"]),
+                    (lease, claim_token, row["outbox_id"]),
                 )
-                claimed.append(_row_to_record(row))
+                record = _row_to_record(row)
+                record.claim_token = claim_token
+                claimed.append(record)
             self.connection.commit()
             return claimed
         except BaseException:
             self.connection.rollback()
             raise
 
-    def complete(self, outbox_id: str, *, now: str | None = None) -> None:
+    def due_student_id(
+        self,
+        *,
+        now: str | None = None,
+        student_id: str | None = None,
+        outbox_ids: Sequence[str] | None = None,
+        exclude_student_ids: Sequence[str] | None = None,
+    ) -> str | None:
+        """Return one due student, optionally restricted to outbox IDs."""
+        if outbox_ids is not None and not outbox_ids:
+            return None
+        if exclude_student_ids is not None and not exclude_student_ids:
+            exclude_student_ids = None
+        timestamp = now or utc_now_iso()
+        conditions = [
+            "tenant_id = current_setting('app.tenant_id')",
+            "((status IN ('pending', 'retrying', 'deletion_pending') "
+            "AND next_attempt_at <= %s) "
+            "OR (status = 'processing' AND next_attempt_at <= %s))",
+        ]
+        params: list[object] = [timestamp, timestamp]
+        if student_id is not None:
+            conditions.append("student_id = %s")
+            params.append(student_id)
+        if outbox_ids is not None:
+            conditions.append("outbox_id = ANY(%s)")
+            params.append(sorted(outbox_ids))
+        if exclude_student_ids is not None:
+            conditions.append("NOT (student_id = ANY(%s))")
+            params.append(sorted(exclude_student_ids))
+        row = self.connection.execute(
+            f"""
+            SELECT student_id
+            FROM memory_outbox
+            WHERE {' AND '.join(conditions)}
+            ORDER BY next_attempt_at, created_at, student_id
+            LIMIT 1
+            """,
+            params,
+        ).fetchone()
+        return row["student_id"] if row is not None else None
+
+    def complete(
+        self, outbox_id: str, claim_token: str, *, now: str | None = None
+    ) -> bool:
+        """Mark an owned processing claim indexed; False when the claim is
+        stale (row re-claimed by another worker or no longer processing)."""
         timestamp = now or utc_now_iso()
         try:
-            self.connection.execute(
-                "UPDATE memory_outbox SET status = %s, completed_at = %s WHERE outbox_id = %s",
-                ("indexed", timestamp, outbox_id),
-            )
+            updated = self.connection.execute(
+                "UPDATE memory_outbox SET status = %s, completed_at = %s, "
+                "last_error = NULL, claim_token = NULL "
+                "WHERE outbox_id = %s "
+                "AND tenant_id = current_setting('app.tenant_id') "
+                "AND status = 'processing' AND claim_token = %s",
+                ("indexed", timestamp, outbox_id, claim_token),
+            ).rowcount
             self.connection.commit()
+            return updated == 1
         except BaseException:
             self.connection.rollback()
             raise
 
-    def mark_deleted(self, outbox_id: str, *, now: str | None = None) -> None:
+    def mark_deleted(
+        self, outbox_id: str, claim_token: str, *, now: str | None = None
+    ) -> bool:
+        """Mark an owned delete claim terminal (deleted); False when stale."""
         timestamp = now or utc_now_iso()
         try:
-            self.connection.execute(
-                "UPDATE memory_outbox SET status = %s, completed_at = %s WHERE outbox_id = %s",
-                ("deleted", timestamp, outbox_id),
-            )
+            updated = self.connection.execute(
+                "UPDATE memory_outbox SET status = %s, completed_at = %s, "
+                "last_error = NULL, claim_token = NULL "
+                "WHERE outbox_id = %s "
+                "AND tenant_id = current_setting('app.tenant_id') "
+                "AND status = 'processing' AND claim_token = %s",
+                ("deleted", timestamp, outbox_id, claim_token),
+            ).rowcount
             self.connection.commit()
+            return updated == 1
         except BaseException:
             self.connection.rollback()
             raise
 
-    def mark_failed(self, outbox_id: str, error: str, *, now: str | None = None) -> str:
-        """Record a failed delivery attempt; returns the new status."""
+    def mark_failed(
+        self,
+        outbox_id: str,
+        claim_token: str,
+        error: str,
+        *,
+        now: str | None = None,
+    ) -> str | None:
+        """Record a failed delivery attempt; returns the new status, or None
+        when the claim is stale and no state changed."""
         timestamp = now or utc_now_iso()
         try:
             row = self.connection.execute(
-                "SELECT attempt_count FROM memory_outbox WHERE outbox_id = %s",
-                (outbox_id,),
+                "SELECT attempt_count FROM memory_outbox WHERE outbox_id = %s "
+                "AND tenant_id = current_setting('app.tenant_id') "
+                "AND status = 'processing' AND claim_token = %s",
+                (outbox_id, claim_token),
             ).fetchone()
             if row is None:
-                raise KeyError(outbox_id)
+                self.connection.rollback()
+                return None
             attempts = row["attempt_count"] + 1
             delay = next_retry_delay_seconds(attempts)
             if delay is None:
@@ -242,16 +474,20 @@ class OutboxRepository:
                 next_attempt = (
                     datetime.fromisoformat(timestamp) + timedelta(seconds=delay)
                 ).isoformat()
-            self.connection.execute(
+            updated = self.connection.execute(
                 """
                 UPDATE memory_outbox
                 SET status = %s, attempt_count = %s, next_attempt_at = %s,
-                    last_error = %s
+                    last_error = %s, claim_token = NULL
                 WHERE outbox_id = %s
+                  AND tenant_id = current_setting('app.tenant_id')
+                  AND status = 'processing' AND claim_token = %s
                 """,
-                (status, attempts, next_attempt, error[:500], outbox_id),
-            )
+                (status, attempts, next_attempt, error[:500], outbox_id, claim_token),
+            ).rowcount
             self.connection.commit()
+            if updated != 1:
+                return None
             return status
         except BaseException:
             self.connection.rollback()

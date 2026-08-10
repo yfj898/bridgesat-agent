@@ -10,12 +10,15 @@ and reports completion only after verification that nothing is retrievable.
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 
+import psycopg
+
+from app.domain.memory import Episode
 from app.infrastructure.learner_store import LearnerStore
 from app.memory.deletion import StudentMemoryDeletionService
 from app.memory.episode_builder import EpisodeBuilder
 from app.memory.mnemis_stub import InMemoryMnemisIndex
+from app.memory.pg_memory import PGMemory
 from app.sync.service import SyncService
 
 from tests.security.test_cross_student_isolation import _episode_event
@@ -37,27 +40,34 @@ PERSONAL_TABLES = [
 ]
 
 
-def _counts(db: Path, student_id: str) -> dict[str, int]:
-    from app.infrastructure.database import connect
-
+def _counts(connection: psycopg.Connection, student_id: str) -> dict[str, int]:
     counts: dict[str, int] = {}
-    with connect(db) as connection:
-        for table in PERSONAL_TABLES:
-            count = connection.execute(
-                f"SELECT COUNT(*) AS c FROM {table} WHERE student_id = ?", (student_id,)
-            ).fetchone()["c"]
-            counts[table] = count
+    for table in PERSONAL_TABLES:
+        count = connection.execute(
+            f"""
+            SELECT COUNT(*) AS c
+            FROM {table}
+            WHERE student_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+            """,
+            (student_id,),
+        ).fetchone()["c"]
+        counts[table] = count
     return counts
 
 
-def _populate(db: Path, student_id: str, session_id: str | None = None) -> str:
+def _populate(
+    connection: psycopg.Connection,
+    student_id: str,
+    session_id: str | None = None,
+) -> Episode:
     from tests.security.conftest import seed_student
 
-    seed_student(db, student_id)
+    seed_student(connection, student_id)
     session_id = session_id or f"ses-del-{student_id}"
-    learner = LearnerStore(db)
+    learner = LearnerStore(connection)
     learner.create_session(student_id, session_id)
-    builder = EpisodeBuilder(db)
+    builder = EpisodeBuilder(connection)
     episode = builder.build_candidate(
         student_id=student_id,
         session_id=session_id,
@@ -74,15 +84,30 @@ def _populate(db: Path, student_id: str, session_id: str | None = None) -> str:
         summary="x",
     )
     builder.validate(episode)
-    sync = SyncService(db)
+    sync = SyncService(connection)
     sync.register_device(student_id, "device", device_id=f"dev_del_{student_id}")
-    return session_id
+    return episode
 
 
-def test_deletion_propagates_to_sqlite_and_index(db: Path, two_students) -> None:
+def test_deletion_propagates_to_sqlite_and_index(
+    db: psycopg.Connection, two_students
+) -> None:
     (a, _), (b, _) = two_students
-    _populate(db, a)
+    episode = _populate(db, a)
+    fact = PGMemory(db).upsert_fact_for_episode(episode)
     index = InMemoryMnemisIndex()
+    asyncio.run(
+        index.upsert_episode(
+            episode.model_dump(), idempotency_key=f"seed:{episode.episode_id}"
+        )
+    )
+    asyncio.run(
+        index.upsert_fact(
+            fact.model_dump(), idempotency_key=f"seed:{fact.fact_id}"
+        )
+    )
+    assert asyncio.run(index.count_episodes(a)) == 1
+    assert asyncio.run(index.count_facts(a)) == 1
     service = StudentMemoryDeletionService(db, index=index)
 
     service.request_deletion(a)
@@ -97,9 +122,15 @@ def test_deletion_propagates_to_sqlite_and_index(db: Path, two_students) -> None
     assert completed is True
     assert service.deletion_status(a) == "verified"
     assert asyncio.run(service.verify_not_retrievable(a)) is True
+    assert asyncio.run(index.count_episodes(a)) == 0
+    assert asyncio.run(index.count_facts(a)) == 0
+    assert asyncio.run(index.count_episodes(b)) == 0
+    assert asyncio.run(index.count_facts(b)) == 0
 
 
-def test_deletion_never_touches_other_students(db: Path, two_students) -> None:
+def test_deletion_never_touches_other_students(
+    db: psycopg.Connection, two_students
+) -> None:
     (a, _), (b, _) = two_students
     _populate(db, a)
     _populate(db, b)
@@ -113,7 +144,9 @@ def test_deletion_never_touches_other_students(db: Path, two_students) -> None:
     assert service.deletion_status(b) is None
 
 
-def test_completion_requires_verification_not_just_removal(db: Path, two_students) -> None:
+def test_completion_requires_verification_not_just_removal(
+    db: psycopg.Connection, two_students
+) -> None:
     (a, _), _ = two_students
     _populate(db, a)
     index = InMemoryMnemisIndex()

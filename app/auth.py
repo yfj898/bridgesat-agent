@@ -7,7 +7,7 @@ import secrets
 from datetime import UTC, datetime
 
 import psycopg
-from fastapi import Header, HTTPException, status
+from fastapi import Header, HTTPException, Request, status
 
 TOKEN_BYTES = 32
 
@@ -78,13 +78,11 @@ def resolve_tenant(store: TokenStore, token: str) -> tuple[str, str] | None:
 
 
 def require_student(
+    request: Request,
     authorization: str | None = Header(default=None),
 ) -> str:
     """FastAPI dependency: parse `Authorization: Bearer <token>` and return
     the authenticated student_id (401 on missing/invalid token).
-
-    Lazy-imports the app-level token store to avoid a circular import and to
-    keep the store replaceable in tests (same pattern as `main.repository`).
     """
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
@@ -97,9 +95,7 @@ def require_student(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Bearer token required",
         )
-    from app.main import token_store
-
-    student_id = token_store.resolve(token)
+    student_id = request.state.token_store.resolve(token)
     if student_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -90,7 +90,7 @@
 - Create: `docker-compose.yml`
 - Create: `scripts/dev_env.py`
 
-- [ ] **Step 1: 写 docker-compose.yml**
+- [x] **Step 1: 写 docker-compose.yml**
 
 ```yaml
 services:
@@ -125,7 +125,7 @@ CREATE ROLE bridgesat_app LOGIN PASSWORD 'bridgesat';
 
 **注意:** 若本地 dev 容器已初始化(volume 存在),initdb 脚本不会重跑;用 dev_env.py 的 `up` 命令补充执行(见 Step 2b)保证幂等。
 
-- [ ] **Step 2: 写 scripts/dev_env.py**
+- [x] **Step 2: 写 scripts/dev_env.py**
 
 ```python
 #!/usr/bin/env python3
@@ -214,17 +214,17 @@ if __name__ == "__main__":
     {"up": up, "down": down, "status": status}[command]()
 ```
 
-- [ ] **Step 3: 启动验证**
+- [x] **Step 3: 启动验证**
 
 Run: `python scripts/dev_env.py up`
 Expected: `postgres: healthy` 和 DSN 打印,无报错。
 
-- [ ] **Step 4: 验证 psycopg 可用(安装依赖)**
+- [x] **Step 4: 验证 psycopg 可用(安装依赖)**
 
 Run: `pip install "psycopg[binary]>=3.1" && python -c "import psycopg; print(psycopg.__version__)"`
 Expected: 打印版本号。将 `psycopg[binary]` 加入 `requirements.txt`(或项目现有依赖清单文件)。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docker-compose.yml scripts/dev_env.py
@@ -239,7 +239,7 @@ git commit -m "chore: 本地 PostgreSQL 开发环境(docker-compose + dev_env)"
 - Create: `app/infrastructure/pg.py`
 - Test: `tests/test_pg_connect.py`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 """PG 连接层测试。需要本地 PG 已启动(scripts/dev_env.py up),且
@@ -293,12 +293,12 @@ def test_transaction_rolls_back_on_error(pg_conn) -> None:
     assert row["n"] == 0
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `pytest tests/test_pg_connect.py -v`
 Expected: FAIL(`ModuleNotFoundError: No module named 'app.infrastructure.pg'`)
 
-- [ ] **Step 3: 实现 pg.py**
+- [x] **Step 3: 实现 pg.py**
 
 ```python
 """PostgreSQL connection layer for BridgeSAT.
@@ -369,12 +369,12 @@ def database_version(connection: psycopg.Connection) -> int:
     return int(row["version"]) if row and row["version"] is not None else 0
 ```
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `pytest tests/test_pg_connect.py -v`
 Expected: 4 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/infrastructure/pg.py tests/test_pg_connect.py
@@ -389,7 +389,7 @@ git commit -m "feat: PostgreSQL 连接层(pg.py)"
 - Modify: `app/infrastructure/migration_runner.py`(重写)
 - Test: `tests/test_pg_migration_runner.py`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 """PG 迁移器测试(替代原 SQLite 版 test_migrations 语义)。"""
@@ -451,12 +451,12 @@ def test_required_tables_exist(database) -> None:
     assert not missing, f"missing tables: {missing}"
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `pytest tests/test_pg_migration_runner.py -v`
 Expected: FAIL(SCHEMA_VERSION 或迁移函数不存在)
 
-- [ ] **Step 3: 重写 migration_runner.py**
+- [x] **Step 3: 重写 migration_runner.py**
 
 ```python
 """PostgreSQL migration runner.
@@ -552,12 +552,12 @@ def apply_migrations(target: str | None = None) -> int:
         connection.close()
 ```
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `pytest tests/test_pg_migration_runner.py -v`
 Expected: 4 passed(注意:此刻迁移脚本目录尚不存在,Step 3 应同时创建 `app/infrastructure/migrations_pg/` 空目录和 `__init__.py`)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/infrastructure/migration_runner.py tests/test_pg_migration_runner.py app/infrastructure/migrations_pg/__init__.py
@@ -574,7 +574,7 @@ git commit -m "feat: PostgreSQL 迁移器重写"
 - Create: `app/infrastructure/migrations_pg/0003_learning_session_core.py`
 - Create: `app/infrastructure/migrations_pg/0004_episodic_memory.py`
 
-- [ ] **Step 1: 0001 写迁移脚本**
+- [x] **Step 1: 0001 写迁移脚本**
 
 ```python
 """0001: legacy mastery imports (PG)."""
@@ -596,7 +596,7 @@ def migrate(connection: psycopg.Connection) -> None:
     )
 ```
 
-- [ ] **Step 2: 0002 写迁移脚本**
+- [x] **Step 2: 0002 写迁移脚本**
 
 ```python
 """0002: content registry (PG). Content is global, NOT tenant-scoped:
@@ -696,7 +696,7 @@ def migrate(connection: psycopg.Connection) -> None:
     )
 ```
 
-- [ ] **Step 3: 0003 写迁移脚本(学习会话核心 + 租户列)**
+- [x] **Step 3: 0003 写迁移脚本(学习会话核心 + 租户列)**
 
 ```python
 """0003: learning session core (PG). All student-scoped tables carry
@@ -899,7 +899,7 @@ def migrate(connection: psycopg.Connection) -> None:
         )
 ```
 
-- [ ] **Step 4: 0004 写迁移脚本**
+- [x] **Step 4: 0004 写迁移脚本**
 
 ```python
 """0004: episodic memory (PG)."""
@@ -981,7 +981,7 @@ def migrate(connection: psycopg.Connection) -> None:
         )
 ```
 
-- [ ] **Step 5: 运行迁移器验证**
+- [x] **Step 5: 运行迁移器验证**
 
 Run: `python -c "
 import sys; sys.path.insert(0, '.')
@@ -991,7 +991,7 @@ conn = pg.connect_admin(); print('version:', migrate_database(conn)); conn.close
 "`
 Expected: `version: 4`(0005-0008 尚未创建,只到 4)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/infrastructure/migrations_pg/
@@ -1010,7 +1010,7 @@ git commit -m "feat: PG 迁移脚本 0001-0004(基础+会话核心+记忆)"
 - Create: `app/infrastructure/migrations_pg/0009_harden_token_resolver.py`(存量 v8 数据库的 SECURITY DEFINER 加固)
 - Create: `app/infrastructure/migrations_pg/0010_misconception_evidence_index.py`(misconception evidence 聚合索引)
 
-- [ ] **Step 1: 0005 写迁移脚本(tsvector 兜底检索)**
+- [x] **Step 1: 0005 写迁移脚本(tsvector 兜底检索)**
 
 ```python
 """0005: knowledge search index (PG tsvector).
@@ -1062,7 +1062,7 @@ def migrate(connection: psycopg.Connection) -> None:
     )
 ```
 
-- [ ] **Step 2: 0006 写迁移脚本**
+- [x] **Step 2: 0006 写迁移脚本**
 
 ```python
 """0006: sync protocol (PG)."""
@@ -1117,7 +1117,7 @@ def migrate(connection: psycopg.Connection) -> None:
         )
 ```
 
-- [ ] **Step 3: 0007 写迁移脚本**
+- [x] **Step 3: 0007 写迁移脚本**
 
 ```python
 """0007: memory outbox (PG)."""
@@ -1164,7 +1164,7 @@ def migrate(connection: psycopg.Connection) -> None:
     )
 ```
 
-- [ ] **Step 4: 0008 写迁移脚本(RLS)**
+- [x] **Step 4: 0008 写迁移脚本(RLS)**
 
 ```python
 """0008: multi-tenant row-level security.
@@ -1258,7 +1258,7 @@ def _create_token_resolver(connection: psycopg.Connection) -> None:
     connection.execute("GRANT EXECUTE ON FUNCTION public.resolve_token(TEXT) TO bridgesat_app")
 ```
 
-- [ ] **Step 4b: 0009 加固存量 v8 的 token resolver**
+- [x] **Step 4b: 0009 加固存量 v8 的 token resolver**
 
 `0008` 初次创建 resolver 后,新增 `0009_harden_token_resolver.py` 对已记录为
 version 8 的数据库执行 `CREATE OR REPLACE FUNCTION public.resolve_token(TEXT)`。
@@ -1266,13 +1266,13 @@ version 8 的数据库执行 `CREATE OR REPLACE FUNCTION public.resolve_token(TE
 `public.student_tokens`,并重新执行 `REVOKE PUBLIC`/`GRANT bridgesat_app`。
 `SCHEMA_VERSION` 提升为 9;回归测试使用独立临时数据库模拟 v8→v9,验证临时表不能劫持 resolver 及函数 ACL/SECURITY DEFINER 属性。
 
-- [ ] **Step 4c: 0010 加速 misconception evidence 聚合**
+- [x] **Step 4c: 0010 加速 misconception evidence 聚合**
 
 新增幂等索引 `public.idx_misconception_evidence_lookup`:
 `(tenant_id, student_id, skill, misconception, item_id)`,覆盖 LearnerStore 的
 `COUNT(*)`/`COUNT(DISTINCT item_id)` 查询;`SCHEMA_VERSION` 提升为 10,并验证 fresh 与 v9→v10 升级路径。
 
-- [ ] **Step 5: 运行迁移器验证(全部 10 个)**
+- [x] **Step 5: 运行迁移器验证(全部 10 个)**
 
 Run: `python -c "
 import sys; sys.path.insert(0, '.')
@@ -1282,7 +1282,7 @@ conn = pg.connect_admin(); print('version:', migrate_database(conn)); conn.close
 "`
 Expected: `version: 10`。再跑一次仍为 10(幂等)。已有 v9 数据库也必须应用 0010;已有 v8 数据库应依次应用 0009、0010。
 
-- [ ] **Step 5b: 验证 RLS 在 app 角色下真正生效(双角色核心)**
+- [x] **Step 5b: 验证 RLS 在 app 角色下真正生效(双角色核心)**
 
 ```python
 # 1) admin 连接插入学生
@@ -1293,7 +1293,7 @@ Expected: `version: 10`。再跑一次仍为 10(幂等)。已有 v9 数据库也
 
 **注意:** 0008 的 GRANT 依赖 `bridgesat_app` 角色已存在(dev_env.py up 保证)。若直接跑测试而角色缺失,0008 迁移会失败——先 `python scripts/dev_env.py up`。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/infrastructure/migrations_pg/
@@ -1308,7 +1308,7 @@ git commit -m "feat: PG 迁移脚本 0005-0008(tsvector 检索+同步+outbox+RLS
 - Modify: `app/repository.py`
 - Test: `tests/test_pg_repository.py`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 """StudentRepository on PostgreSQL. Needs local PG (scripts/dev_env.py up)."""
@@ -1369,12 +1369,12 @@ def test_update_mastery(repo) -> None:
     assert fetched.mastery[Skill("linear_equations")] == 0.9
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `pytest tests/test_pg_repository.py -v`
 Expected: FAIL(构造签名/导入错误)
 
-- [ ] **Step 3: 重写 repository.py**
+- [x] **Step 3: 重写 repository.py**
 
 ```python
 from __future__ import annotations
@@ -1450,17 +1450,17 @@ class StudentRepository:
         self.connection.commit()
 ```
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `pytest tests/test_pg_repository.py -v`
 Expected: 3 passed
 
-- [ ] **Step 5: 运行既有 repository 相关测试**
+- [x] **Step 5: 运行既有 repository 相关测试**
 
 Run: `pytest tests/test_api.py -v 2>&1 | tail -20`
 Expected: 失败(api 测试仍用旧 SQLite fixture)——本任务暂不修复,Task 15 统一改造测试层。记录失败列表即可。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/repository.py tests/test_pg_repository.py
@@ -1475,7 +1475,7 @@ git commit -m "feat: StudentRepository 迁移到 PostgreSQL"
 - Modify: `app/auth.py`
 - Test: `tests/test_pg_auth.py`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 """TokenStore + tenant resolution on PostgreSQL."""
@@ -1535,12 +1535,12 @@ def test_resolve_tenant_maps_student(store) -> None:
     assert resolve_tenant(store, token) == (TENANT, "stu_1")
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `pytest tests/test_pg_auth.py -v`
 Expected: FAIL(签名不匹配)
 
-- [ ] **Step 3: 重写 auth.py**
+- [x] **Step 3: 重写 auth.py**
 
 ```python
 """Scoped bearer-token authentication with tenant resolution.
@@ -1647,12 +1647,12 @@ def require_student(
     return student_id
 ```
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `pytest tests/test_pg_auth.py -v`
 Expected: 4 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/auth.py tests/test_pg_auth.py
@@ -1667,7 +1667,7 @@ git commit -m "feat: TokenStore 迁移到 PG + 租户解析"
 - Modify: `app/infrastructure/event_store.py`
 - Test: `tests/test_pg_event_store.py`
 
-- [ ] **Step 1: 写失败测试(覆盖原语义:追加、去重、查询、事务)**
+- [x] **Step 1: 写失败测试(覆盖原语义:追加、去重、查询、事务)**
 
 ```python
 """EventStore on PostgreSQL."""
@@ -1757,12 +1757,12 @@ def test_run_in_transaction(store) -> None:
     assert len(store.get_learning_events("stu_1")) == 2
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `pytest tests/test_pg_event_store.py -v`
 Expected: FAIL
 
-- [ ] **Step 3: 重写 event_store.py**
+- [x] **Step 3: 重写 event_store.py**
 
 先读原文件(在改写前必须通读),将每个 `sqlite3.connect(...)` 改为使用传入连接,`?` → `%s`,`sqlite3.IntegrityError` → 捕获 `psycopg.errors.UniqueViolation`。完整实现:
 
@@ -1937,12 +1937,12 @@ def _row_to_agent_event(row: dict) -> AgentEvent:
 
 注意:改写前必须通读原文件核对每个字段名与默认值(例如 `payload_json` vs 域对象属性),如有出入以原文件为准。
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `pytest tests/test_pg_event_store.py -v`
 Expected: 4 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/infrastructure/event_store.py tests/test_pg_event_store.py
@@ -1957,7 +1957,7 @@ git commit -m "feat: EventStore 迁移到 PostgreSQL"
 - Modify: `app/infrastructure/learner_store.py`(最大改动,417 行)
 - Test: `tests/test_pg_learner_store.py`
 
-- [ ] **Step 1: 先通读原文件并写失败测试**
+- [x] **Step 1: 先通读原文件并写失败测试**
 
 Run: `sed -n 1,417p app/infrastructure/learner_store.py`
 (逐行核对字段后)
@@ -2030,12 +2030,12 @@ def test_record_answer_updates_skill_state(store) -> None:
 
 (依据原文件方法签名调整参数;`record_answer_evaluation` 真实签名以通读为准。)
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `pytest tests/test_pg_learner_store.py -v`
 Expected: FAIL
 
-- [ ] **Step 3: 重写 learner_store.py**
+- [x] **Step 3: 重写 learner_store.py**
 
 通读原文件后按以下规则逐方法改写:
 - `self.database_path` → `self.connection`(构造签名改为 `__init__(self, connection: psycopg.Connection)`)
@@ -2046,17 +2046,17 @@ Expected: FAIL
 - `ON CONFLICT (student_id, skill) DO NOTHING` 语法 PG 原生支持,保留
 - 保持领域语义完全不变:DuplicateEventIdError、CORE_MISCONCEPTION_SKILLS、默认 alpha/beta、证据权重逻辑、状态机转换全部照抄
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `pytest tests/test_pg_learner_store.py -v`
 Expected: passed
 
-- [ ] **Step 5: 运行原学习者相关测试(若有 tests/test_learner_store.py)**
+- [x] **Step 5: 运行原学习者相关测试(若有 tests/test_learner_store.py)**
 
 Run: `ls tests/ | grep -i learner; pytest tests/test_learner_store.py -v 2>&1 | tail -5`
 若存在,更新该测试文件为 PG fixture 并全部转绿。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/infrastructure/learner_store.py tests/test_pg_learner_store.py
@@ -2073,7 +2073,7 @@ git commit -m "feat: LearnerStore 迁移到 PostgreSQL"
 - Modify: `app/sync/service.py:73`(`SQLiteMemory(database_path)` 调用)
 - Test: `tests/test_pg_memory.py`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 """PGMemory on PostgreSQL: episodes, facts, intervention stats."""
@@ -2117,33 +2117,33 @@ def test_recall_episodes_empty_before_data(memory) -> None:
 
 (依据原 `tests/test_sqlite_memory.py` 的具体 Episode 构造方法补全。)
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `pytest tests/test_pg_memory.py -v`
 Expected: FAIL(ModuleNotFoundError)
 
-- [ ] **Step 3: 实现 pg_memory.py**
+- [x] **Step 3: 实现 pg_memory.py**
 
 通读 `app/memory/sqlite_backend.py` 全部 348 行后按方言规则重写,签名 `__init__(self, connection: psycopg.Connection)`。`_episode_from_row`/`_fact_from_row`/`_stat_from_row` 的 dict 访问方式不变(row 已是 dict)。所有 `?` → `%s`,`sqlite3.Row` → `dict`。
 
-- [ ] **Step 4: 更新引用**
+- [x] **Step 4: 更新引用**
 
 ```bash
 grep -rn "SQLiteMemory\|sqlite_backend" app/ tests/ --include="*.py" | grep -v "migrations_pg\|test_pg_memory"
 ```
 逐一改为 `from app.memory.pg_memory import PGMemory`,`SQLiteMemory(...)` → `PGMemory(...)`。
 
-- [ ] **Step 5: 运行确认通过**
+- [x] **Step 5: 运行确认通过**
 
 Run: `pytest tests/test_pg_memory.py -v`
 Expected: passed
 
-- [ ] **Step 6: 迁移原内存测试**
+- [x] **Step 6: 迁移原内存测试**
 
 Run: `pytest tests/test_sqlite_memory.py tests/test_memory_deletion.py -v 2>&1 | tail -10`
 更新这些测试文件为 PG fixture,全部转绿。
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add app/memory/pg_memory.py app/memory/__init__.py app/sync/service.py tests/test_pg_memory.py
@@ -2159,7 +2159,7 @@ git commit -m "feat: 记忆层迁移到 PostgreSQL(PGMemory)"
 - Modify: `app/memory/worker.py`
 - Test: `tests/test_pg_outbox.py`
 
-- [ ] **Step 1: 写失败测试(覆盖 enqueue/claim/complete/mark_failed/重试预算)**
+- [x] **Step 1: 写失败测试(覆盖 enqueue/claim/complete/mark_failed/重试预算)**
 
 ```python
 """OutboxRepository on PostgreSQL."""
@@ -2215,12 +2215,12 @@ def test_retry_delay_grows(repo) -> None:
 
 (以原 `tests/test_memory_outbox.py` 的真实 API 为准;若签名不同以原文件为准。)
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `pytest tests/test_pg_outbox.py -v`
 Expected: FAIL
 
-- [ ] **Step 3: 重写 outbox.py 与 worker.py**
+- [x] **Step 3: 重写 outbox.py 与 worker.py**
 
 通读 `app/memory/outbox.py` 与 `app/memory/worker.py` 后按方言规则改写:
 - `OutboxRepository.__init__(self, connection: psycopg.Connection, *, default_student_id=None)`
@@ -2228,24 +2228,24 @@ Expected: FAIL
 - `?` → `%s`;`sqlite3.IntegrityError` → `UniqueViolation`;`lastrowid` → `RETURNING outbox_id`
 - 幂等键、重试预算、state 机(pending→in_flight→done/failed)逻辑照抄
 
-- [ ] **Step 4: 更新引用**
+- [x] **Step 4: 更新引用**
 
 ```bash
 grep -rn "OutboxWorker(\|OutboxRepository(" app/ tests/ scripts/ --include="*.py"
 ```
 全部改为传入连接对象。`app/main.py` 与 lifespan 中的构造在 Task 14 一起改。
 
-- [ ] **Step 5: 运行确认通过**
+- [x] **Step 5: 运行确认通过**
 
 Run: `pytest tests/test_pg_outbox.py -v`
 Expected: passed
 
-- [ ] **Step 6: 迁移原 outbox 测试**
+- [x] **Step 6: 迁移原 outbox 测试**
 
 Run: `pytest tests/test_memory_outbox.py tests/test_memory_worker.py tests/test_memory_outbox_wiring.py -v 2>&1 | tail -10`
 更新为 PG fixture,全部转绿。
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add app/memory/outbox.py app/memory/worker.py tests/test_pg_outbox.py
@@ -2260,12 +2260,12 @@ git commit -m "feat: Outbox 层迁移到 PostgreSQL"
 - Modify: `app/sync/service.py`(912 行,最大文件)
 - Test: `tests/test_pg_sync.py`(及原 sync 测试迁移)
 
-- [ ] **Step 1: 先通读并记录全部 SQL 与构造**
+- [x] **Step 1: 先通读并记录全部 SQL 与构造**
 
 Run: `sed -n 1,912p app/sync/service.py`
 (记录所有 `database_path`、`?` 占位符、`sqlite3` 引用位置。)
 
-- [ ] **Step 2: 写失败测试(基于原 sync 测试的最小闭环)**
+- [x] **Step 2: 写失败测试(基于原 sync 测试的最小闭环)**
 
 ```python
 """SyncService on PostgreSQL — device registration and event batch."""
@@ -2307,7 +2307,7 @@ def test_process_batch_round_trip(service) -> None:
 
 (以原 `tests/test_sync_service.py` 或 `tests/test_sync_protocol.py` 的真实请求构造为准,补全。)
 
-- [ ] **Step 3: 重写 service.py**
+- [x] **Step 3: 重写 service.py**
 
 - 构造:`SyncService.__init__(self, connection: psycopg.Connection)`;内部 `self.events = EventStore(connection)`、`self.learner = LearnerStore(connection)`、`self.memory = PGMemory(connection)`
 - `apply_migrations(database_path)` 调用删除(main.py 统一迁移)
@@ -2315,17 +2315,17 @@ def test_process_batch_round_trip(service) -> None:
 - 保持 912 行内的业务逻辑逐行等价:_student_lock 锁、设备注册/吊销、批处理状态机、完整性哈希校验、序列递增、冲突记录、快照构建全部照抄
 - `threading.Lock` 保持不变(进程内)
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `pytest tests/test_pg_sync.py -v`
 Expected: passed
 
-- [ ] **Step 5: 迁移原 sync 测试**
+- [x] **Step 5: 迁移原 sync 测试**
 
 Run: `pytest tests/test_sync_protocol.py tests/test_sync_service.py -v 2>&1 | tail -10`
 若有这些文件,更新为 PG fixture 并转绿。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/sync/service.py tests/test_pg_sync.py
@@ -2341,12 +2341,12 @@ git commit -m "feat: SyncService 迁移到 PostgreSQL"
 - Modify: `app/knowledge/router.py`
 - Test: `tests/test_pg_retrieval.py`
 
-- [ ] **Step 1: 先通读并记录 FTS5 用法**
+- [x] **Step 1: 先通读并记录 FTS5 用法**
 
 Run: `sed -n 1,562p app/knowledge/local_backend.py`
 (记录 `MATCH` 查询、`_match_phrase`、`bm25` 排名的确切位置。)
 
-- [ ] **Step 2: 写失败测试(迁移 golden eval 语义的最小集)**
+- [x] **Step 2: 写失败测试(迁移 golden eval 语义的最小集)**
 
 ```python
 """KnowledgeBackend on PostgreSQL tsvector — golden eval semantics."""
@@ -2396,7 +2396,7 @@ def test_golden_queries_match(backend) -> None:
     ...
 ```
 
-- [ ] **Step 3: 重写 local_backend.py**
+- [x] **Step 3: 重写 local_backend.py**
 
 - 构造:`KnowledgeBackend.__init__(self, connection: psycopg.Connection, *, weights: dict | None = None)`;`self.database_path` 属性删除(router 的 `connect(backend.database_path)` 同步改)
 - `index_pack(connection, pack_dir)`:`apply_migrations` 删除;`knowledge_fts` 从 FTS5 虚拟表改为普通表写入(`INSERT INTO knowledge_fts (...) VALUES (%s, ...) ON CONFLICT (content_id) DO UPDATE SET ...`,先 `DELETE FROM knowledge_fts` 保持重建语义)
@@ -2406,12 +2406,12 @@ def test_golden_queries_match(backend) -> None:
 - `RetrievalResult`/`RetrievalResponse`/rerank/citation 校验逻辑**全部照抄不变**
 - `knowledge/router.py`:依赖注入 `KnowledgeBackend(connection)` + `BRIDGESAT_KNOWLEDGE_DB` env → `BRIDGESAT_DB`(单一 DSN)
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `pytest tests/test_pg_retrieval.py -v`
 Expected: passed
 
-- [ ] **Step 5: 迁移检索测试与 golden eval**
+- [x] **Step 5: 迁移检索测试与 golden eval**
 
 Run: `pytest tests/test_retrieval.py tests/test_content_loader.py -v 2>&1 | tail -10`
 更新为 PG fixture 全部转绿。
@@ -2419,7 +2419,7 @@ Run: `pytest tests/test_retrieval.py tests/test_content_loader.py -v 2>&1 | tail
 Run: `python scripts/run_retrieval_evals.py && cat reports/rag_eval.json`
 Expected: 8 条 golden 全部命中(或等价通过)。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/knowledge/local_backend.py app/knowledge/router.py tests/test_pg_retrieval.py
@@ -2435,7 +2435,7 @@ git commit -m "feat: KnowledgeBackend 迁移到 PG tsvector"
 - Modify: `app/knowledge/router.py`(依赖注入)
 - Test: `tests/test_pg_api.py`(租户隔离 API 测试)
 
-- [ ] **Step 1: 写失败测试(租户隔离 + 401)**
+- [x] **Step 1: 写失败测试(租户隔离 + 401)**
 
 ```python
 """API-level tenant isolation on PostgreSQL."""
@@ -2465,7 +2465,7 @@ def test_tenant_isolated_student_lookup(client) -> None:
     ...
 ```
 
-- [ ] **Step 2: 重写 main.py**
+- [x] **Step 2: 重写 main.py**
 
 - `DATABASE_PATH` 删除,改为 `DATABASE_DSN = os.getenv("BRIDGESAT_DB", DEFAULT_APP_DSN)` 与模块级连接 `database_connection = pg.connect()`(应用单连接;后续可换连接池)
 - 迁移走 admin 连接:`_migration_admin = pg.connect_admin(); migrate_database(_migration_admin); _migration_admin.close()`(import 时)
@@ -2497,26 +2497,26 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
 - `OutboxWorker(database_connection, index=build_mnemis_index(...))` — 按 Task 11 签名
 - `require_student` 保持
 
-- [ ] **Step 3: 应用工厂化(如 main.py 当前无 app 工厂)**
+- [x] **Step 3: 应用工厂化(如 main.py 当前无 app 工厂)**
 
 检查当前 `app = FastAPI(...)` 是否可直接测试;若不能,将应用创建提取为 `create_app(connection)` 工厂,`main.py` 尾部 `app = create_app(...)`。测试用 `create_app(test_connection)`。
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `pytest tests/test_pg_api.py -v`
 Expected: passed
 
-- [ ] **Step 5: 迁移 API 测试**
+- [x] **Step 5: 迁移 API 测试**
 
 Run: `pytest tests/test_api.py tests/security/ -v 2>&1 | tail -20`
 更新 `_fresh_app(tmp_path)` 为 PG 版本(连真实 PG、每测试清理 schema),全部转绿。`tests/security/conftest.py` 同步。
 
-- [ ] **Step 6: 全量回归(此时应接近全绿)**
+- [x] **Step 6: 全量回归(此时应接近全绿)**
 
 Run: `pytest tests/ -x -q 2>&1 | tail -30`
 修复剩余失败(多为 fixture 未迁移)。记录当前失败清单。
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add app/main.py app/knowledge/router.py tests/test_pg_api.py
@@ -2531,7 +2531,7 @@ git commit -m "feat: main.py PG 接线 + 租户 RLS 中间件"
 - Create: `scripts/migrate_sqlite_to_pg.py`
 - Test: `tests/test_pg_migrate_script.py`
 
-- [ ] **Step 1: 写失败测试(迁移 demo 库后校验关键行)**
+- [x] **Step 1: 写失败测试(迁移 demo 库后校验关键行)**
 
 ```python
 """SQLite → PG migration script behaviour."""
@@ -2559,7 +2559,7 @@ def test_script_runs_idempotently(tmp_path: Path) -> None:
     assert proc2.returncode == 0  # 幂等
 ```
 
-- [ ] **Step 2: 写脚本**
+- [x] **Step 2: 写脚本**
 
 ```python
 #!/usr/bin/env python3
@@ -2685,12 +2685,12 @@ if __name__ == "__main__":
 
 注意:`knowledge_fts` 与 `knowledge_index_log` 不入迁移清单(tsvector 索引由 `index_pack` 重建);迁移前确认 `content_items` 的表结构在 PG 中已存在(0002)。
 
-- [ ] **Step 3: 运行确认通过**
+- [x] **Step 3: 运行确认通过**
 
 Run: `pytest tests/test_pg_migrate_script.py -v`
 Expected: passed
 
-- [ ] **Step 4: 用真实 demo 库端到端验证**
+- [x] **Step 4: 用真实 demo 库端到端验证**
 
 Run: `python scripts/migrate_sqlite_to_pg.py && python -c "
 import sys; sys.path.insert(0, '.')
@@ -2703,7 +2703,7 @@ print('students in PG:', n); conn.close()
 "`
 Expected: 迁移前 `data/bridgesat.db` 的学生数 == PG 中计数。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/migrate_sqlite_to_pg.py tests/test_pg_migrate_script.py
@@ -2719,23 +2719,23 @@ git commit -m "feat: SQLite → PostgreSQL 一次性迁移脚本"
 - Modify: `.env.example`、`docs/ARCHITECTURE.md`、`README.md`、`docs/IMPLEMENTATION_PLAN.md`(如引用 sqlite)
 - Modify: 清理所有 `sqlite3` import(除 migrate 脚本)
 
-- [ ] **Step 1: 清理 sqlite 引用**
+- [x] **Step 1: 清理 sqlite 引用**
 
 Run: `grep -rn "sqlite3\|database.py\|from .database\|from app.infrastructure.database" app/ tests/ scripts/ --include="*.py" | grep -v "migrate_sqlite_to_pg\|migrations_pg"`
 逐处清理:删除 `app/infrastructure/database.py`、`app/infrastructure/migrations/`,更新所有 import 为 `app.infrastructure.pg`。
 
-- [ ] **Step 2: 删除 SQLite 迁移目录**
+- [x] **Step 2: 删除 SQLite 迁移目录**
 
 Run: `rm -rf app/infrastructure/migrations app/infrastructure/database.py && python -m compileall app tests 2>&1 | tail -5`
 Expected: 无编译错误(除已知待改测试)。
 
-- [ ] **Step 3: 更新配置文档**
+- [x] **Step 3: 更新配置文档**
 
 - `.env.example`:`BRIDGESAT_DB=postgresql://bridgesat:bridgesat@localhost:5432/bridgesat`、删除 `BRIDGESAT_KNOWLEDGE_DB`、新增 `BRIDGESAT_EMBEDDING_MODEL` 占位(Plan 2 启用)
 - `docs/ARCHITECTURE.md` §12:`SQLite FTS5` → `PostgreSQL tsvector(Level 1 兜底)`,注明 Milvus 为 Plan 2
 - `README.md`:安装步骤加 `docker compose up -d`、`python scripts/dev_env.py up`;测试命令加 PG 前置说明
 
-- [ ] **Step 4: 全量回归**
+- [x] **Step 4: 全量回归**
 
 Run: `python scripts/dev_env.py up && pytest tests/ -q 2>&1 | tail -5`
 Expected: 278+ passed(原有 278 + 新增 PG 测试)

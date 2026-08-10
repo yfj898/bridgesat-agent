@@ -2,23 +2,18 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
-from app.infrastructure.database import connect
 from app.knowledge.local_backend import (
     DEFAULT_ALLOWED_LICENSES,
     DEFAULT_AUDIENCE,
     KnowledgeBackend,
     RetrievalResponse,
 )
-
-ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DB = ROOT / "content" / "registry.db"
+from app.request_context import request_connection
 
 
 class RetrieveRequest(BaseModel):
@@ -34,9 +29,8 @@ class RetrieveRequest(BaseModel):
     max_results: int = Field(default=5, ge=1, le=20)
 
 
-def get_backend() -> KnowledgeBackend:
-    database_path = Path(os.getenv("BRIDGESAT_KNOWLEDGE_DB", DEFAULT_DB))
-    return KnowledgeBackend(database_path)
+def get_backend(request: Request) -> KnowledgeBackend:
+    return KnowledgeBackend(request_connection(request))
 
 
 router = APIRouter(prefix="/v1/knowledge", tags=["knowledge"])
@@ -47,16 +41,15 @@ def retrieve(
     payload: RetrieveRequest,
     backend: Annotated[KnowledgeBackend, Depends(get_backend)],
 ) -> RetrievalResponse:
-    with connect(backend.database_path):
-        return backend.retrieve(
-            payload.query,
-            audience=payload.audience,
-            allowed_licenses=tuple(payload.allowed_licenses),
-            skill=payload.skill,
-            subskill=payload.subskill,
-            misconception=payload.misconception,
-            difficulty=payload.difficulty,
-            content_type=payload.content_type,
-            recently_shown=set(payload.recently_shown),
-            max_results=payload.max_results,
-        )
+    return backend.retrieve(
+        payload.query,
+        audience=payload.audience,
+        allowed_licenses=tuple(payload.allowed_licenses),
+        skill=payload.skill,
+        subskill=payload.subskill,
+        misconception=payload.misconception,
+        difficulty=payload.difficulty,
+        content_type=payload.content_type,
+        recently_shown=set(payload.recently_shown),
+        max_results=payload.max_results,
+    )

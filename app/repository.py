@@ -9,6 +9,10 @@ import psycopg
 from .models import Skill, Student, StudentCreate
 
 
+class StudentWriteRejectedError(ValueError):
+    """Raised when a learner write cannot target an active tenant student."""
+
+
 class StudentRepository:
     """Tenant-scoped student store. Caller must have set app.tenant_id."""
 
@@ -49,6 +53,30 @@ class StudentRepository:
             "SELECT * FROM students WHERE id = %s",
             (student_id,),
         ).fetchone()
+        return self._student_from_row(row)
+
+    def get_for_update(self, student_id: str) -> Student | None:
+        """Read an active tenant student while retaining its row lock.
+
+        The caller owns the surrounding transaction. This is intentionally
+        separate from ``get`` so a read-modify-write operation cannot release
+        the row lock before its deterministic computation finishes.
+        """
+        row = self.connection.execute(
+            """
+            SELECT *
+            FROM students
+            WHERE id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+              AND status = 'active'
+            FOR UPDATE
+            """,
+            (student_id,),
+        ).fetchone()
+        return self._student_from_row(row)
+
+    @staticmethod
+    def _student_from_row(row: dict | None) -> Student | None:
         if row is None:
             return None
         mastery_payload = json.loads(row["mastery_json"])
@@ -60,12 +88,37 @@ class StudentRepository:
             mastery={Skill(key): value for key, value in mastery_payload.items()},
         )
 
-    def update_mastery(self, student_id: str, mastery: dict[Skill, float]) -> None:
-        self.connection.execute(
-            "UPDATE students SET mastery_json = %s WHERE id = %s",
+    def update_mastery(
+        self,
+        student_id: str,
+        mastery: dict[Skill, float],
+        *,
+        commit: bool = True,
+    ) -> None:
+        """Update an active tenant row.
+
+        Direct callers retain the historical commit-on-success behavior. A
+        caller that already owns a transaction must pass ``commit=False`` so
+        this method cannot commit unrelated work or release its row lock.
+        """
+        cursor = self.connection.execute(
+            """
+            UPDATE students
+            SET mastery_json = %s
+            WHERE id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+              AND status = 'active'
+            """,
             (
                 json.dumps({key.value: value for key, value in mastery.items()}),
                 student_id,
             ),
         )
-        self.connection.commit()
+        if cursor.rowcount == 0:
+            if commit:
+                self.connection.rollback()
+            raise StudentWriteRejectedError(
+                f"Student {student_id} is not active in the current tenant"
+            )
+        if commit:
+            self.connection.commit()

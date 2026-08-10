@@ -15,6 +15,7 @@ from app.infrastructure.learner_store import LearnerStore
 from app.infrastructure.migration_runner import migrate_database
 from app.memory.episode_builder import EpisodeBuilder
 from app.memory.pg_memory import PGMemory
+from tests.pg_test_helpers import cleanup_tenant, unique_tenant_id
 
 
 @pytest.fixture()
@@ -22,8 +23,9 @@ def env() -> tuple[PGMemory, EpisodeBuilder, str]:
     admin = pg.connect_admin()
     migrate_database(admin)
     admin.close()
+    tenant_id = unique_tenant_id("task3_pg_memory")
     conn = pg.connect()
-    conn.execute("SELECT set_config('app.tenant_id', %s, false)", ("tenant_test",))
+    conn.execute("SELECT set_config('app.tenant_id', %s, false)", (tenant_id,))
     conn.commit()
     learner = LearnerStore(conn)
     student_id, _ = learner.create_student("Ari", 20, 1200)
@@ -31,8 +33,7 @@ def env() -> tuple[PGMemory, EpisodeBuilder, str]:
     conn.close()
     cleanup = pg.connect_admin()
     try:
-        cleanup.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
-        cleanup.commit()
+        cleanup_tenant(cleanup, tenant_id)
     finally:
         cleanup.close()
 
@@ -208,3 +209,92 @@ def test_recall_excludes_non_validated_episodes(env) -> None:
     validated = builder.validate(episode)
     assert validated.status == "insufficient_outcome"
     assert memory.recall_episodes(student_id=student_id, skill="linear_equations") == []
+
+
+def test_episode_write_rejects_deletion_pending_before_insert(env) -> None:
+    memory, builder, student_id = env
+    connection = memory.connection
+    connection.execute(
+        "UPDATE students SET status = 'deletion_pending' WHERE id = %s",
+        (student_id,),
+    )
+    connection.commit()
+
+    with pytest.raises(ValueError, match="active"):
+        _validated_episode(
+            builder,
+            student_id=student_id,
+            session_id="blocked-session",
+            outcome_content_id="blocked-content",
+            event_suffix="blocked",
+        )
+
+    assert connection.execute(
+        "SELECT COUNT(*) AS total FROM learning_episodes WHERE student_id = %s",
+        (student_id,),
+    ).fetchone()["total"] == 0
+
+
+def test_fact_write_rejects_deletion_pending_before_fact_or_outbox(env) -> None:
+    memory, builder, student_id = env
+    _validated_episode(
+        builder,
+        student_id=student_id,
+        session_id="fact-session",
+        outcome_content_id="fact-content",
+        event_suffix="fact",
+    )
+    episode = builder.list_validated_episodes(student_id=student_id)[0]
+    connection = memory.connection
+    before_facts = connection.execute(
+        "SELECT COUNT(*) AS total FROM student_memory_facts WHERE student_id = %s",
+        (student_id,),
+    ).fetchone()["total"]
+    before_outbox = connection.execute(
+        "SELECT COUNT(*) AS total FROM memory_outbox WHERE student_id = %s",
+        (student_id,),
+    ).fetchone()["total"]
+    connection.execute(
+        "UPDATE students SET status = 'deletion_pending' WHERE id = %s",
+        (student_id,),
+    )
+    connection.commit()
+
+    with pytest.raises(ValueError, match="active"):
+        memory.upsert_fact_for_episode(episode)
+
+    assert connection.execute(
+        "SELECT COUNT(*) AS total FROM student_memory_facts WHERE student_id = %s",
+        (student_id,),
+    ).fetchone()["total"] == before_facts
+    assert connection.execute(
+        "SELECT COUNT(*) AS total FROM memory_outbox WHERE student_id = %s",
+        (student_id,),
+    ).fetchone()["total"] == before_outbox
+
+
+def test_intervention_write_rejects_deletion_pending(env) -> None:
+    memory, _, student_id = env
+    connection = memory.connection
+    connection.execute(
+        "UPDATE students SET status = 'deletion_pending' WHERE id = %s",
+        (student_id,),
+    )
+    connection.commit()
+
+    with pytest.raises(ValueError, match="active"):
+        memory.record_intervention_outcome(
+            student_id=student_id,
+            skill="linear_equations",
+            misconception="sign_error",
+            intervention="SHOW_WORKED_EXAMPLE",
+            difficulty_band="d2",
+            window="immediate",
+            component_score=1.0,
+            weight=1.0,
+        )
+
+    assert connection.execute(
+        "SELECT COUNT(*) AS total FROM intervention_stats WHERE student_id = %s",
+        (student_id,),
+    ).fetchone()["total"] == 0

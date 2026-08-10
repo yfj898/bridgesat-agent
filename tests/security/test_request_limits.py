@@ -8,35 +8,39 @@ and schema validation rejects malformed inputs before processing.
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
-from fastapi.testclient import TestClient
+import psycopg
 
 from app.sync.protocol import SyncEventEnvelope, SyncRequest
 from app.sync.service import SyncService
 
 from tests.security.conftest import envelope, seed_student
 
-STUDENT_ID = "student_limits"
 
 
-def _seed_student(db: Path) -> None:
-    seed_student(db, STUDENT_ID)
+def _student_id(pg_tenant: str) -> str:
+    return f"{pg_tenant}_limits"
 
 
-def test_sync_batch_over_100_rejected(db: Path) -> None:
-    _seed_student(db)
+def test_sync_batch_over_100_rejected(
+    db: psycopg.Connection, pg_tenant: str
+) -> None:
+    student_id = _student_id(pg_tenant)
+    device_id = f"{student_id}_device"
+    seed_student(db, student_id)
     sync = SyncService(db)
-    sync.register_device(STUDENT_ID, "d", device_id="dev_lim")
+    sync.register_device(student_id, "d", device_id=device_id)
     events = [
-        envelope(event_id=f"evt_{i}", student_id=STUDENT_ID, device_id="dev_lim")
+        envelope(
+            event_id=f"{student_id}_evt_{i}",
+            student_id=student_id,
+            device_id=device_id,
+        )
         for i in range(101)
     ]
     response = sync.process_batch(
         SyncRequest(
-            device_id="dev_lim",
-            student_id=STUDENT_ID,
+            device_id=device_id,
+            student_id=student_id,
             events=[SyncEventEnvelope(**event) for event in events],
         )
     )
@@ -44,8 +48,7 @@ def test_sync_batch_over_100_rejected(db: Path) -> None:
     assert response.rejected_events[0].retryable is False
 
 
-def test_knowledge_retrieval_result_cap_and_query_bounds() -> None:
-    client = TestClient(__import__("app.main", fromlist=["app"]).app)
+def test_knowledge_retrieval_result_cap_and_query_bounds(client) -> None:
     oversized = client.post(
         "/v1/knowledge/retrieve",
         json={"query": "linear equations", "max_results": 21},
@@ -60,37 +63,27 @@ def test_knowledge_retrieval_result_cap_and_query_bounds() -> None:
     assert empty.status_code == 422
 
 
-def test_retrieval_failure_is_fail_closed(tmp_path: Path, monkeypatch) -> None:
+def test_retrieval_failure_is_fail_closed(client) -> None:
     """Retrieval against an index with no approved content must return an
     explicit no-result, never degraded or unauthorized content."""
-    empty_db = tmp_path / "empty_registry.db"
-    monkeypatch.setenv("BRIDGESAT_KNOWLEDGE_DB", str(empty_db))
-    client = TestClient(__import__("app.main", fromlist=["app"]).app)
-    response = client.post("/v1/knowledge/retrieve", json={"query": "solve for x"})
+    response = client.post(
+        "/v1/knowledge/retrieve",
+        json={"query": "__definitely_no_approved_content__"},
+    )
     assert response.status_code == 200
     payload = response.json()
     assert payload["results"] == []
     assert payload["explicit_no_result"] is True
 
 
-def test_diagnostic_payload_bounds_rejected(tmp_path: Path) -> None:
-    db = tmp_path / "limits.db"
-    from app.auth import TokenStore
-    from app.infrastructure.migration_runner import apply_migrations
-    from app.repository import StudentRepository
-
-    import app.main as main
-
-    apply_migrations(db)
-    main.repository = StudentRepository(db)
-    main.token_store = TokenStore(db)
-    student_id = main.repository.create(
-        __import__("app.models", fromlist=["StudentCreate"]).StudentCreate(
-            name="Limits", daily_minutes=15, target_score=1100
-        )
-    ).id
-    token = main.token_store.issue(student_id)
-    client = TestClient(main.app)
+def test_diagnostic_payload_bounds_rejected(client) -> None:
+    created = client.post(
+        "/v1/students",
+        json={"name": "Limits", "daily_minutes": 15, "target_score": 1100},
+    )
+    assert created.status_code == 201
+    student_id = created.json()["id"]
+    token = created.json()["token"]
     response = client.post(
         "/v1/diagnostics",
         headers={"Authorization": f"Bearer {token}"},
@@ -99,8 +92,7 @@ def test_diagnostic_payload_bounds_rejected(tmp_path: Path) -> None:
     assert response.status_code == 422
 
 
-def test_oversized_student_name_rejected() -> None:
-    client = TestClient(__import__("app.main", fromlist=["app"]).app)
+def test_oversized_student_name_rejected(client) -> None:
     response = client.post(
         "/v1/students",
         json={"name": "x" * 200, "daily_minutes": 20, "target_score": 1200},
@@ -108,20 +100,24 @@ def test_oversized_student_name_rejected() -> None:
     assert response.status_code == 422
 
 
-def test_single_payload_over_64kb_rejected(db: Path) -> None:
-    _seed_student(db)
+def test_single_payload_over_64kb_rejected(
+    db: psycopg.Connection, pg_tenant: str
+) -> None:
+    student_id = _student_id(pg_tenant)
+    device_id = f"{student_id}_device"
+    seed_student(db, student_id)
     sync = SyncService(db)
-    sync.register_device(STUDENT_ID, "d", device_id="dev_lim")
+    sync.register_device(student_id, "d", device_id=device_id)
     event = envelope(
-        event_id="evt_huge",
-        student_id=STUDENT_ID,
-        device_id="dev_lim",
+        event_id=f"{student_id}_huge",
+        student_id=student_id,
+        device_id=device_id,
         payload={"question_id": "sync.linear.001", "blob": "x" * (70 * 1024)},
     )
     response = sync.process_batch(
         SyncRequest(
-            device_id="dev_lim",
-            student_id=STUDENT_ID,
+            device_id=device_id,
+            student_id=student_id,
             events=[SyncEventEnvelope(**event)],
         )
     )
@@ -130,20 +126,24 @@ def test_single_payload_over_64kb_rejected(db: Path) -> None:
     assert response.rejected_events[0].retryable is False
 
 
-def test_missing_integrity_hash_rejected(db: Path) -> None:
-    _seed_student(db)
+def test_missing_integrity_hash_rejected(
+    db: psycopg.Connection, pg_tenant: str
+) -> None:
+    student_id = _student_id(pg_tenant)
+    device_id = f"{student_id}_device"
+    seed_student(db, student_id)
     sync = SyncService(db)
-    sync.register_device(STUDENT_ID, "d", device_id="dev_lim")
+    sync.register_device(student_id, "d", device_id=device_id)
     event = envelope(
-        event_id="evt_nohash",
-        student_id=STUDENT_ID,
-        device_id="dev_lim",
+        event_id=f"{student_id}_nohash",
+        student_id=student_id,
+        device_id=device_id,
         include_hash=False,
     )
     response = sync.process_batch(
         SyncRequest(
-            device_id="dev_lim",
-            student_id=STUDENT_ID,
+            device_id=device_id,
+            student_id=student_id,
             events=[SyncEventEnvelope(**event)],
         )
     )
@@ -152,33 +152,40 @@ def test_missing_integrity_hash_rejected(db: Path) -> None:
     assert response.rejected_events[0].retryable is False
 
 
-def test_out_of_order_device_sequence_rejected(db: Path) -> None:
-    _seed_student(db)
+def test_out_of_order_device_sequence_rejected(
+    db: psycopg.Connection, pg_tenant: str
+) -> None:
+    student_id = _student_id(pg_tenant)
+    device_id = f"{student_id}_device"
+    seed_student(db, student_id)
     sync = SyncService(db)
-    sync.register_device(STUDENT_ID, "d", device_id="dev_lim")
+    sync.register_device(student_id, "d", device_id=device_id)
     first = envelope(
-        event_id="evt_seq_1", student_id=STUDENT_ID, device_id="dev_lim", device_sequence=1
+        event_id=f"{student_id}_seq_1",
+        student_id=student_id,
+        device_id=device_id,
+        device_sequence=1,
     )
     response = sync.process_batch(
         SyncRequest(
-            device_id="dev_lim",
-            student_id=STUDENT_ID,
+            device_id=device_id,
+            student_id=student_id,
             events=[SyncEventEnvelope(**first)],
         )
     )
-    assert response.accepted_event_ids == ["evt_seq_1"]
+    assert response.accepted_event_ids == [f"{student_id}_seq_1"]
 
     stale = envelope(
-        event_id="evt_seq_1_replay",
-        student_id=STUDENT_ID,
-        device_id="dev_lim",
+        event_id=f"{student_id}_seq_1_replay",
+        student_id=student_id,
+        device_id=device_id,
         device_sequence=1,
     )
-    stale["payload"]["attempt_id"] = "evt_seq_1_replay"
+    stale["payload"]["attempt_id"] = f"{student_id}_seq_1_replay"
     response = sync.process_batch(
         SyncRequest(
-            device_id="dev_lim",
-            student_id=STUDENT_ID,
+            device_id=device_id,
+            student_id=student_id,
             events=[SyncEventEnvelope(**stale)],
         )
     )
@@ -186,13 +193,16 @@ def test_out_of_order_device_sequence_rejected(db: Path) -> None:
     assert response.rejected_events[0].code == "INVALID_SCHEMA"
 
     next_event = envelope(
-        event_id="evt_seq_2", student_id=STUDENT_ID, device_id="dev_lim", device_sequence=2
+        event_id=f"{student_id}_seq_2",
+        student_id=student_id,
+        device_id=device_id,
+        device_sequence=2,
     )
     response = sync.process_batch(
         SyncRequest(
-            device_id="dev_lim",
-            student_id=STUDENT_ID,
+            device_id=device_id,
+            student_id=student_id,
             events=[SyncEventEnvelope(**next_event)],
         )
     )
-    assert response.accepted_event_ids == ["evt_seq_2"]
+    assert response.accepted_event_ids == [f"{student_id}_seq_2"]

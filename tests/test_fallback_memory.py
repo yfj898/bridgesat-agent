@@ -1,61 +1,102 @@
-"""FallbackStudentMemory tests (ARCHITECTURE §8.6, plan §10).
+"""FallbackStudentMemory tests against the authoritative PostgreSQL store.
 
-Chain: Mnemis within strict timeout -> SQLite -> offline snapshot. The SQLite
-route must always produce actions when Mnemis is unavailable or too slow, and
-fallback must be measurable.
+Chain: Mnemis within a strict timeout -> PostgreSQL -> offline snapshot. The
+PostgreSQL route must always produce memory when Mnemis is unavailable or too
+slow, and fallback must be measurable.
 """
 
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import time
-from pathlib import Path
 
+import psycopg
 import pytest
 
+from app.agent.orchestrator import SessionOrchestrator
+from app.domain.events import LearningEvent, LearningEventType
 from app.domain.memory import Episode
-from app.infrastructure import migration_runner
+from app.infrastructure import pg
 from app.infrastructure.learner_store import LearnerStore
-from app.memory.episode_builder import EpisodeBuilder
+from app.infrastructure.migration_runner import migrate_database
+from app.memory.episode_builder import EpisodeBuilder, utc_now_iso
 from app.memory.fallback_backend import FallbackStudentMemory
-from app.memory.mnemis_backend import (
-    MnemisMemoryAdapter,
-    MnemisUnavailableError,
-)
+from app.memory.mnemis_backend import MnemisMemoryAdapter, MnemisUnavailableError
 from app.memory.mnemis_stub import InMemoryMnemisIndex
+from app.memory.nvidia_backend import NvidiaMemoryIndex
+from app.memory.pg_memory import PGMemory
+from tests.pg_test_helpers import cleanup_tenant, unique_tenant_id
 
 
 @pytest.fixture()
-def db(tmp_path: Path) -> tuple[Path, str]:
-    path = tmp_path / "fallback.db"
-    migration_runner.apply_migrations(path)
-    learner = LearnerStore(path)
-    student_id, _ = learner.create_student("Ari", 20, 1200)
-    builder = EpisodeBuilder(path)
-    from tests.test_memory_outbox_wiring import _event as make_event
+def db() -> tuple[psycopg.Connection, str, Episode]:
+    admin = pg.connect_admin()
+    migrate_database(admin)
+    admin.close()
 
+    tenant_id = unique_tenant_id("task3_fallback")
+    connection = pg.connect()
+    connection.execute(
+        "SELECT set_config('app.tenant_id', %s, false)",
+        (tenant_id,),
+    )
+    connection.commit()
+    learner = LearnerStore(connection)
+    student_id, _ = learner.create_student("Ari", 20, 1200)
+    builder = EpisodeBuilder(connection)
     episode = builder.build_candidate(
         student_id=student_id,
         session_id="ses-1",
         skill="linear_equations",
         misconception="sign_error",
         intervention="SHOW_WORKED_EXAMPLE",
-        context_event=make_event("ses-1", "ctx", student_id),
-        evidence_events=[make_event("ses-1", "obs", student_id)],
-        outcome_event=make_event("ses-1", "out", student_id),
+        context_event=_event("ses-1", "ctx", student_id),
+        evidence_events=[_event("ses-1", "obs", student_id)],
+        outcome_event=_event("ses-1", "out", student_id),
         outcome_correct=True,
         outcome_hint_level=0,
         outcome_content_id="transfer",
         teaching_content_id="taught",
-        summary="x",
+        summary="authoritative PG episode",
+        episode_id="ep_pg",
     )
-    builder.validate(episode)
-    return path, student_id
+    episode = builder.validate(episode)
+    try:
+        yield connection, student_id, episode
+    finally:
+        connection.rollback()
+        connection.close()
+        cleanup = pg.connect_admin()
+        try:
+            cleanup_tenant(cleanup, tenant_id)
+        finally:
+            cleanup.close()
+
+
+def _event(session_id: str, event_id: str, student_id: str) -> LearningEvent:
+    return LearningEvent(
+        event_id=event_id,
+        student_id=student_id,
+        session_id=session_id,
+        event_type=LearningEventType.ANSWER_EVALUATED,
+        payload={},
+        occurred_at="2026-08-06T10:00:00+00:00",
+        received_at="2026-08-06T10:00:00+00:00",
+    )
 
 
 class FailingIndex:
     async def recall_similar(self, query, **kwargs):
         raise MnemisUnavailableError("down")
+
+    async def health(self) -> bool:
+        return False
+
+
+class ErrorIndex:
+    async def recall_similar(self, query, **kwargs):
+        raise RuntimeError("unexpected index failure")
 
     async def health(self) -> bool:
         return False
@@ -72,85 +113,152 @@ class SlowIndex:
 
 class _RankingLLM:
     async def complete(self, prompt: str, **kwargs) -> str:
-        return '[{"memory_id": "ep_1", "confidence": 0.9, "retrieval_score": 0.95}]'
+        return '[{"memory_id": "ep_pg", "confidence": 0.9, "retrieval_score": 0.95}]'
 
 
-def test_mnemis_results_take_priority(db: tuple[Path, str]) -> None:
-    path, student_id = db
+def test_foreign_mnemis_evidence_never_reaches_policy(db) -> None:
+    """A Mnemis response whose supporting episode IDs are not tenant-scoped
+    validated PostgreSQL episodes must be filtered before reaching policy."""
+    connection, student_id, episode = db
+
+    class ForeignIndex:
+        async def recall_similar(self, query, **kwargs):
+            return [
+                {
+                    "memory_id": "mem_foreign",
+                    "memory_type": "episode",
+                    "supporting_episode_ids": ["ep_evil_other_student"],
+                    "confidence": 0.95,
+                    "retrieval_route": "mnemis_system1",
+                    "retrieval_score": 0.99,
+                },
+                {
+                    "memory_id": "mem_legit",
+                    "memory_type": "episode",
+                    "supporting_episode_ids": [episode.episode_id],
+                    "confidence": 0.95,
+                    "retrieval_route": "mnemis_system1",
+                    "retrieval_score": 0.9,
+                },
+            ]
+
+    memory = FallbackStudentMemory(connection, mnemis=ForeignIndex())
+    result = asyncio.run(
+        memory.recall_similar(
+            student_id=student_id, skill="linear_equations", misconception="sign_error"
+        )
+    )
+    assert [r.episode_id for r in result.hits] == [episode.episode_id]
+    assert all(
+        r.episode_id != "ep_evil_other_student" for r in result.hits
+    )
+
+
+def test_all_foreign_mnemis_results_fall_back_to_pg(db) -> None:
+    """When the index returns only foreign evidence, recall must not present
+    an empty hit list as a successful Mnemis route; it falls back to PG."""
+    connection, student_id, episode = db
+
+    class OnlyForeignIndex:
+        async def recall_similar(self, query, **kwargs):
+            return [
+                {
+                    "memory_id": "mem_evil",
+                    "memory_type": "episode",
+                    "supporting_episode_ids": ["ep_other_student"],
+                    "confidence": 0.99,
+                    "retrieval_route": "mnemis_system1",
+                    "retrieval_score": 1.0,
+                }
+            ]
+
+    memory = FallbackStudentMemory(connection, mnemis=OnlyForeignIndex())
+    result = asyncio.run(
+        memory.recall_similar(
+            student_id=student_id, skill="linear_equations", misconception="sign_error"
+        )
+    )
+    assert result.route == "pg"
+    assert [r.episode_id for r in result.hits] == [episode.episode_id]
+
+
+def test_mnemis_results_take_priority(db) -> None:
+    connection, student_id, episode = db
     mnemis = InMemoryMnemisIndex()
     asyncio.run(
         mnemis.upsert_episode(
-            {
-                "episode_id": "ep_idx",
-                "student_id": student_id,
-                "skill": "linear_equations",
-                "misconception": "sign_error",
-                "confidence": 0.9,
-            },
+            episode.model_dump(),
             idempotency_key="k1",
         )
     )
-    memory = FallbackStudentMemory(path, mnemis=mnemis)
+    memory = FallbackStudentMemory(connection, mnemis=mnemis)
     result = asyncio.run(
         memory.recall_similar(
             student_id=student_id, skill="linear_equations", misconception="sign_error"
         )
     )
     assert result.route == "mnemis_system1"
-    assert [r.episode_id for r in result.hits] == ["ep_idx"]
-    metrics = memory.recall_metrics()
-    assert metrics["memory_fallback_rate"] == 0.0
+    assert [r.episode_id for r in result.hits] == [episode.episode_id]
+    assert memory.recall_metrics()["memory_fallback_rate"] == 0.0
 
 
-def test_mnemis_unavailable_falls_back_to_sqlite(db: tuple[Path, str]) -> None:
-    path, student_id = db
-    memory = FallbackStudentMemory(path, mnemis=FailingIndex())
+def test_mnemis_unavailable_falls_back_to_pg(db) -> None:
+    connection, student_id, episode = db
+    memory = FallbackStudentMemory(connection, mnemis=FailingIndex())
     result = asyncio.run(
         memory.recall_similar(
             student_id=student_id, skill="linear_equations", misconception="sign_error"
         )
     )
-    assert result.route == "sqlite"
-    assert result.hits
+    assert result.route == "pg"
+    assert [hit.episode_id for hit in result.hits] == [episode.episode_id]
+    assert result.hits[0].retrieval_route == "pg"
     metrics = memory.recall_metrics()
     assert metrics["memory_fallback_rate"] == 1.0
-    assert metrics["memory_route_counts"]["sqlite"] == 1
+    assert metrics["memory_route_counts"]["pg"] == 1
     assert metrics["memory_route_counts"].get("mnemis_system1", 0) == 0
 
 
-def test_nvidia_index_drives_mnemis_route(db: tuple[Path, str]) -> None:
-    """The LLM-backed local index is a drop-in Mnemis transport: when recall
-    succeeds via the LLM rerank, hits carry the mnemis route and the fallback
-    rate drops to zero."""
-    path, student_id = db
-    from app.memory.nvidia_backend import NvidiaMemoryIndex
+def test_mnemis_runtime_error_falls_back_to_pg(db) -> None:
+    connection, student_id, episode = db
+    memory = FallbackStudentMemory(connection, mnemis=ErrorIndex())
 
-    index = NvidiaMemoryIndex(path, llm=_RankingLLM())
+    result = asyncio.run(
+        memory.recall_similar(
+            student_id=student_id, skill="linear_equations", misconception="sign_error"
+        )
+    )
+
+    assert result.route == "pg"
+    assert [hit.episode_id for hit in result.hits] == [episode.episode_id]
+    assert memory.recall_metrics()["memory_route_counts"] == {"pg": 1}
+
+
+def test_nvidia_index_drives_mnemis_route(db) -> None:
+    """Nvidia reads the authoritative PG episode before reranking it."""
+    connection, student_id, episode = db
+    index = NvidiaMemoryIndex(connection, llm=_RankingLLM())
     adapter = MnemisMemoryAdapter(base_url="http://local/nvidia", transport=index)
     asyncio.run(
         adapter.upsert_episode(
-            {
-                "episode_id": "ep_1",
-                "student_id": student_id,
-                "skill": "linear_equations",
-                "misconception": "sign_error",
-                "summary": "student resolved sign_error via worked example",
-                "confidence": 1.0,
-            },
+            episode.model_dump(),
             idempotency_key="memory-index:k1",
         )
     )
-    memory = FallbackStudentMemory(path, mnemis=adapter)
+    memory = FallbackStudentMemory(connection, mnemis=adapter)
     result = asyncio.run(
         memory.recall_similar(
             student_id=student_id, skill="linear_equations", misconception="sign_error"
         )
     )
     assert result.route == "mnemis_system1"
-    assert [r.episode_id for r in result.hits] == ["ep_1"]
+    assert [r.episode_id for r in result.hits] == [episode.episode_id]
     assert memory.recall_metrics()["memory_fallback_rate"] == 0.0
-    path, student_id = db
-    memory = FallbackStudentMemory(path, mnemis=SlowIndex(), timeout_ms=200)
+
+
+def test_slow_mnemis_falls_back_to_pg_within_budget(db) -> None:
+    connection, student_id, episode = db
+    memory = FallbackStudentMemory(connection, mnemis=SlowIndex(), timeout_ms=200)
     started = time.perf_counter()
     result = asyncio.run(
         memory.recall_similar(
@@ -158,15 +266,14 @@ def test_nvidia_index_drives_mnemis_route(db: tuple[Path, str]) -> None:
         )
     )
     elapsed = time.perf_counter() - started
-    assert result.route == "sqlite"
+    assert result.route == "pg"
+    assert [hit.episode_id for hit in result.hits] == [episode.episode_id]
     assert elapsed < 0.4
     assert memory.recall_metrics()["memory_fallback_rate"] == 1.0
 
 
-def test_offline_snapshot_is_last_resort(db: tuple[Path, str]) -> None:
-    path, student_id = db
-    from app.memory.episode_builder import utc_now_iso
-
+def test_offline_snapshot_is_last_resort(db) -> None:
+    connection, student_id, _ = db
     snapshot = [
         Episode(
             episode_id="snap_1",
@@ -190,7 +297,11 @@ def test_offline_snapshot_is_last_resort(db: tuple[Path, str]) -> None:
         def recall_episodes(self, *, student_id, skill, misconception=None, limit=5):
             return snapshot
 
-    memory = FallbackStudentMemory(path, mnemis=FailingIndex(), offline_snapshot=SnapshotProvider())
+    memory = FallbackStudentMemory(
+        connection,
+        mnemis=FailingIndex(),
+        offline_snapshot=SnapshotProvider(),
+    )
     result = asyncio.run(
         memory.recall_similar(student_id=student_id, skill="ratios_percentages")
     )
@@ -198,13 +309,35 @@ def test_offline_snapshot_is_last_resort(db: tuple[Path, str]) -> None:
     assert [r.episode_id for r in result.hits] == ["snap_1"]
 
 
-def test_no_mnemis_configured_uses_sqlite(db: tuple[Path, str]) -> None:
-    path, student_id = db
-    memory = FallbackStudentMemory(path, mnemis=None)
+def test_no_mnemis_configured_uses_pg(db) -> None:
+    connection, student_id, episode = db
+    memory = FallbackStudentMemory(connection, mnemis=None)
     result = asyncio.run(
         memory.recall_similar(
             student_id=student_id, skill="linear_equations", misconception="sign_error"
         )
     )
-    assert result.route == "sqlite"
-    assert result.hits
+    assert result.route == "pg"
+    assert [hit.episode_id for hit in result.hits] == [episode.episode_id]
+
+
+def test_pg_constructors_do_not_open_sqlite(monkeypatch: pytest.MonkeyPatch, db) -> None:
+    connection, _, _ = db
+
+    def fail_sqlite(*args, **kwargs):
+        raise AssertionError("SQLite constructor invoked")
+
+    import app.agent.orchestrator as orchestrator_module
+    import app.memory.fallback_backend as fallback_module
+
+    monkeypatch.setattr(sqlite3, "connect", fail_sqlite)
+    monkeypatch.setattr(
+        orchestrator_module, "SQLiteMemory", fail_sqlite, raising=False
+    )
+    monkeypatch.setattr(fallback_module, "SQLiteMemory", fail_sqlite, raising=False)
+    orchestrator = SessionOrchestrator(connection)
+    fallback = FallbackStudentMemory(connection)
+
+    assert orchestrator.connection is connection
+    assert isinstance(orchestrator.memory, PGMemory)
+    assert isinstance(fallback.pg, PGMemory)

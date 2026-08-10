@@ -1,4 +1,4 @@
-"""Governed retrieval tests: FTS5 indexing, filters, prerequisite
+"""Governed retrieval tests: tsvector indexing, filters, prerequisite
 expansion, citation/license validation, restricted-source exclusion."""
 
 from __future__ import annotations
@@ -10,7 +10,8 @@ import pytest
 
 from app.content_pipeline.contracts import SCHEMA_VERSION, content_hash
 from app.content_pipeline.packaging import build_pack
-from app.infrastructure.database import connect
+from app.infrastructure import pg
+from app.infrastructure.migration_runner import migrate_database
 from app.knowledge.local_backend import (
     KnowledgeBackend,
     RestrictedSourceError,
@@ -131,30 +132,45 @@ def pack_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture()
-def db(pack_dir: Path, tmp_path: Path) -> Path:
-    database = tmp_path / "knowledge.db"
-    index_pack(database, pack_dir)
-    return database
-
-
-@pytest.fixture()
-def backend(db: Path) -> KnowledgeBackend:
-    return KnowledgeBackend(db)
+def backend(pack_dir: Path) -> KnowledgeBackend:
+    admin = pg.connect_admin()
+    try:
+        migrate_database(admin)
+        with admin.transaction():
+            index_pack(admin, pack_dir)
+    finally:
+        admin.close()
+    conn = pg.connect()
+    conn.execute("SELECT set_config('app.tenant_id', %s, false)", ("tenant_test",))
+    conn.commit()
+    try:
+        yield KnowledgeBackend(conn)
+    finally:
+        conn.rollback()
+        conn.close()
+    cleanup = pg.connect_admin()
+    try:
+        cleanup.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+        cleanup.commit()
+    finally:
+        cleanup.close()
 
 
 # --- indexing ------------------------------------------------------------
 
 
-def test_index_pack_counts(db: Path) -> None:
-    with connect(db) as connection:
-        rows = connection.execute("SELECT COUNT(*) FROM knowledge_fts").fetchone()[0]
-        log = connection.execute("SELECT item_count, lesson_count FROM knowledge_index_log").fetchone()
-    assert rows == 6
+def test_index_pack_counts(backend: KnowledgeBackend) -> None:
+    row = backend.connection.execute("SELECT COUNT(*) AS count FROM knowledge_fts").fetchone()
+    log = backend.connection.execute(
+        "SELECT item_count, lesson_count FROM knowledge_index_log "
+        "ORDER BY log_id DESC LIMIT 1"
+    ).fetchone()
+    assert row["count"] == 6
     assert log["item_count"] == 4
     assert log["lesson_count"] == 2
 
 
-def test_index_pack_rejects_unpublished(tmp_path: Path) -> None:
+def test_index_pack_rejects_unpublished(backend: KnowledgeBackend, tmp_path: Path) -> None:
     item = _item("math.linear_equations.001", "linear_equations")
     root = tmp_path / "packs"
     build_pack([item], [], out_dir=root)
@@ -164,11 +180,15 @@ def test_index_pack_rejects_unpublished(tmp_path: Path) -> None:
     (built / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, sort_keys=True), encoding="utf-8"
     )
-    with pytest.raises(UnpublishedPackError):
-        index_pack(tmp_path / "x.db", built)
+    admin = pg.connect_admin()
+    try:
+        with pytest.raises(UnpublishedPackError):
+            index_pack(admin, built)
+    finally:
+        admin.close()
 
 
-def test_restricted_source_never_indexed(pack_dir: Path, tmp_path: Path) -> None:
+def test_restricted_source_never_indexed(pack_dir: Path, backend: KnowledgeBackend) -> None:
     # Simulate a pack that contains an item drawn from a restricted source.
     items_json = json.loads((pack_dir / "items.jsonl").read_text(encoding="utf-8").splitlines()[0])
     items_json["source_lineage"] = {
@@ -179,8 +199,12 @@ def test_restricted_source_never_indexed(pack_dir: Path, tmp_path: Path) -> None
     (pack_dir / "items.jsonl").write_text(
         json.dumps(items_json, ensure_ascii=False, sort_keys=True), encoding="utf-8"
     )
-    with pytest.raises(RestrictedSourceError):
-        index_pack(tmp_path / "x.db", pack_dir)
+    admin = pg.connect_admin()
+    try:
+        with pytest.raises(RestrictedSourceError):
+            index_pack(admin, pack_dir)
+    finally:
+        admin.close()
 
 
 # --- retrieval pipeline --------------------------------------------------
@@ -217,26 +241,31 @@ def test_bare_query_with_two_content_terms_returns_results(backend: KnowledgeBac
     assert response.explicit_no_result is False
 
 
-def test_audience_filter_excludes_other_audience(pack_dir: Path, tmp_path: Path) -> None:
-    db = tmp_path / "audience.db"
-    index_pack(db, pack_dir)
-    with connect(db) as connection:
-        connection.execute(
-            "UPDATE knowledge_fts SET audience = 'teacher' WHERE content_id = 'math.linear_equations.001'"
-        )
-    response = KnowledgeBackend(db).retrieve("linear equation 8x - 1 = 87", skill="linear_equations")
+def test_audience_filter_excludes_other_audience(backend: KnowledgeBackend) -> None:
+    admin = pg.connect_admin()
+    try:
+        with admin.transaction():
+            admin.execute(
+                "UPDATE knowledge_fts SET audience = 'teacher' "
+                "WHERE content_id = 'math.linear_equations.001'"
+            )
+    finally:
+        admin.close()
+    response = backend.retrieve("linear equation 8x - 1 = 87", skill="linear_equations")
     assert all(result.audience == "student" for result in response.results)
 
 
-def test_license_filter_excludes_disallowed_license(pack_dir: Path, tmp_path: Path) -> None:
-    db = tmp_path / "license.db"
-    index_pack(db, pack_dir)
-    with connect(db) as connection:
-        connection.execute(
-            "UPDATE knowledge_fts SET license_id = 'cc-by-nc-4.0', license_name = 'CC BY-NC' "
-            "WHERE content_id = 'math.linear_equations.001'"
-        )
-    response = KnowledgeBackend(db).retrieve(
+def test_license_filter_excludes_disallowed_license(backend: KnowledgeBackend) -> None:
+    admin = pg.connect_admin()
+    try:
+        with admin.transaction():
+            admin.execute(
+                "UPDATE knowledge_fts SET license_id = 'cc-by-nc-4.0', license_name = 'CC BY-NC' "
+                "WHERE content_id = 'math.linear_equations.001'"
+            )
+    finally:
+        admin.close()
+    response = backend.retrieve(
         "linear equation", skill="linear_equations", allowed_licenses=("bridgesat_original",)
     )
     assert all(result.license_id == "bridgesat_original" for result in response.results)
@@ -288,10 +317,14 @@ def test_deterministic_reranking(backend: KnowledgeBackend) -> None:
 
 def test_recently_shown_downweights(backend: KnowledgeBackend) -> None:
     response = backend.retrieve(
-        "linear equation", skill="linear_equations", recently_shown={"math.linear_equations.001"}
+        "linear equation", skill="linear_equations", recently_shown={"math.linear_equations.001"},
+        max_results=20,
     )
     ids = [r.content_id for r in response.results]
-    assert ids.index("math.linear_equations.001") > 0
+    baseline = [r.content_id for r in backend.retrieve(
+        "linear equation", skill="linear_equations", max_results=20
+    ).results]
+    assert ids.index("math.linear_equations.001") > baseline.index("math.linear_equations.001")
 
 
 def test_every_result_has_complete_metadata(backend: KnowledgeBackend) -> None:

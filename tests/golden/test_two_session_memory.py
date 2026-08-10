@@ -7,18 +7,15 @@ episode is built.
 Session 2: the first similar sign error recalls the validated episode and the
 memory-aware policy selects SHOW_WORKED_EXAMPLE earlier than the no-memory
 baseline. Decision must persist episode ID, RECALLED_SUCCESSFUL_EPISODE,
-reason text, and policy version. Mnemis is unavailable (local mode) and SQLite
-recall still produces the allowed action.
+reason text, and policy version. Mnemis is unavailable (local mode) and
+PostgreSQL recall still produces the allowed action.
 """
-
-from pathlib import Path
 
 import pytest
 
 from app.agent.orchestrator import ContentItem, SessionOrchestrator
 from app.domain.memory import BoundedAction
 from app.domain.sessions import SessionState
-from app.infrastructure import migration_runner
 from app.infrastructure.learner_store import LearnerStore
 
 SIGN_ERROR = "sign_error"
@@ -37,10 +34,8 @@ def sign_item(content_id: str, difficulty: int = 2) -> ContentItem:
 
 
 @pytest.fixture()
-def orchestrator(tmp_path: Path) -> SessionOrchestrator:
-    db = tmp_path / "golden.db"
-    migration_runner.apply_migrations(db)
-    return SessionOrchestrator(db)
+def orchestrator(pg_connection) -> SessionOrchestrator:
+    return SessionOrchestrator(pg_connection)
 
 
 def _bring_session_to_question(orchestrator: SessionOrchestrator, session_id: str) -> None:
@@ -151,8 +146,8 @@ def test_no_memory_baseline_does_not_recall(orchestrator: SessionOrchestrator) -
     assert result.decision.episode_ids == []
 
 
-def test_sqlite_recall_works_without_mnemis(orchestrator: SessionOrchestrator) -> None:
-    """Local mode (BRIDGESAT_MODE unset) has no Mnemis; recall still works."""
+def test_pg_recall_works_without_mnemis(orchestrator: SessionOrchestrator) -> None:
+    """Local mode (BRIDGESAT_MODE unset) has no Mnemis; PG recall still works."""
     assert orchestrator.memory is not None
     learner = orchestrator.learner
     student_id, _ = learner.create_student("Offline", 20, 1200)

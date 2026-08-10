@@ -22,6 +22,24 @@ def store():
             "SELECT set_config('app.tenant_id', %s, false)",
             (TENANT,),
         )
+        connection.execute(
+            """
+            INSERT INTO students (
+                id, tenant_id, name, daily_minutes, target_score,
+                mastery_json, status, created_at, updated_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, 'active', %s, %s)
+            """,
+            (
+                "stu_auth",
+                TENANT,
+                "Auth Student",
+                15,
+                1100,
+                "{}",
+                "2026-01-01",
+                "2026-01-01",
+            ),
+        )
         connection.commit()
         yield TokenStore(connection)
     finally:

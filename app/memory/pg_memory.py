@@ -18,7 +18,11 @@ from app.domain.memory import (
 from app.infrastructure import pg
 
 from .episode_builder import utc_now_iso
-from .outbox import OutboxRepository
+from .outbox import (
+    OutboxRepository,
+    ensure_active_student,
+    student_advisory_lock,
+)
 
 FACT_CATEGORY_MISCONCEPTION_INTERVENTION = "misconception_intervention"
 
@@ -39,6 +43,25 @@ class PGMemory:
         self.outbox = OutboxRepository(connection)
 
     # ---------- episode recall ----------
+
+    def validated_episode_ids(self, student_id: str) -> set[str]:
+        """Tenant-scoped, validated episode IDs for one student.
+
+        Mnemis results are accepted only when their supporting episode IDs
+        are a non-empty subset of this set, so foreign evidence can never
+        reach policy.
+        """
+        rows = self.connection.execute(
+            """
+            SELECT episode_id
+            FROM learning_episodes
+            WHERE student_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+              AND status = 'validated'
+            """,
+            (student_id,),
+        ).fetchall()
+        return {row["episode_id"] for row in rows}
 
     def recall_episodes(
         self,
@@ -69,6 +92,16 @@ class PGMemory:
     # ---------- semantic facts ----------
 
     def upsert_fact_for_episode(self, episode: Any) -> MemoryFact:
+        """Create or update a fact while serializing with deletion/writes."""
+        with student_advisory_lock(self.connection, episode.student_id):
+            try:
+                ensure_active_student(self.connection, episode.student_id)
+                return self._upsert_fact_for_episode(episode)
+            except BaseException:
+                self.connection.rollback()
+                raise
+
+    def _upsert_fact_for_episode(self, episode: Any) -> MemoryFact:
         """Create or update a semantic fact from a validated episode.
 
         Normalized key: skill + misconception + intervention. Promotion:
@@ -231,6 +264,35 @@ class PGMemory:
     # ---------- intervention stats ----------
 
     def record_intervention_outcome(
+        self,
+        *,
+        student_id: str,
+        skill: str,
+        misconception: str | None,
+        intervention: str,
+        difficulty_band: str,
+        window: str,
+        component_score: float,
+        weight: float,
+    ) -> InterventionStat:
+        with student_advisory_lock(self.connection, student_id):
+            try:
+                ensure_active_student(self.connection, student_id)
+                return self._record_intervention_outcome(
+                    student_id=student_id,
+                    skill=skill,
+                    misconception=misconception,
+                    intervention=intervention,
+                    difficulty_band=difficulty_band,
+                    window=window,
+                    component_score=component_score,
+                    weight=weight,
+                )
+            except BaseException:
+                self.connection.rollback()
+                raise
+
+    def _record_intervention_outcome(
         self,
         *,
         student_id: str,

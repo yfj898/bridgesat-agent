@@ -10,19 +10,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
 from typing import Any
 
+import psycopg
 import pytest
 
 from app.agent.llm_client import LLMClient
 from app.agent.orchestrator import ContentItem, SessionOrchestrator
 from app.domain.sessions import SessionState
-from app.infrastructure import migration_runner
-
-
-def _orchestrator(db: Path) -> SessionOrchestrator:
-    return SessionOrchestrator(db)
 
 
 def _item(content_id: str = "math.linear_equations.001") -> ContentItem:
@@ -68,10 +63,8 @@ class StubLLM:
 
 
 @pytest.fixture()
-def orchestrator(tmp_path: Path) -> SessionOrchestrator:
-    db = tmp_path / "dual.db"
-    migration_runner.apply_migrations(db)
-    return _orchestrator(db)
+def orchestrator(pg_connection: psycopg.Connection) -> SessionOrchestrator:
+    return SessionOrchestrator(pg_connection)
 
 
 def _decision(o: SessionOrchestrator, student_id: str, session_id: str, item: ContentItem | None = None) -> dict:

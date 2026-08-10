@@ -17,7 +17,7 @@ from .pg import transaction
 
 MIGRATION_DIR = Path(__file__).resolve().parent / "migrations_pg"
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 15
 
 
 class UnsupportedDatabaseError(RuntimeError):
@@ -85,7 +85,12 @@ def migrate_database(connection: psycopg.Connection) -> int:
         return max(applied) if applied else 0
     finally:
         connection.commit()
-        connection.execute("SELECT pg_advisory_unlock(hashtext('bridgesat_migrations'))")
+        try:
+            connection.execute(
+                "SELECT pg_advisory_unlock(hashtext('bridgesat_migrations'))"
+            )
+        finally:
+            connection.rollback()
 
 
 def apply_migrations(target: str | None = None) -> int:

@@ -8,15 +8,15 @@ return empty and deletions never touch the other student.
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 
+import psycopg
 import pytest
 
 from app.domain.events import LearningEvent, LearningEventType
 from app.infrastructure.learner_store import LearnerStore
 from app.memory.episode_builder import EpisodeBuilder
 from app.memory.mnemis_stub import InMemoryMnemisIndex
-from app.memory.sqlite_backend import SQLiteMemory
+from app.memory.pg_memory import PGMemory
 from app.sync.service import DeviceRevokedError, SyncService
 from app.sync.protocol import SyncEventEnvelope, SyncRequest
 
@@ -60,7 +60,9 @@ def _answer_envelope(student_id: str, event_id: str, device_id: str) -> dict:
     )
 
 
-def test_skill_state_of_a_never_leaks_into_b(db: Path, two_students) -> None:
+def test_skill_state_of_a_never_leaks_into_b(
+    db: psycopg.Connection, two_students
+) -> None:
     (a, _), (b, _) = two_students
     learner = LearnerStore(db)
     learner.create_session(a, "ses-a")
@@ -97,7 +99,9 @@ def test_skill_state_of_a_never_leaks_into_b(db: Path, two_students) -> None:
     assert learner.get_skill_state(b, "linear_equations") is None
 
 
-def test_memory_recall_is_student_scoped(db: Path, two_students) -> None:
+def test_memory_recall_is_student_scoped(
+    db: psycopg.Connection, two_students
+) -> None:
     (a, _), (b, _) = two_students
     builder = EpisodeBuilder(db)
     episode = builder.build_candidate(
@@ -117,7 +121,7 @@ def test_memory_recall_is_student_scoped(db: Path, two_students) -> None:
     )
     builder.validate(episode)
 
-    memory = SQLiteMemory(db)
+    memory = PGMemory(db)
     memory.upsert_fact_for_episode(episode)
     hits_a = memory.recall_episodes(student_id=a, skill="linear_equations")
     hits_b = memory.recall_episodes(student_id=b, skill="linear_equations")
@@ -129,7 +133,9 @@ def test_memory_recall_is_student_scoped(db: Path, two_students) -> None:
     assert len(memory.get_facts(b)) == 0
 
 
-def test_index_recall_is_student_scoped(db: Path, two_students) -> None:
+def test_index_recall_is_student_scoped(
+    db: psycopg.Connection, two_students
+) -> None:
     (a, _), (b, _) = two_students
     index = InMemoryMnemisIndex()
     asyncio.run(
@@ -154,7 +160,9 @@ def test_index_recall_is_student_scoped(db: Path, two_students) -> None:
     assert len(hits_b) == 0
 
 
-def test_snapshot_of_a_contains_no_b_rows(db: Path, two_students) -> None:
+def test_snapshot_of_a_contains_no_b_rows(
+    db: psycopg.Connection, two_students
+) -> None:
     (a, _), (b, _) = two_students
     sync = SyncService(db)
     sync.register_device(a, "device a", device_id="dev_a")
@@ -170,7 +178,9 @@ def test_snapshot_of_a_contains_no_b_rows(db: Path, two_students) -> None:
     assert snapshot_b.student["id"] == b
 
 
-def test_revoking_a_device_does_not_revoke_b(db: Path, two_students) -> None:
+def test_revoking_a_device_does_not_revoke_b(
+    db: psycopg.Connection, two_students
+) -> None:
     (a, _), (b, _) = two_students
     sync = SyncService(db)
     sync.register_device(a, "device a", device_id="dev_a")

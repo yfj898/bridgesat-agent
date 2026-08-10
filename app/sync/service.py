@@ -24,15 +24,20 @@ import hashlib
 import json
 import threading
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
+from functools import lru_cache
 
 import psycopg
+from psycopg.errors import UniqueViolation
 
 from app.domain.learner import SkillState
 from app.domain.sessions import SessionState
 from app.infrastructure.event_store import EventStore
 from app.infrastructure.learner_store import LearnerStore
 from app.infrastructure.pg import transaction
+from app.memory.outbox import student_advisory_lock
 from app.memory.pg_memory import PGMemory
 
 from .protocol import (
@@ -49,11 +54,56 @@ from .protocol import (
     SyncResponse,
     SnapshotResponse,
 )
-from .versioned_scoring import VersionedAnswerKey
+from .versioned_scoring import QuestionVersionError, VersionedAnswerKey
+
+
+_GLOBAL_ID_CONSTRAINTS = frozenset(
+    {
+        "learning_events_pkey",
+        "answer_attempts_pkey",
+        "answer_attempts_event_id_key",
+        "study_sessions_pkey",
+    }
+)
+_LEARNING_EVENT_ID_CONSTRAINTS = frozenset({"learning_events_pkey"})
+_ANSWER_EVENT_ID_CONSTRAINTS = frozenset({"answer_attempts_event_id_key"})
+_ANSWER_ATTEMPT_ID_CONSTRAINTS = frozenset({"answer_attempts_pkey"})
 
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+@contextmanager
+def _transaction_scope(
+    connection: psycopg.Connection,
+    *,
+    in_transaction: bool,
+) -> Iterator[psycopg.Connection]:
+    if in_transaction:
+        yield connection
+    else:
+        with transaction(connection) as scoped:
+            yield scoped
+
+
+@contextmanager
+def _event_savepoint(connection: psycopg.Connection, name: str) -> Iterator[None]:
+    connection.execute(f"SAVEPOINT {name}")
+    try:
+        yield
+    except BaseException:
+        try:
+            connection.execute(f"ROLLBACK TO SAVEPOINT {name}")
+        except BaseException:
+            pass
+        try:
+            connection.execute(f"RELEASE SAVEPOINT {name}")
+        except BaseException:
+            pass
+        raise
+    else:
+        connection.execute(f"RELEASE SAVEPOINT {name}")
 
 
 class DeviceNotFoundError(RuntimeError):
@@ -64,6 +114,25 @@ class DeviceRevokedError(RuntimeError):
     pass
 
 
+class StudentInactiveError(ValueError):
+    pass
+
+
+class EventValidationError(ValueError):
+    """A deterministic event-domain failure safe to reject at its savepoint."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: SyncErrorCode = SyncErrorCode.INTERNAL_RETRYABLE,
+        retryable: bool = True,
+    ) -> None:
+        self.code = code
+        self.retryable = retryable
+        super().__init__(message)
+
+
 class SyncService:
     def __init__(self, connection: psycopg.Connection) -> None:
         self.connection = connection
@@ -71,19 +140,47 @@ class SyncService:
         self.learner = LearnerStore(connection)
         self.memory = PGMemory(connection)
         self.answer_keys = VersionedAnswerKey()
-        # Serializes same-student batch processing so concurrent device
-        # syncs cannot interleave SELECT-then-UPDATE projection steps
-        # (THREAT_MODEL 5.3, SYNC_PROTOCOL conflict semantics).
-        self._locks: dict[str, threading.Lock] = {}
-        self._locks_guard = threading.Lock()
+
+    @staticmethod
+    @lru_cache(maxsize=1024)
+    def _cached_student_lock(student_id: str) -> threading.Lock:
+        """Compatibility optimization; PostgreSQL is the correctness lock."""
+        return threading.Lock()
 
     def _student_lock(self, student_id: str) -> threading.Lock:
-        with self._locks_guard:
-            lock = self._locks.get(student_id)
-            if lock is None:
-                lock = threading.Lock()
-                self._locks[student_id] = lock
-            return lock
+        return self._cached_student_lock(student_id)
+
+    def _require_active_student(self, student_id: str) -> None:
+        row = self.connection.execute(
+            """
+            SELECT status
+            FROM students
+            WHERE id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+            FOR UPDATE
+            """,
+            (student_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"Unknown student {student_id}")
+        if row["status"] != "active":
+            raise StudentInactiveError(
+                f"Student {student_id} is not active (status={row['status']})"
+            )
+        deletion = self.connection.execute(
+            """
+            SELECT state
+            FROM student_deletions
+            WHERE student_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+            FOR UPDATE
+            """,
+            (student_id,),
+        ).fetchone()
+        if deletion is not None:
+            raise StudentInactiveError(
+                f"Student {student_id} has a deletion state ({deletion['state']})"
+            )
 
     # ------------------------------------------------------------------
     # Devices
@@ -95,43 +192,88 @@ class SyncService:
         device_name: str | None,
         device_id: str | None = None,
     ) -> DeviceRegistration:
-        if not self._student_exists(student_id):
-            raise KeyError(f"Unknown student {student_id}")
-        device_id = device_id or f"dev_{uuid.uuid4().hex[:12]}"
-        now = _utc_now_iso()
-        with transaction(self.connection):
-            self.connection.execute(
-                """
-                INSERT INTO devices (
-                    tenant_id, device_id, student_id, device_name, status, created_at
-                ) VALUES (current_setting('app.tenant_id'), %s, %s, %s, 'active', %s)
-                """,
-                (device_id, student_id, device_name, now),
-            )
+        with student_advisory_lock(self.connection, student_id):
+            device_id = device_id or f"dev_{uuid.uuid4().hex[:12]}"
+            now = _utc_now_iso()
+            with transaction(self.connection):
+                self._require_active_student(student_id)
+                self.connection.execute(
+                    """
+                    INSERT INTO devices (
+                        tenant_id, device_id, student_id, device_name, status, created_at
+                    ) VALUES (
+                        current_setting('app.tenant_id'), %s, %s, %s, 'active', %s
+                    )
+                    """,
+                    (device_id, student_id, device_name, now),
+                )
         return DeviceRegistration(device_id=device_id, student_id=student_id, status="active")
 
     def revoke_device(self, device_id: str, student_id: str) -> None:
         now = _utc_now_iso()
-        with transaction(self.connection):
-            cursor = self.connection.execute(
-                "UPDATE devices SET status = 'revoked', revoked_at = %s "
-                "WHERE device_id = %s AND student_id = %s",
-                (now, device_id, student_id),
-            )
-            if cursor.rowcount == 0:
-                raise DeviceNotFoundError(f"Device {device_id} not found")
+        with student_advisory_lock(self.connection, student_id):
+            with transaction(self.connection):
+                try:
+                    self._require_active_student(student_id)
+                except KeyError as exc:
+                    raise DeviceNotFoundError(
+                        f"Device {device_id} not found"
+                    ) from exc
+                cursor = self.connection.execute(
+                    """
+                    UPDATE devices
+                    SET status = 'revoked', revoked_at = %s
+                    WHERE device_id = %s
+                      AND student_id = %s
+                      AND tenant_id = current_setting('app.tenant_id', true)
+                    """,
+                    (now, device_id, student_id),
+                )
+                if cursor.rowcount == 0:
+                    raise DeviceNotFoundError(f"Device {device_id} not found")
 
-    def _student_exists(self, student_id: str) -> bool:
-        with transaction(self.connection):
-            row = self.connection.execute(
-                "SELECT 1 FROM students WHERE id = %s", (student_id,)
-            ).fetchone()
-        return row is not None
+    def _student_exists(
+        self,
+        student_id: str,
+        *,
+        in_transaction: bool = False,
+    ) -> bool:
+        try:
+            with _transaction_scope(
+                self.connection,
+                in_transaction=in_transaction,
+            ):
+                self._require_active_student(student_id)
+            return True
+        except (KeyError, StudentInactiveError):
+            return False
 
-    def _verify_device(self, device_id: str, student_id: str) -> None:
-        with transaction(self.connection):
+    def _verify_device(
+        self,
+        device_id: str,
+        student_id: str,
+        *,
+        in_transaction: bool = False,
+    ) -> None:
+        with _transaction_scope(
+            self.connection,
+            in_transaction=in_transaction,
+        ):
+            try:
+                self._require_active_student(student_id)
+            except KeyError as exc:
+                raise DeviceNotFoundError(
+                    f"Device {device_id} not registered"
+                ) from exc
             row = self.connection.execute(
-                "SELECT status FROM devices WHERE device_id = %s AND student_id = %s",
+                """
+                SELECT status
+                FROM devices
+                WHERE device_id = %s
+                  AND student_id = %s
+                  AND tenant_id = current_setting('app.tenant_id', true)
+                FOR UPDATE
+                """,
                 (device_id, student_id),
             ).fetchone()
         if row is None:
@@ -156,23 +298,40 @@ class SyncService:
                     )
                 ],
             )
-        with self._student_lock(request.student_id):
-            return self._process_batch_locked(request)
+        with student_advisory_lock(self.connection, request.student_id):
+            try:
+                with transaction(self.connection):
+                    return self._process_batch_locked(request, in_transaction=True)
+            except StudentInactiveError:
+                return self._unauthorized_student_response()
 
-    def _process_batch_locked(self, request: SyncRequest) -> SyncResponse:
-        self._verify_device(request.device_id, request.student_id)
-        if not self._student_exists(request.student_id):
-            return SyncResponse(
-                new_snapshot_version=0,
-                new_server_cursor="",
-                rejected_events=[
-                    SyncRejectedEvent(
-                        event_id="",
-                        code=SyncErrorCode.UNAUTHORIZED_STUDENT.value,
-                        retryable=False,
-                    )
-                ],
-            )
+    @staticmethod
+    def _unauthorized_student_response() -> SyncResponse:
+        return SyncResponse(
+            new_snapshot_version=0,
+            new_server_cursor="",
+            rejected_events=[
+                SyncRejectedEvent(
+                    event_id="",
+                    code=SyncErrorCode.UNAUTHORIZED_STUDENT.value,
+                    retryable=False,
+                )
+            ],
+        )
+
+    def _process_batch_locked(
+        self,
+        request: SyncRequest,
+        *,
+        in_transaction: bool = False,
+    ) -> SyncResponse:
+        if not self._student_exists(request.student_id, in_transaction=in_transaction):
+            return self._unauthorized_student_response()
+        self._verify_device(
+            request.device_id,
+            request.student_id,
+            in_transaction=in_transaction,
+        )
 
         accepted: list[str] = []
         duplicates: list[str] = []
@@ -181,7 +340,13 @@ class SyncService:
         server_agent_events: list[dict] = []
         accepted_max_sequence = 0
 
-        for envelope in request.events:
+        for event_index, envelope in enumerate(request.events):
+            envelope = envelope.model_copy(
+                update={
+                    "student_id": request.student_id,
+                    "device_id": request.device_id,
+                }
+            )
             if not self._verify_integrity(envelope):
                 rejected.append(
                     SyncRejectedEvent(
@@ -201,10 +366,15 @@ class SyncService:
                     )
                 )
                 continue
-            if self.events.learning_event_exists(envelope.event_id):
+            if self.events.learning_event_exists(
+                envelope.event_id,
+                student_id=request.student_id,
+            ):
                 duplicates.append(envelope.event_id)
                 continue
-            if not self._sequence_increases(request, envelope):
+            if not self._sequence_increases(
+                request, envelope, in_transaction=in_transaction
+            ):
                 rejected.append(
                     SyncRejectedEvent(
                         event_id=envelope.event_id,
@@ -214,28 +384,92 @@ class SyncService:
                 )
                 continue
 
-            dependency_error = self._missing_dependency(request.student_id, envelope)
+            try:
+                dependency_error = self._missing_dependency(request.student_id, envelope)
+            except EventValidationError as exc:
+                rejected.append(
+                    SyncRejectedEvent(
+                        event_id=envelope.event_id,
+                        code=exc.code.value,
+                        retryable=exc.retryable,
+                    )
+                )
+                continue
             if dependency_error is not None:
                 rejected.append(dependency_error)
                 continue
 
+            accepted_length = len(accepted)
+            rejected_length = len(rejected)
+            conflicts_length = len(conflicts)
+            server_agent_events_length = len(server_agent_events)
             try:
-                self._apply_event(envelope, accepted, rejected, conflicts, server_agent_events)
-                accepted_max_sequence = max(accepted_max_sequence, envelope.device_sequence)
+                if in_transaction:
+                    with _event_savepoint(self.connection, f"sync_event_{event_index}"):
+                        self._apply_event(
+                            envelope,
+                            accepted,
+                            rejected,
+                            conflicts,
+                            server_agent_events,
+                            in_transaction=True,
+                        )
+                else:
+                    self._apply_event(
+                        envelope,
+                        accepted,
+                        rejected,
+                        conflicts,
+                        server_agent_events,
+                    )
             except (DeviceNotFoundError, DeviceRevokedError):
                 raise
-            except Exception:
+            except EventValidationError as exc:
+                del accepted[accepted_length:]
+                del rejected[rejected_length:]
+                del conflicts[conflicts_length:]
+                del server_agent_events[server_agent_events_length:]
                 rejected.append(
                     SyncRejectedEvent(
                         event_id=envelope.event_id,
-                        code=SyncErrorCode.INTERNAL_RETRYABLE.value,
-                        retryable=True,
+                        code=exc.code.value,
+                        retryable=exc.retryable,
                     )
+                )
+            except UniqueViolation as unique_error:
+                try:
+                    collision = self._global_id_collision(envelope, unique_error)
+                except BaseException:
+                    raise unique_error
+                if collision is None:
+                    raise unique_error
+                del accepted[accepted_length:]
+                del rejected[rejected_length:]
+                del conflicts[conflicts_length:]
+                del server_agent_events[server_agent_events_length:]
+                rejected.append(
+                    SyncRejectedEvent(
+                        event_id=envelope.event_id,
+                        code=collision.code.value,
+                        retryable=collision.retryable,
+                    )
+                )
+            if envelope.event_id in accepted:
+                accepted_max_sequence = max(
+                    accepted_max_sequence, envelope.device_sequence
                 )
 
         if accepted:
-            self._advance_device_sequence(request.device_id, request.student_id, accepted_max_sequence)
-        snapshot = self.build_snapshot(request.student_id)
+            self._advance_device_sequence(
+                request.device_id,
+                request.student_id,
+                accepted_max_sequence,
+                in_transaction=in_transaction,
+            )
+        snapshot = self.build_snapshot(
+            request.student_id,
+            in_transaction=in_transaction,
+        )
         return SyncResponse(
             accepted_event_ids=accepted,
             duplicate_event_ids=duplicates,
@@ -259,7 +493,13 @@ class SyncService:
         digest.update(canonical.encode("utf-8"))
         return envelope.integrity_hash == f"sha256:{digest.hexdigest()}"
 
-    def _sequence_increases(self, request: SyncRequest, envelope: SyncEventEnvelope) -> bool:
+    def _sequence_increases(
+        self,
+        request: SyncRequest,
+        envelope: SyncEventEnvelope,
+        *,
+        in_transaction: bool = False,
+    ) -> bool:
         """SYNC_PROTOCOL rule: `device_sequence` increases per device.
 
         The server tracks the last accepted sequence per device
@@ -268,10 +508,19 @@ class SyncService:
         Authoritative scope is the request (token-verified) device, not the
         client-claims envelope fields.
         """
-        with transaction(self.connection):
+        with _transaction_scope(
+            self.connection,
+            in_transaction=in_transaction,
+        ):
             row = self.connection.execute(
-                "SELECT last_device_sequence FROM devices "
-                "WHERE device_id = %s AND student_id = %s",
+                """
+                SELECT last_device_sequence
+                FROM devices
+                WHERE device_id = %s
+                  AND student_id = %s
+                  AND tenant_id = current_setting('app.tenant_id', true)
+                FOR UPDATE
+                """,
                 (request.device_id, request.student_id),
             ).fetchone()
         if row is None:
@@ -279,22 +528,46 @@ class SyncService:
         return envelope.device_sequence > row["last_device_sequence"]
 
     def _advance_device_sequence(
-        self, device_id: str, student_id: str, batch_max: int
+        self,
+        device_id: str,
+        student_id: str,
+        batch_max: int,
+        *,
+        in_transaction: bool = False,
     ) -> None:
-        with transaction(self.connection):
-            self.connection.execute(
+        with _transaction_scope(
+            self.connection,
+            in_transaction=in_transaction,
+        ):
+            cursor = self.connection.execute(
                 """
-                UPDATE devices SET last_device_sequence = %s
-                WHERE device_id = %s AND student_id = %s
+                UPDATE devices
+                SET last_device_sequence = %s
+                WHERE device_id = %s
+                  AND student_id = %s
+                  AND tenant_id = current_setting('app.tenant_id', true)
                 """,
                 (batch_max, device_id, student_id),
             )
+            if cursor.rowcount != 1:
+                raise RuntimeError(
+                    "device sequence update expected exactly one tenant-scoped row"
+                )
 
     def _missing_dependency(
         self, student_id: str, envelope: SyncEventEnvelope
     ) -> SyncRejectedEvent | None:
         for dep in envelope.depends_on_event_ids:
-            if not self.events.learning_event_exists(dep):
+            if self.events.learning_event_exists(dep, student_id=student_id):
+                continue
+            owner = self.events.learning_event_owner(dep)
+            if owner is not None and owner != student_id:
+                raise EventValidationError(
+                    f"Dependency {dep} belongs to another student",
+                    code=SyncErrorCode.INVALID_SCHEMA,
+                    retryable=False,
+                )
+            if owner is None:
                 return SyncRejectedEvent(
                     event_id=envelope.event_id,
                     code=SyncErrorCode.MISSING_DEPENDENCY.value,
@@ -311,17 +584,21 @@ class SyncService:
         server_agent_events: list[dict],
         *,
         insert_event_row: bool = True,
+        in_transaction: bool = False,
     ) -> None:
         """Projection-only application; `insert_event_row=False` replays
         already-stored events (used by scripts/rebuild_learner_projections.py)."""
         event_type = envelope.event_type
         if event_type == "ANSWER_SUBMITTED":
             self._apply_answer_submitted(envelope, accepted, rejected, conflicts,
-                                         server_agent_events, insert_event_row=insert_event_row)
+                                         server_agent_events,
+                                         insert_event_row=insert_event_row,
+                                         in_transaction=in_transaction)
             return
         if event_type == "SESSION_COMPLETED":
             self._apply_session_completed(envelope, accepted, rejected, conflicts,
-                                          insert_event_row=insert_event_row)
+                                          insert_event_row=insert_event_row,
+                                          in_transaction=in_transaction)
             return
         if event_type in (
             "DIAGNOSTIC_STARTED",
@@ -333,7 +610,8 @@ class SyncService:
             "PLAN_READY",
         ):
             self._apply_observational(envelope, accepted, rejected, conflicts,
-                                      insert_event_row=insert_event_row)
+                                      insert_event_row=insert_event_row,
+                                      in_transaction=in_transaction)
             return
         rejected.append(
             SyncRejectedEvent(
@@ -374,9 +652,13 @@ class SyncService:
         conflicts: list[SyncConflict],
         *,
         insert_event_row: bool = True,
+        in_transaction: bool = False,
     ) -> None:
         received_at = _utc_now_iso()
-        with transaction(self.connection):
+        with _transaction_scope(
+            self.connection,
+            in_transaction=in_transaction,
+        ):
             if insert_event_row:
                 self._insert_learning_event_row(self.connection, envelope, received_at)
             self._ensure_session(self.connection, envelope, SessionState.NEW.value)
@@ -390,15 +672,18 @@ class SyncService:
         conflicts: list[SyncConflict],
         *,
         insert_event_row: bool = True,
+        in_transaction: bool = False,
     ) -> None:
         received_at = _utc_now_iso()
-        with transaction(self.connection):
+        with _transaction_scope(
+            self.connection,
+            in_transaction=in_transaction,
+        ):
             if insert_event_row:
                 self._insert_learning_event_row(self.connection, envelope, received_at)
-            row = self.connection.execute(
-                "SELECT session_state FROM study_sessions WHERE session_id = %s",
-                (envelope.session_id,),
-            ).fetchone()
+            row = self._locked_session(
+                self.connection, envelope.session_id, envelope.student_id
+            )
             if row is None:
                 self.connection.execute(
                     """
@@ -418,9 +703,11 @@ class SyncService:
                     UPDATE study_sessions
                     SET session_state = %s, completed_at = %s, updated_at = %s
                     WHERE session_id = %s
+                      AND student_id = %s
+                      AND tenant_id = current_setting('app.tenant_id', true)
                     """,
                     (SessionState.SESSION_COMPLETED.value, received_at, received_at,
-                     envelope.session_id),
+                     envelope.session_id, envelope.student_id),
                 )
         accepted.append(envelope.event_id)
 
@@ -433,6 +720,7 @@ class SyncService:
         server_agent_events: list[dict],
         *,
         insert_event_row: bool = True,
+        in_transaction: bool = False,
     ) -> None:
         question_id = envelope.question_id or envelope.payload.get("question_id")
         question_version = envelope.question_version or envelope.payload.get("question_version")
@@ -457,12 +745,11 @@ class SyncService:
             meta = self.answer_keys.pack(envelope.content_pack_version).item_meta(
                 question_id, int(question_version)
             )
-        except Exception as exc:
-            code = getattr(exc, "code", SyncErrorCode.QUESTION_VERSION_UNKNOWN)
+        except QuestionVersionError:
             rejected.append(
                 SyncRejectedEvent(
                     event_id=envelope.event_id,
-                    code=str(code.value),
+                    code=SyncErrorCode.QUESTION_VERSION_UNKNOWN.value,
                     retryable=False,
                 )
             )
@@ -470,36 +757,54 @@ class SyncService:
 
         received_at = _utc_now_iso()
         connection = self.connection
-        with transaction(connection):
+        with _transaction_scope(
+            connection,
+            in_transaction=in_transaction,
+        ):
                 if insert_event_row:
                     self._insert_learning_event_row(connection, envelope, received_at)
                 self._ensure_session(connection, envelope, SessionState.QUESTION_ACTIVE.value)
 
                 existing_attempt = connection.execute(
-                    "SELECT 1 FROM answer_attempts WHERE event_id = %s",
-                    (envelope.event_id,),
+                    """
+                    SELECT 1
+                    FROM answer_attempts
+                    WHERE event_id = %s
+                      AND student_id = %s
+                      AND tenant_id = current_setting('app.tenant_id', true)
+                    """,
+                    (envelope.event_id, envelope.student_id),
                 ).fetchone()
                 if existing_attempt is not None:
                     accepted.append(envelope.event_id)
                     return
 
                 attempt_id = envelope.payload.get("attempt_id") or f"att_{envelope.event_id[:16]}"
+                attempt_owner = self._attempt_owner(connection, attempt_id)
+                if attempt_owner is not None and attempt_owner != envelope.student_id:
+                    raise EventValidationError(
+                        f"Attempt {attempt_id} belongs to another student",
+                        code=SyncErrorCode.INVALID_SCHEMA,
+                        retryable=False,
+                    )
                 prior_same_attempt = connection.execute(
                     """
                     SELECT COUNT(*) AS total FROM answer_attempts
-                    WHERE session_id = %s AND attempt_id = %s
+                    WHERE session_id = %s
+                      AND student_id = %s
+                      AND tenant_id = current_setting('app.tenant_id', true)
+                      AND attempt_id = %s
                     """,
-                    (envelope.session_id, attempt_id),
+                    (envelope.session_id, envelope.student_id, attempt_id),
                 ).fetchone()["total"]
                 if prior_same_attempt > 0:
                     stored_attempt_id = f"{attempt_id}#dup{prior_same_attempt}"
                 else:
                     stored_attempt_id = attempt_id
 
-                session_row = connection.execute(
-                    "SELECT session_state FROM study_sessions WHERE session_id = %s",
-                    (envelope.session_id,),
-                ).fetchone()
+                session_row = self._locked_session(
+                    connection, envelope.session_id, envelope.student_id
+                )
                 late_event = bool(
                     session_row
                     and session_row["session_state"] == SessionState.SESSION_COMPLETED.value
@@ -508,9 +813,13 @@ class SyncService:
                 prior_same_item = connection.execute(
                     """
                     SELECT COUNT(*) AS total FROM answer_attempts
-                    WHERE session_id = %s AND content_id = %s AND validity = 'valid'
+                    WHERE session_id = %s
+                      AND student_id = %s
+                      AND tenant_id = current_setting('app.tenant_id', true)
+                      AND content_id = %s
+                      AND validity = 'valid'
                     """,
-                    (envelope.session_id, question_id),
+                    (envelope.session_id, envelope.student_id, question_id),
                 ).fetchone()["total"]
 
                 weight = self._evidence_weight(meta, envelope, repeated=prior_same_item > 0)
@@ -603,7 +912,7 @@ class SyncService:
                         )
                     else:
                         self._transition_session(
-                            connection, envelope.session_id,
+                            connection, envelope.student_id, envelope.session_id,
                             SessionState.ANSWER_EVALUATED, received_at,
                         )
 
@@ -653,7 +962,10 @@ class SyncService:
             """
             SELECT alpha, beta, evidence_count, correct_streak, incorrect_streak,
                    last_practiced_at, review_due_at
-            FROM student_skill_states WHERE student_id = %s AND skill = %s
+            FROM student_skill_states
+            WHERE student_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+              AND skill = %s
             """,
             (student_id, skill),
         ).fetchone()
@@ -674,7 +986,9 @@ class SyncService:
             SET alpha = %s, beta = %s, mastery = %s, confidence = %s,
                 evidence_count = %s, correct_streak = %s, incorrect_streak = %s,
                 last_practiced_at = %s, updated_at = %s
-            WHERE student_id = %s AND skill = %s
+            WHERE student_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+              AND skill = %s
             """,
             (
                 state.alpha, state.beta, state.mastery, state.confidence,
@@ -752,10 +1066,7 @@ class SyncService:
         envelope: SyncEventEnvelope,
         default_state: str,
     ) -> None:
-        row = connection.execute(
-            "SELECT 1 FROM study_sessions WHERE session_id = %s",
-            (envelope.session_id,),
-        ).fetchone()
+        row = self._locked_session(connection, envelope.session_id, envelope.student_id)
         if row is None:
             connection.execute(
                 """
@@ -773,23 +1084,175 @@ class SyncService:
     def _transition_session(
         self,
         connection,
+        student_id: str,
         session_id: str,
         target: SessionState,
         now: str,
     ) -> None:
-        row = connection.execute(
-            "SELECT session_state FROM study_sessions WHERE session_id = %s",
-            (session_id,),
-        ).fetchone()
+        row = self._locked_session(connection, session_id, student_id)
         if row is None or row["session_state"] == SessionState.SESSION_COMPLETED.value:
             return
         if row["session_state"] != target.value:
             connection.execute(
                 """
-                UPDATE study_sessions SET session_state = %s, updated_at = %s WHERE session_id = %s
+                UPDATE study_sessions
+                SET session_state = %s, updated_at = %s
+                WHERE session_id = %s
+                  AND student_id = %s
+                  AND tenant_id = current_setting('app.tenant_id', true)
                 """,
-                (target.value, now, session_id),
+                (target.value, now, session_id, student_id),
             )
+
+    def _locked_session(
+        self,
+        connection,
+        session_id: str,
+        student_id: str,
+    ) -> dict | None:
+        """Lock a tenant session and reject a mismatched student owner."""
+        row = connection.execute(
+            """
+            SELECT student_id, session_state,
+                   (student_id = %s) AS owned_by_student
+            FROM study_sessions
+            WHERE session_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+            FOR UPDATE
+            """,
+            (student_id, session_id),
+        ).fetchone()
+        if row is not None and not row["owned_by_student"]:
+            raise EventValidationError(
+                f"Session {session_id} belongs to another student",
+                code=SyncErrorCode.INVALID_SCHEMA,
+                retryable=False,
+            )
+        return row
+
+    def _attempt_owner(self, connection, attempt_id: str) -> str | None:
+        row = connection.execute(
+            """
+            SELECT student_id
+            FROM answer_attempts
+            WHERE attempt_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+            FOR UPDATE
+            """,
+            (attempt_id,),
+        ).fetchone()
+        return None if row is None else row["student_id"]
+
+    def _session_owner(self, connection, session_id: str) -> str | None:
+        row = connection.execute(
+            """
+            SELECT student_id
+            FROM study_sessions
+            WHERE session_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+            FOR UPDATE
+            """,
+            (session_id,),
+        ).fetchone()
+        return None if row is None else row["student_id"]
+
+    def _attempt_event_owner(self, connection, event_id: str) -> str | None:
+        row = connection.execute(
+            """
+            SELECT student_id
+            FROM answer_attempts
+            WHERE event_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+            FOR UPDATE
+            """,
+            (event_id,),
+        ).fetchone()
+        return None if row is None else row["student_id"]
+
+    def _global_id_collision(
+        self,
+        envelope: SyncEventEnvelope,
+        unique_error: UniqueViolation,
+    ) -> EventValidationError | None:
+        constraint_name = getattr(unique_error.diag, "constraint_name", None)
+        if constraint_name in _LEARNING_EVENT_ID_CONSTRAINTS:
+            event_owner = self.events.learning_event_owner(envelope.event_id)
+            if event_owner is not None:
+                if event_owner != envelope.student_id:
+                    return EventValidationError(
+                        f"Learning event {envelope.event_id} belongs to another student",
+                        code=SyncErrorCode.INVALID_SCHEMA,
+                        retryable=False,
+                    )
+                return None
+            return EventValidationError(
+                "Global sync identifier is already owned outside the current tenant",
+                code=SyncErrorCode.INVALID_SCHEMA,
+                retryable=False,
+            )
+
+        if constraint_name in _ANSWER_EVENT_ID_CONSTRAINTS:
+            event_owner = self.events.learning_event_owner(envelope.event_id)
+            if event_owner is None:
+                event_owner = self._attempt_event_owner(
+                    self.connection, envelope.event_id
+                )
+            if event_owner is not None:
+                if event_owner != envelope.student_id:
+                    return EventValidationError(
+                        f"Learning event {envelope.event_id} belongs to another student",
+                        code=SyncErrorCode.INVALID_SCHEMA,
+                        retryable=False,
+                    )
+                return None
+            return EventValidationError(
+                "Global sync identifier is already owned outside the current tenant",
+                code=SyncErrorCode.INVALID_SCHEMA,
+                retryable=False,
+            )
+
+        if constraint_name in _ANSWER_ATTEMPT_ID_CONSTRAINTS:
+            if envelope.event_type != "ANSWER_SUBMITTED":
+                return None
+            attempt_id = envelope.payload.get("attempt_id") or f"att_{envelope.event_id[:16]}"
+            attempt_owner = self._attempt_owner(self.connection, attempt_id)
+            if attempt_owner is not None:
+                if attempt_owner != envelope.student_id:
+                    return EventValidationError(
+                        f"Attempt {attempt_id} belongs to another student",
+                        code=SyncErrorCode.INVALID_SCHEMA,
+                        retryable=False,
+                    )
+                return None
+            return EventValidationError(
+                "Global sync identifier is already owned outside the current tenant",
+                code=SyncErrorCode.INVALID_SCHEMA,
+                retryable=False,
+            )
+
+        if constraint_name == "study_sessions_pkey":
+            session_owner = self._session_owner(self.connection, envelope.session_id)
+            if session_owner is not None:
+                if session_owner != envelope.student_id:
+                    return EventValidationError(
+                        f"Session {envelope.session_id} belongs to another student",
+                        code=SyncErrorCode.INVALID_SCHEMA,
+                        retryable=False,
+                    )
+                return None
+            return EventValidationError(
+                "Global sync identifier is already owned outside the current tenant",
+                code=SyncErrorCode.INVALID_SCHEMA,
+                retryable=False,
+            )
+
+        if constraint_name not in _GLOBAL_ID_CONSTRAINTS:
+            return None
+        return EventValidationError(
+            "Global sync identifier is already owned outside the current tenant",
+            code=SyncErrorCode.INVALID_SCHEMA,
+            retryable=False,
+        )
 
     def _insert_learning_event_row(
         self,
@@ -797,6 +1260,13 @@ class SyncService:
         envelope: SyncEventEnvelope,
         received_at: str,
     ) -> None:
+        owner = self.events.learning_event_owner(envelope.event_id)
+        if owner is not None and owner != envelope.student_id:
+            raise EventValidationError(
+                f"Learning event {envelope.event_id} belongs to another student",
+                code=SyncErrorCode.INVALID_SCHEMA,
+                retryable=False,
+            )
         connection.execute(
             """
             INSERT INTO learning_events (
@@ -815,38 +1285,79 @@ class SyncService:
     # Snapshot
     # ------------------------------------------------------------------
 
-    def build_snapshot(self, student_id: str) -> SnapshotResponse:
-        with transaction(self.connection) as connection:
+    def build_snapshot(
+        self,
+        student_id: str,
+        *,
+        in_transaction: bool = False,
+    ) -> SnapshotResponse:
+        with _transaction_scope(
+            self.connection,
+            in_transaction=in_transaction,
+        ) as connection:
             student_row = connection.execute(
-                "SELECT * FROM students WHERE id = %s", (student_id,)
+                """
+                SELECT *
+                FROM students
+                WHERE id = %s
+                  AND tenant_id = current_setting('app.tenant_id', true)
+                """,
+                (student_id,),
             ).fetchone()
             if student_row is None:
                 raise KeyError(f"Unknown student {student_id}")
             skill_rows = connection.execute(
-                "SELECT * FROM student_skill_states WHERE student_id = %s",
+                """
+                SELECT *
+                FROM student_skill_states
+                WHERE student_id = %s
+                  AND tenant_id = current_setting('app.tenant_id', true)
+                """,
                 (student_id,),
             ).fetchall()
             session_row = connection.execute(
                 """
-                SELECT * FROM study_sessions WHERE student_id = %s
+                SELECT *
+                FROM study_sessions
+                WHERE student_id = %s
+                  AND tenant_id = current_setting('app.tenant_id', true)
                 ORDER BY updated_at DESC LIMIT 1
                 """,
                 (student_id,),
             ).fetchone()
             plan_row = connection.execute(
                 """
-                SELECT * FROM study_plans WHERE student_id = %s
+                SELECT *
+                FROM study_plans
+                WHERE student_id = %s
+                  AND tenant_id = current_setting('app.tenant_id', true)
                 ORDER BY created_at DESC LIMIT 1
                 """,
                 (student_id,),
             ).fetchone()
             event_count = connection.execute(
-                "SELECT COUNT(*) AS total FROM learning_events WHERE student_id = %s",
+                """
+                SELECT COUNT(*) AS total
+                FROM learning_events
+                WHERE student_id = %s
+                  AND tenant_id = current_setting('app.tenant_id', true)
+                """,
                 (student_id,),
             ).fetchone()["total"]
             latest = connection.execute(
-                "SELECT COUNT(*) AS total FROM learning_events"
+                """
+                SELECT COUNT(*) AS total
+                FROM learning_events
+                WHERE tenant_id = current_setting('app.tenant_id', true)
+                """
             ).fetchone()["total"]
+            strategy_memory = {
+                "intervention_stats": self._intervention_stats(
+                    student_id,
+                    in_transaction=True,
+                ),
+                "facts": self._facts_summary(student_id),
+            }
 
         skill_states = [
             {
@@ -869,11 +1380,6 @@ class SyncService:
         if plan_row is not None:
             plan = {"plan_json": json.loads(plan_row["plan_json"])}
 
-        strategy_memory = {
-            "intervention_stats": self._intervention_stats(student_id),
-            "facts": self._facts_summary(student_id),
-        }
-
         return SnapshotResponse(
             student={
                 "id": student_row["id"],
@@ -891,31 +1397,46 @@ class SyncService:
             server_cursor=f"cursor_{latest or 0}",
         )
 
-    def _intervention_stats(self, student_id: str) -> list[dict]:
-        with transaction(self.connection) as connection:
+    def _intervention_stats(
+        self,
+        student_id: str,
+        *,
+        in_transaction: bool = False,
+    ) -> list[dict]:
+        with _transaction_scope(
+            self.connection,
+            in_transaction=in_transaction,
+        ) as connection:
             rows = connection.execute(
                 """
                 SELECT skill, misconception, intervention, difficulty_band,
                        immediate_correct, immediate_attempts, immediate_weight,
                        short_term_correct, short_term_attempts, short_term_weight,
                        delayed_correct, delayed_attempts, delayed_weight
-                FROM intervention_stats WHERE student_id = %s
+                FROM intervention_stats
+                WHERE student_id = %s
+                  AND tenant_id = current_setting('app.tenant_id', true)
                 """,
                 (student_id,),
             ).fetchall()
         return [dict(row) for row in rows]
 
     def _facts_summary(self, student_id: str) -> list[dict]:
-        try:
-            facts = self.memory.get_facts(student_id)
-        except Exception:
-            return []
+        facts = self.memory.get_facts(student_id)
         return [
             {
                 "fact_id": fact.fact_id,
-                "key": fact.key,
-                "value": fact.value,
+                "student_id": fact.student_id,
+                "category": fact.category,
+                "normalized_key": fact.normalized_key,
+                "fact_text": fact.fact_text,
                 "confidence": fact.confidence,
+                "supporting_episode_ids": fact.supporting_episode_ids,
+                "contradicting_episode_ids": fact.contradicting_episode_ids,
+                "evidence_count": fact.evidence_count,
+                "contradiction_count": fact.contradiction_count,
+                "status": fact.status,
+                "version": fact.version,
             }
             for fact in facts[:20]
         ]

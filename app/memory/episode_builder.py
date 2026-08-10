@@ -13,7 +13,7 @@ from app.domain.memory import (
     outcome_component_score,
 )
 
-from .outbox import OutboxRepository
+from .outbox import OutboxRepository, ensure_active_student, student_advisory_lock
 
 DEFAULT_FACT_STATUS = "observation"
 
@@ -102,62 +102,72 @@ class EpisodeBuilder:
                 "updated_at": utc_now_iso(),
             }
         )
-        try:
-            self.connection.execute(
-                "UPDATE learning_episodes SET status = %s, updated_at = %s WHERE episode_id = %s",
-                (status, updated.updated_at, episode.episode_id),
-            )
-            if status == "validated":
-                self.outbox.enqueue(
-                    self.connection,
-                    student_id=episode.student_id,
-                    aggregate_type="episode",
-                    aggregate_id=episode.episode_id,
-                    operation="upsert_episode",
-                    payload=updated.model_dump(),
-                    version=1,
-                    now=updated.updated_at,
+        with student_advisory_lock(self.connection, episode.student_id):
+            try:
+                ensure_active_student(self.connection, episode.student_id)
+                self.connection.execute(
+                    "UPDATE learning_episodes SET status = %s, updated_at = %s "
+                    "WHERE episode_id = %s AND student_id = %s",
+                    (
+                        status,
+                        updated.updated_at,
+                        episode.episode_id,
+                        episode.student_id,
+                    ),
                 )
-            self.connection.commit()
-        except BaseException:
-            self.connection.rollback()
-            raise
+                if status == "validated":
+                    self.outbox.enqueue(
+                        self.connection,
+                        student_id=episode.student_id,
+                        aggregate_type="episode",
+                        aggregate_id=episode.episode_id,
+                        operation="upsert_episode",
+                        payload=updated.model_dump(),
+                        version=1,
+                        now=updated.updated_at,
+                    )
+                self.connection.commit()
+            except BaseException:
+                self.connection.rollback()
+                raise
         return updated
 
     def _insert_episode(self, connection: psycopg.Connection, episode: Episode) -> None:
-        try:
-            connection.execute(
-                """
-                INSERT INTO learning_episodes (
-                    tenant_id, episode_id, student_id, session_id, skill, misconception,
-                    intervention, outcome_json, effectiveness, evidence_event_ids_json,
-                    summary, confidence, status, created_at, updated_at
-                ) VALUES (
-                    current_setting('app.tenant_id'), %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s
+        with student_advisory_lock(connection, episode.student_id):
+            try:
+                ensure_active_student(connection, episode.student_id)
+                connection.execute(
+                    """
+                    INSERT INTO learning_episodes (
+                        tenant_id, episode_id, student_id, session_id, skill, misconception,
+                        intervention, outcome_json, effectiveness, evidence_event_ids_json,
+                        summary, confidence, status, created_at, updated_at
+                    ) VALUES (
+                        current_setting('app.tenant_id'), %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s
+                    )
+                    """,
+                    (
+                        episode.episode_id,
+                        episode.student_id,
+                        episode.session_id,
+                        episode.skill,
+                        episode.misconception,
+                        episode.intervention,
+                        _json(episode.outcome),
+                        episode.effectiveness,
+                        _json(episode.evidence_event_ids),
+                        episode.summary,
+                        episode.confidence,
+                        episode.status,
+                        episode.created_at,
+                        episode.updated_at,
+                    ),
                 )
-                """,
-                (
-                    episode.episode_id,
-                    episode.student_id,
-                    episode.session_id,
-                    episode.skill,
-                    episode.misconception,
-                    episode.intervention,
-                    _json(episode.outcome),
-                    episode.effectiveness,
-                    _json(episode.evidence_event_ids),
-                    episode.summary,
-                    episode.confidence,
-                    episode.status,
-                    episode.created_at,
-                    episode.updated_at,
-                ),
-            )
-            connection.commit()
-        except BaseException:
-            connection.rollback()
-            raise
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
 
     def get_episode(self, episode_id: str) -> Episode | None:
         row = self.connection.execute(

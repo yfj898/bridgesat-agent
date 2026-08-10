@@ -19,7 +19,6 @@ from app.content_pipeline.contracts import (
     VALIDATED_DIR,
 )
 from app.content_pipeline.generation import generate_all_drafts, generate_item
-from app.content_pipeline.importing import import_pack, verify_import
 from app.content_pipeline.packaging import (
     ApprovalBlockedError,
     approve_items,
@@ -420,18 +419,5 @@ def _minimal_approved_item(content_id: str, skill: str) -> dict:
 
 # --- import --------------------------------------------------------------
 
-
-def test_import_pack_into_registry(tmp_path: Path) -> None:
-    item = _minimal_approved_item("math.linear_equations.003", "linear_equations")
-    pack_dir = tmp_path / "packs"
-    build_pack([item], [], out_dir=pack_dir)
-    built = pack_dir / "bridgesat-math-0.1.0"
-
-    db = tmp_path / "registry.db"
-    imported = import_pack(db, built)
-    assert imported == 1
-    summary = verify_import(db)
-    assert summary["content_items"] == 1
-    assert summary["content_item_versions"] == 1
-    assert summary["content_pack_items"] == 1
-    assert summary["deepmind_source_rows"] == 1
+# SQLite registry import was replaced by the PostgreSQL content registry
+# (migration 0015). Import coverage lives in tests/test_pg_content_pipeline.py.

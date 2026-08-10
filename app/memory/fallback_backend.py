@@ -1,9 +1,10 @@
 """Fallback student memory (ARCHITECTURE §8.6, COMPETITION plan §10).
 
-Retrieval chain: Mnemis within a strict timeout -> SQLite episodic/aggregate
-queries -> offline client snapshot. SQLite is always available and the loop
-never depends on Mnemis success; every call records route and latency so the
-fallback is measurable (memory_fallback_rate).
+Retrieval chain: Mnemis within a strict timeout -> authoritative PostgreSQL
+episodic/aggregate queries -> offline client snapshot. PostgreSQL is always
+available to the request and the loop never depends on Mnemis success; every
+call records route and latency so the fallback is measurable
+(``memory_fallback_rate``).
 """
 
 from __future__ import annotations
@@ -11,17 +12,17 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Any
+
+import psycopg
 
 from app.memory.mnemis_backend import (
     MnemisMemoryAdapter,
     MnemisMemoryResult,
-    MnemisUnavailableError,
     SYSTEM_1_TIMEOUT_MS,
 )
-from app.memory.sqlite_backend import SQLiteMemory
+from app.memory.pg_memory import PGMemory
 
 
 @dataclass
@@ -65,20 +66,21 @@ class RecallResult:
 
 
 class FallbackStudentMemory:
-    """Retrieval facade over the authoritative SQLite store with an optional
+    """Retrieval facade over the authoritative PostgreSQL store with an optional
     Mnemis index in front. Writes never pass through here: episodes and facts
-    are written to SQLite and delivered to Mnemis via the transactional
+    are written to PostgreSQL and delivered to Mnemis via the transactional
     outbox."""
 
     def __init__(
         self,
-        database_path: Path,
+        connection: psycopg.Connection,
         mnemis: MnemisMemoryAdapter | Any | None = None,
         *,
         timeout_ms: int | None = None,
         offline_snapshot: Any | None = None,
     ) -> None:
-        self.sqlite = SQLiteMemory(database_path)
+        self.connection = connection
+        self.pg = PGMemory(connection)
         self.mnemis = mnemis
         # The recall budget must fit the index behind the adapter: the
         # LLM-backed index (NvidiaMemoryIndex) needs the LLM round-trip time,
@@ -104,7 +106,7 @@ class FallbackStudentMemory:
     ) -> RecallResult:
         started = time.perf_counter()
         hits: list[RecallHit] = []
-        route = "sqlite"
+        route = "pg"
 
         if self.mnemis is not None:
             try:
@@ -117,13 +119,18 @@ class FallbackStudentMemory:
                     self.mnemis.recall_similar(query),
                     timeout=self.timeout_ms / 1000,
                 )
-                hits = [RecallHit.from_mnemis(r) for r in results]
+                hits = [
+                    RecallHit.from_mnemis(r)
+                    for r in self._scoped_mnemis_results(results, student_id)
+                ]
                 route = "mnemis_system1"
-            except (TimeoutError, MnemisUnavailableError, asyncio.TimeoutError):
+            except Exception:
+                # Any ordinary adapter failure degrades to authoritative PG.
+                # Do not catch BaseException: cancellation must propagate.
                 hits = []
 
         if not hits:
-            episodes = self.sqlite.recall_episodes(
+            episodes = self.pg.recall_episodes(
                 student_id=student_id,
                 skill=skill,
                 misconception=misconception,
@@ -133,13 +140,13 @@ class FallbackStudentMemory:
                 RecallHit(
                     episode_id=e.episode_id,
                     memory_id=None,
-                    retrieval_route="sqlite",
+                    retrieval_route="pg",
                     confidence=e.confidence,
                     supporting_episode_ids=[e.episode_id],
                 )
                 for e in episodes
             ]
-            route = "sqlite"
+            route = "pg"
 
         if not hits and self.offline_snapshot is not None:
             episodes = self.offline_snapshot.recall_episodes(
@@ -174,6 +181,26 @@ class FallbackStudentMemory:
                 "p95": self._latency_p95(),
             },
         }
+
+    def _scoped_mnemis_results(
+        self, results: list[Any], student_id: str
+    ) -> list[Any]:
+        """Retain only Mnemis results whose supporting episode IDs are a
+        non-empty subset of the student's validated PostgreSQL episodes."""
+        if not results:
+            return []
+        validated = self.pg.validated_episode_ids(student_id)
+        if not validated:
+            return []
+        scoped: list[Any] = []
+        for result in results:
+            if isinstance(result, dict):
+                supporting = list(result.get("supporting_episode_ids") or [])
+            else:
+                supporting = list(getattr(result, "supporting_episode_ids", None) or [])
+            if supporting and set(supporting) <= validated:
+                scoped.append(result)
+        return scoped
 
     def _latency_p95(self) -> float:
         if not self._latencies:

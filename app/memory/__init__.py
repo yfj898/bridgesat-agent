@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import os
 from enum import StrEnum
-from pathlib import Path
+
+import psycopg
 
 from .episode_builder import EpisodeBuilder
 from .pg_memory import PGMemory
@@ -17,15 +18,16 @@ def memory_mode() -> MemoryMode:
     return MemoryMode(os.getenv("BRIDGESAT_MODE", MemoryMode.LOCAL.value))
 
 
-def build_mnemis_index(database_path: Path):
+def build_mnemis_index(connection: psycopg.Connection):
     """Build the enhanced-mode index for the memory outbox worker.
 
     With ``BRIDGESAT_LLM_API_KEY`` configured, returns a MnemisMemoryAdapter
     over the local LLM-backed index (NvidiaMemoryIndex), which summarizes
     episodes and reranks recall through the OpenAI-compatible LLM endpoint.
     Without it, returns the default adapter whose transport is unavailable, so
-    enhanced mode degrades to the authoritative SQLite recall exactly as
-    before. The index is only ever a derived store: SQLite stays authoritative.
+    enhanced mode degrades to the authoritative PostgreSQL recall exactly as
+    before. The index is only ever a derived store: PostgreSQL stays
+    authoritative.
     """
     from .mnemis_backend import MnemisMemoryAdapter
 
@@ -36,13 +38,13 @@ def build_mnemis_index(database_path: Path):
     from .nvidia_backend import NvidiaMemoryIndex
 
     client = LLMClient()
-    index = NvidiaMemoryIndex(database_path, llm=client)
+    index = NvidiaMemoryIndex(connection, llm=client)
     return MnemisMemoryAdapter(
         base_url="http://local/nvidia-index",
         transport=index,
         # The LLM-backed index needs the LLM round-trip time, not the 800 ms
         # HTTP budget the default Mnemis adapter assumes; otherwise recall
-        # would always time out and fall back to SQLite.
+        # would always time out and fall back to PostgreSQL.
         timeout_ms=client.timeout_ms,
     )
 
@@ -56,7 +58,7 @@ class MemoryProvider:
     """
 
     def __init__(self, connection) -> None:
-        self.sqlite = PGMemory(connection)
+        self.pg = PGMemory(connection)
         self.episodes = EpisodeBuilder(connection)
         self.mode = memory_mode()
         self.mnemis = None
@@ -69,7 +71,7 @@ class MemoryProvider:
         misconception: str | None = None,
         limit: int = 5,
     ):
-        return self.sqlite.recall_episodes(
+        return self.pg.recall_episodes(
             student_id=student_id,
             skill=skill,
             misconception=misconception,

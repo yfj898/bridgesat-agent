@@ -61,6 +61,14 @@ def _enqueue(repo: OutboxRepository, *, student_id: str | None = None, version: 
     return outbox_id
 
 
+def _claim_token(
+    repo: OutboxRepository, outbox_id: str, *, now: str | None = None
+) -> str:
+    claimed = repo.claim_due(now=now or _now(), batch_size=10, outbox_ids=[outbox_id])
+    assert len(claimed) == 1
+    return claimed[0].claim_token
+
+
 def test_enqueue_appends_row_with_stable_idempotency_key(repo: OutboxRepository) -> None:
     outbox_id = _enqueue(repo)
     record = repo.get(outbox_id)
@@ -145,8 +153,8 @@ def test_future_retry_row_is_not_claimed(repo: OutboxRepository) -> None:
 
 def test_complete_marks_indexed(repo: OutboxRepository) -> None:
     outbox_id = _enqueue(repo)
-    repo.claim_due(now=_now(), batch_size=10)
-    repo.complete(outbox_id, now=_now())
+    claim_token = _claim_token(repo, outbox_id)
+    assert repo.complete(outbox_id, claim_token, now=_now()) is True
     record = repo.get(outbox_id)
     assert record.status == "indexed"
     assert record.completed_at is not None
@@ -155,29 +163,37 @@ def test_complete_marks_indexed(repo: OutboxRepository) -> None:
 def test_retry_schedule_matches_spec(repo: OutboxRepository) -> None:
     assert RETRY_DELAY_SECONDS == (0, 5, 30, 300, 1800)
     outbox_id = _enqueue(repo)
-    repo.claim_due(now=_now(), batch_size=10)
+    now = _now()
     record = None
     for expected_delay in RETRY_DELAY_SECONDS:
-        status = repo.mark_failed(outbox_id, "boom", now=_now())
+        claim_token = _claim_token(repo, outbox_id, now=now)
+        status = repo.mark_failed(outbox_id, claim_token, "boom", now=now)
         record = repo.get(outbox_id)
         assert status == "retrying"
         assert record.attempt_count > 0
         actual_delay = (
-            datetime.fromisoformat(record.next_attempt_at) - datetime.now(UTC)
+            datetime.fromisoformat(record.next_attempt_at) - datetime.fromisoformat(now)
         ).total_seconds()
         assert actual_delay <= expected_delay + 2
         assert record.last_error == "boom"
-        repo.claim_due(now=_now(), batch_size=10)
+        now = (
+            datetime.fromisoformat(record.next_attempt_at) + timedelta(seconds=1)
+        ).isoformat()
     assert record.attempt_count == MAX_ATTEMPTS
 
 
 def test_dead_letter_after_five_failures(repo: OutboxRepository) -> None:
     outbox_id = _enqueue(repo)
+    now = _now()
     for _ in range(MAX_ATTEMPTS):
-        repo.claim_due(now=_now(), batch_size=10)
-        repo.mark_failed(outbox_id, "boom", now=_now())
-    repo.claim_due(now=_now(), batch_size=10)
-    status = repo.mark_failed(outbox_id, "boom", now=_now())
+        claim_token = _claim_token(repo, outbox_id, now=now)
+        repo.mark_failed(outbox_id, claim_token, "boom", now=now)
+        record = repo.get(outbox_id)
+        now = (
+            datetime.fromisoformat(record.next_attempt_at) + timedelta(seconds=1)
+        ).isoformat()
+    claim_token = _claim_token(repo, outbox_id, now=now)
+    status = repo.mark_failed(outbox_id, claim_token, "boom", now=now)
     assert status == "dead_letter"
     record = repo.get(outbox_id)
     assert record.status == "dead_letter"
@@ -186,13 +202,21 @@ def test_dead_letter_after_five_failures(repo: OutboxRepository) -> None:
 
 
 def test_consistency_metrics(repo: OutboxRepository) -> None:
-    a = _enqueue(repo)
-    b = _enqueue(repo)
-    repo.claim_due(now=_now(), batch_size=10)
-    repo.complete(a, now=_now())
+    a = _enqueue(repo, version=1)
+    b = _enqueue(repo, version=2)
+    a_token = _claim_token(repo, a)
+    b_token = _claim_token(repo, b)
+    assert repo.complete(a, a_token, now=_now()) is True
+    now = _now()
+    claim_token = b_token
     for _ in range(MAX_ATTEMPTS + 1):
-        repo.claim_due(now=_now(), batch_size=10)
-        repo.mark_failed(b, "boom", now=_now())
+        repo.mark_failed(b, claim_token, "boom", now=now)
+        record = repo.get(b)
+        now = (
+            datetime.fromisoformat(record.next_attempt_at) + timedelta(seconds=1)
+        ).isoformat()
+        if record.status != "dead_letter":
+            claim_token = _claim_token(repo, b, now=now)
     metrics = repo.consistency_metrics(now=_now())
     assert metrics["outbox_pending_count"] == 0
     assert metrics["outbox_dead_letter_count"] == 1

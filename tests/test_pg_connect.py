@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pytest
+import psycopg
 
 from app.infrastructure.pg import connect, connect_admin, database_version, transaction
 
@@ -23,6 +24,14 @@ def admin_conn():
 def test_connect_returns_row_dict(pg_conn) -> None:
     row = pg_conn.execute("SELECT 1 AS one").fetchone()
     assert row["one"] == 1
+
+
+def test_connect_returns_idle_transaction_after_role_validation(pg_conn) -> None:
+    connection = connect()
+    try:
+        assert connection.info.transaction_status is psycopg.pq.TransactionStatus.IDLE
+    finally:
+        connection.close()
 
 
 def test_connect_runs_cleanup_sql(pg_conn) -> None:

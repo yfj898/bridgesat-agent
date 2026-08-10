@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Run retrieval evals against a local SQLite FTS5 index.
+"""Run retrieval evals against the PostgreSQL tsvector index.
 
 Usage:
-    python scripts/run_retrieval_evals.py [--db PATH] [--dev evals/retrieval/dev.jsonl] [--golden evals/retrieval/golden.jsonl]
+    python scripts/run_retrieval_evals.py [--dev evals/retrieval/dev.jsonl] [--golden evals/retrieval/golden.jsonl]
 
 Measures Recall@1, Recall@3, MRR, latency, citation coverage, license
 coverage, restricted-source exclusion, explicit no-result rate, and
@@ -14,16 +14,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from app.infrastructure import pg
+from app.infrastructure.migration_runner import migrate_database
 from app.knowledge.local_backend import KnowledgeBackend
-
-DEFAULT_DB = ROOT / "content" / "registry.db"
 
 
 def _load_queries(path: Path) -> list[dict]:
@@ -107,26 +106,46 @@ def evaluate(
     return stats
 
 
+def _backend() -> KnowledgeBackend:
+    admin = pg.connect_admin()
+    try:
+        migrate_database(admin)
+    finally:
+        admin.close()
+    conn = pg.connect()
+    try:
+        conn.execute("SELECT set_config('app.tenant_id', %s, false)", ("tenant_demo",))
+        conn.commit()
+        row = conn.execute("SELECT COUNT(*) AS count FROM knowledge_fts").fetchone()
+        if row["count"] == 0:
+            raise RuntimeError(
+                "knowledge_fts is empty; run scripts/import_content_pack.py first"
+            )
+        return KnowledgeBackend(conn)
+    except BaseException:
+        conn.rollback()
+        conn.close()
+        raise
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--db", type=Path, default=None)
     parser.add_argument("--dev", type=Path, default=ROOT / "evals" / "retrieval" / "dev.jsonl")
     parser.add_argument(
         "--golden", type=Path, default=ROOT / "evals" / "retrieval" / "golden.jsonl"
     )
     args = parser.parse_args()
 
-    db = args.db or Path(os.getenv("BRIDGESAT_KNOWLEDGE_DB", DEFAULT_DB))
-    if not db.is_file():
-        print(f"Database {db} not found; run scripts/import_content_pack.py first", file=sys.stderr)
-        return 1
-    backend = KnowledgeBackend(db)
-
-    dev = evaluate(backend, _load_queries(args.dev))
-    golden = evaluate(backend, _load_queries(args.golden))
-    print(f"DEV   : {json.dumps(dev, indent=2)}")
-    print(f"GOLDEN: {json.dumps(golden, indent=2)}")
-    return 0
+    backend = _backend()
+    try:
+        dev = evaluate(backend, _load_queries(args.dev))
+        golden = evaluate(backend, _load_queries(args.golden))
+        print(f"DEV   : {json.dumps(dev, indent=2)}")
+        print(f"GOLDEN: {json.dumps(golden, indent=2)}")
+        return 0
+    finally:
+        backend.connection.rollback()
+        backend.connection.close()
 
 
 if __name__ == "__main__":

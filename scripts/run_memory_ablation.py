@@ -3,44 +3,83 @@
 
 Compares five memory routes on golden probes:
   no_memory      - policy default only, no recall
-  recent_sqlite  - most recent episode per skill from SQLite
-  similar_sqlite - similar episodes (skill + misconception) from SQLite
+  recent_sqlite  - most recent episode per skill from the PG authority
+  similar_sqlite - similar episodes (skill + misconception) from the PG authority
   mnemis_system1 - Mnemis System-1 recall (stub backend)
-  mnemis_dual    - FallbackStudentMemory: Mnemis 800 ms -> SQLite
+  mnemis_dual    - FallbackStudentMemory: Mnemis 800 ms -> PG authority
+
+The ``recent_sqlite`` and ``similar_sqlite`` route identifiers are retained as
+compatibility keys for existing reports and consumers. Their implementation is
+now PGMemory, not SQLite.
 
 Metrics: episode recall@3 + MRR, next-action accuracy, intervention
 accuracy, fallback success, latency (avg/p95). Writes JSON to stdout and
 a Markdown report to evals/memory/REPORT.md.
 
 Usage:
-    python scripts/run_memory_ablation.py [--golden evals/memory/golden.jsonl] [--out evals/memory/REPORT.md]
+    python scripts/run_memory_ablation.py [--db DSN] [--admin-db DSN]
+        [--tenant LABEL]
+        [--golden evals/memory/golden.jsonl] [--out evals/memory/REPORT.md]
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 from collections import Counter
+from contextlib import contextmanager
+import hashlib
+import json
 import statistics
 import sys
-import tempfile
+import uuid
 from pathlib import Path
+from typing import Iterator
+
+import psycopg
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.domain.events import LearningEvent, LearningEventType
-from app.infrastructure import migration_runner
+from app.infrastructure import pg
 from app.infrastructure.learner_store import LearnerStore
+from app.infrastructure.migration_runner import migrate_database
 from app.memory.episode_builder import EpisodeBuilder
 from app.memory.fallback_backend import FallbackStudentMemory
 from app.memory.mnemis_backend import MnemisUnavailableError
 from app.memory.mnemis_stub import InMemoryMnemisIndex
-from app.memory.sqlite_backend import SQLiteMemory
+from app.memory.pg_memory import PGMemory
 from app.memory.worker import OutboxWorker
 
 DEFAULT_INTERVENTION = "SHOW_WORKED_EXAMPLE"
+ROUTES = (
+    "no_memory",
+    "recent_sqlite",
+    "similar_sqlite",
+    "mnemis_system1",
+    "mnemis_dual",
+)
+
+TENANT_CLEANUP_ORDER = (
+    "memory_outbox",
+    "student_deletions",
+    "student_memory_facts",
+    "learning_episodes",
+    "intervention_stats",
+    "agent_events",
+    "misconception_evidence",
+    "answer_attempts",
+    "session_items",
+    "study_sessions",
+    "study_plans",
+    "student_skill_states",
+    "learning_events",
+    "session_branches",
+    "sync_conflicts",
+    "devices",
+    "student_tokens",
+    "students",
+)
 
 
 class _FailingSlowAdapter:
@@ -54,37 +93,142 @@ class _FailingSlowAdapter:
         return False
 
 
-def _event(session_id: str, event_id: str, student_id: str) -> LearningEvent:
+def _migrate(admin_target: str, app_target: str) -> None:
+    admin = None
+    app = None
+    try:
+        admin = pg.connect_admin(admin_target)
+        app = pg.connect(app_target)
+        pg.assert_safe_app_role(app)
+        pg.assert_matching_database(admin, app)
+        migrate_database(admin)
+    finally:
+        pg.quiet_close(app)
+        pg.quiet_close(admin)
+
+
+@contextmanager
+def _tenant_connection(target: str, tenant_id: str) -> Iterator[psycopg.Connection]:
+    connection = pg.connect(target)
+    try:
+        pg.assert_safe_app_role(connection)
+        connection.execute(
+            "SELECT set_config('app.tenant_id', %s, false)",
+            (tenant_id,),
+        )
+        connection.commit()
+        yield connection
+    finally:
+        pg.quiet_close(connection)
+
+
+def _cleanup_tenant(admin_target: str, app_target: str, tenant_id: str) -> None:
+    admin = None
+    app = None
+    try:
+        admin = pg.connect_admin(admin_target)
+        app = pg.connect(app_target)
+        pg.assert_safe_app_role(app)
+        pg.assert_matching_database(admin, app)
+        app.execute(
+            "SELECT set_config('app.tenant_id', %s, false)",
+            (tenant_id,),
+        )
+        app.commit()
+        for table in TENANT_CLEANUP_ORDER:
+            admin.execute(f"DELETE FROM {table} WHERE tenant_id = %s", (tenant_id,))
+        admin.commit()
+    finally:
+        pg.quiet_close(app)
+        pg.quiet_close(admin)
+
+
+def _tenant_namespace(tenant_id: str) -> str:
+    return f"ab_{hashlib.sha256(tenant_id.encode('utf-8')).hexdigest()[:16]}"
+
+
+def _connection_namespace(connection: psycopg.Connection) -> str:
+    row = connection.execute(
+        "SELECT current_setting('app.tenant_id', false) AS tenant"
+    ).fetchone()
+    if row is None or not row["tenant"]:
+        raise RuntimeError("ablation connection has no app.tenant_id")
+    return _tenant_namespace(row["tenant"])
+
+
+def _namespaced_id(namespace: str, identifier: str) -> str:
+    return f"{namespace}_{identifier}"
+
+
+def _new_tenant(label: str) -> str:
+    return f"{label}_{uuid.uuid4().hex}"
+
+
+def _event(
+    session_id: str,
+    event_id: str,
+    student_id: str,
+    *,
+    attempt_id: str,
+):
+    from app.domain.events import LearningEvent, LearningEventType
+
     return LearningEvent(
         event_id=event_id,
         student_id=student_id,
         session_id=session_id,
         event_type=LearningEventType.ANSWER_EVALUATED,
-        payload={},
+        payload={"attempt_id": attempt_id},
         occurred_at="2026-08-07T10:00:00+00:00",
         received_at="2026-08-07T10:00:00+00:00",
     )
 
 
-def _seed_episodes(db: Path, seed: list[dict], student_id: str) -> None:
-    builder = EpisodeBuilder(db)
+def _seed_episodes(
+    connection: psycopg.Connection,
+    seed: list[dict],
+    student_id: str,
+    *,
+    namespace: str | None = None,
+) -> None:
+    namespace = namespace or _connection_namespace(connection)
+    builder = EpisodeBuilder(connection)
     for item in seed:
-        session = item["session_id"]
+        base_episode_id = item["episode_id"]
+        episode_id = _namespaced_id(namespace, base_episode_id)
+        session = _namespaced_id(namespace, item["session_id"])
         episode = builder.build_candidate(
             student_id=student_id,
             session_id=session,
             skill=item["skill"],
             misconception=item["misconception"],
             intervention=item["intervention"],
-            context_event=_event(session, f"ctx_{item['episode_id']}", student_id),
-            evidence_events=[_event(session, f"obs_{item['episode_id']}", student_id)],
-            outcome_event=_event(session, f"out_{item['episode_id']}", student_id),
+            context_event=_event(
+                session,
+                _namespaced_id(namespace, f"ctx_{base_episode_id}"),
+                student_id,
+                attempt_id=_namespaced_id(namespace, f"attempt_ctx_{base_episode_id}"),
+            ),
+            evidence_events=[
+                _event(
+                    session,
+                    _namespaced_id(namespace, f"obs_{base_episode_id}"),
+                    student_id,
+                    attempt_id=_namespaced_id(namespace, f"attempt_obs_{base_episode_id}"),
+                )
+            ],
+            outcome_event=_event(
+                session,
+                _namespaced_id(namespace, f"out_{base_episode_id}"),
+                student_id,
+                attempt_id=_namespaced_id(namespace, f"attempt_out_{base_episode_id}"),
+            ),
             outcome_correct=item["correct"],
             outcome_hint_level=0,
-            outcome_content_id=f"out_{item['episode_id']}",
-            teaching_content_id=f"t_{item['episode_id']}",
+            outcome_content_id=f"out_{base_episode_id}",
+            teaching_content_id=f"t_{base_episode_id}",
             summary="x",
-            episode_id=item["episode_id"],
+            episode_id=episode_id,
         )
         builder.validate(episode)
 
@@ -98,10 +242,10 @@ def _episode_id_of(hit) -> str | None:
     return hit
 
 
-def _predict(db: Path, hits: list, limit: int = 5) -> dict:
+def _predict(connection: psycopg.Connection, hits: list, limit: int = 5) -> dict:
     """Recommendation driven by the top-scoring similar-episode cohort."""
-    builder = EpisodeBuilder(db)
-    episodes: list[tuple[Episode, float]] = []
+    builder = EpisodeBuilder(connection)
+    episodes = []
     for hit in hits[:limit]:
         episode_id = _episode_id_of(hit)
         if episode_id is None:
@@ -124,32 +268,40 @@ def _predict(db: Path, hits: list, limit: int = 5) -> dict:
 
 
 async def _probe(
-    db: Path,
+    connection: psycopg.Connection,
     stub: InMemoryMnemisIndex,
     entry: dict,
     id_map: dict[str, str],
     *,
     timeout_ms: int = 800,
+    namespace: str | None = None,
 ) -> dict:
     student_id = id_map[entry["student_id"]]
     probe = entry["probe"]
-    expected_ids = set(entry["expected_episode_ids"])
+    namespace = namespace or _connection_namespace(connection)
+    expected_golden_ids = set(entry["expected_episode_ids"])
+    expected_ids = {
+        _namespaced_id(namespace, episode_id)
+        for episode_id in expected_golden_ids
+    }
     rows: list[dict] = []
-    sqlite = SQLiteMemory(db)
+    pg_memory = PGMemory(connection)
 
     def record(route: str, hits: list, elapsed_ms: float) -> None:
         rows.append({"route": route, "hits": hits, "elapsed_ms": elapsed_ms})
 
-    start = asyncio.get_running_loop().time()
     record("no_memory", [], 0.0)
-    no_memory_ms = 0.0
 
     start = asyncio.get_running_loop().time()
-    recent = sqlite.recall_episodes(student_id=student_id, skill=probe["skill"], limit=1)
+    recent = pg_memory.recall_episodes(
+        student_id=student_id,
+        skill=probe["skill"],
+        limit=1,
+    )
     record("recent_sqlite", recent, (asyncio.get_running_loop().time() - start) * 1000)
 
     start = asyncio.get_running_loop().time()
-    similar = sqlite.recall_episodes(
+    similar = pg_memory.recall_episodes(
         student_id=student_id,
         skill=probe["skill"],
         misconception=probe["misconception"],
@@ -159,13 +311,18 @@ async def _probe(
 
     start = asyncio.get_running_loop().time()
     results = await stub.recall_similar(
-        {"student_id": student_id, "skill": probe["skill"], "misconception": probe["misconception"]},
+        {"student_id": student_id, "skill": probe["skill"],
+         "misconception": probe["misconception"]},
         top_k=5,
     )
     system1_ms = (asyncio.get_running_loop().time() - start) * 1000
     record("mnemis_system1", results, system1_ms)
 
-    fallback = FallbackStudentMemory(db, mnemis=_FailingSlowAdapter(), timeout_ms=timeout_ms)
+    fallback = FallbackStudentMemory(
+        connection,
+        mnemis=_FailingSlowAdapter(),
+        timeout_ms=timeout_ms,
+    )
     start = asyncio.get_running_loop().time()
     result = await fallback.recall_similar(
         student_id=student_id,
@@ -180,13 +337,15 @@ async def _probe(
     summary: dict = {}
     for row in rows:
         route = row["route"]
-        ids = [
-            h.episode_id if hasattr(h, "episode_id") else h.get("supporting_episode_ids", [])[0]
-            for h in row["hits"]
-        ][:3]
+        ids = []
+        for hit in row["hits"]:
+            episode_id = _episode_id_of(hit)
+            if episode_id is not None:
+                ids.append(episode_id)
+        ids = ids[:3]
         recall_hit = bool(set(ids) & expected_ids)
         rank = next((i for i, eid in enumerate(ids, start=1) if eid in expected_ids), None)
-        pred = _predict(db, row["hits"])
+        pred = _predict(connection, row["hits"])
         summary[route] = {
             "elapsed_ms": row["elapsed_ms"],
             "recall_at_3": recall_hit,
@@ -195,22 +354,34 @@ async def _probe(
             "intervention_accuracy": pred["intervention"] == entry["expected_intervention"],
         }
     summary["mnemis_dual"]["fallback_success"] = fallback_success
-    return {"probe": probe, "routes": summary, "expected": {"episode_ids": sorted(expected_ids)}}
+    return {
+        "probe": probe,
+        "routes": summary,
+        # Reports retain the golden identifiers; only the internal recall
+        # comparison uses tenant-namespaced authoritative IDs.
+        "expected": {"episode_ids": sorted(expected_golden_ids)},
+    }
 
 
 def _aggregate(results: list[dict]) -> dict:
-    routes = ["no_memory", "recent_sqlite", "similar_sqlite", "mnemis_system1", "mnemis_dual"]
     out: dict = {"probes": len(results)}
-    for route in routes:
+    for route in ROUTES:
         stats = {}
         for metric in ("recall_at_3", "mrr", "next_action_accuracy", "intervention_accuracy"):
             values = [p["routes"][route][metric] for p in results]
             stats[metric] = sum(values) / len(values) if values else 0.0
         latencies = [p["routes"][route]["elapsed_ms"] for p in results]
-        stats["latency_avg_ms"] = statistics.fmean(latencies) if latencies else 0.0
-        stats["latency_p95_ms"] = statistics.quantiles(latencies, n=20)[18] if len(latencies) >= 20 else (max(latencies) if latencies else 0.0)
+        stats["latency_avg_ms"] = sum(latencies) / len(latencies) if latencies else 0.0
+        stats["latency_p95_ms"] = (
+            statistics.quantiles(latencies, n=20)[18]
+            if len(latencies) >= 20
+            else (max(latencies) if latencies else 0.0)
+        )
         if route == "mnemis_dual":
-            stats["fallback_success"] = sum(p["routes"][route]["fallback_success"] for p in results) / len(results)
+            stats["fallback_success"] = (
+                sum(p["routes"][route]["fallback_success"] for p in results) / len(results)
+                if results else 0.0
+            )
         out[route] = stats
     return out
 
@@ -220,12 +391,13 @@ def _markdown_report(aggregate: dict, path: Path) -> str:
         "# Memory ablation report",
         "",
         f"- probes: {aggregate['probes']}",
-        "- routes: no-memory / recent SQLite / similar SQLite / Mnemis System-1 / Mnemis dual-route",
+        f"- tenant_id: {aggregate.get('tenant_id', 'unknown')}",
+        "- routes: no-memory / recent PG / similar PG / Mnemis System-1 / Mnemis dual-route",
         "",
         "| Route | Episode recall@3 | Recall MRR | Next-action acc | Intervention acc | Fallback success | Latency avg (ms) | Latency p95 (ms) |",
         "|---|---|---|---|---|---|---|---|",
     ]
-    for route in ("no_memory", "recent_sqlite", "similar_sqlite", "mnemis_system1", "mnemis_dual"):
+    for route in ROUTES:
         s = aggregate[route]
         fallback = f"{s.get('fallback_success', 0):.2f}" if "fallback_success" in s else "-"
         lines.append(
@@ -239,38 +411,69 @@ def _markdown_report(aggregate: dict, path: Path) -> str:
     return report
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--db", default=None, help="PostgreSQL application DSN")
+    parser.add_argument("--admin-db", default=None, help="PostgreSQL admin DSN")
+    parser.add_argument("--tenant", default=None, help="label for an isolated ablation tenant")
     parser.add_argument("--golden", type=Path, default=ROOT / "evals" / "memory" / "golden.jsonl")
     parser.add_argument("--out", type=Path, default=ROOT / "evals" / "memory" / "REPORT.md")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     entries = [json.loads(line) for line in args.golden.open(encoding="utf-8") if line.strip()]
-    with tempfile.TemporaryDirectory() as tmp:
-        db = Path(tmp) / "ablation.db"
-        migration_runner.apply_migrations(db)
-        stub = InMemoryMnemisIndex()
-        learner = LearnerStore(db)
-        id_map: dict[str, str] = {}
-        for student_id in {e["student_id"] for e in entries}:
-            actual, _ = learner.create_student(student_id, 20, 1200)
-            id_map[student_id] = actual
-        for entry in entries:
-            _seed_episodes(db, entry["seed"], id_map[entry["student_id"]])
-        worker = OutboxWorker(db, index=stub)
-        while worker.run_pending() > 0:
-            pass
+    if not entries:
+        parser.error("--golden must contain at least one probe")
+    target = args.db or pg.dsn()
+    admin_target = args.admin_db or pg.admin_dsn()
+    tenant_id = _new_tenant(args.tenant or "ablation")
+    namespace = _tenant_namespace(tenant_id)
+    migrated = False
+    try:
+        _migrate(admin_target, target)
+        migrated = True
+        with _tenant_connection(target, tenant_id) as connection:
+            stub = InMemoryMnemisIndex()
+            learner = LearnerStore(connection)
+            id_map: dict[str, str] = {}
+            for student_id in {e["student_id"] for e in entries}:
+                actual, _ = learner.create_student(student_id, 20, 1200)
+                id_map[student_id] = actual
+            for entry in entries:
+                _seed_episodes(
+                    connection,
+                    entry["seed"],
+                    id_map[entry["student_id"]],
+                    namespace=namespace,
+                )
+            worker = OutboxWorker(connection, index=stub)
+            while worker.run_pending() > 0:
+                pass
 
-        async def _run_all():
-            return [await _probe(db, stub, entry, id_map) for entry in entries]
-        results = asyncio.run(_run_all())
+            async def _run_all():
+                return [
+                    await _probe(
+                        connection,
+                        stub,
+                        entry,
+                        id_map,
+                        namespace=namespace,
+                    )
+                    for entry in entries
+                ]
 
-    aggregate = _aggregate(results)
-    markdown = _markdown_report(aggregate, args.out)
-    print(json.dumps({"summary": aggregate, "probes": results}, indent=2, default=str))
-    print(f"\nMarkdown report written to {args.out}")
-    print(markdown)
-    return 0
+            results = asyncio.run(_run_all())
+
+        aggregate = _aggregate(results)
+        aggregate["tenant_id"] = tenant_id
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        markdown = _markdown_report(aggregate, args.out)
+        print(json.dumps({"summary": aggregate, "probes": results}, indent=2, default=str))
+        print(f"\nMarkdown report written to {args.out}")
+        print(markdown)
+        return 0
+    finally:
+        if migrated:
+            _cleanup_tenant(admin_target, target, tenant_id)
 
 
 if __name__ == "__main__":

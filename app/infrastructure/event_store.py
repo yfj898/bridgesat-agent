@@ -109,12 +109,37 @@ class EventStore:
             self.connection.rollback()
             raise
 
-    def learning_event_exists(self, event_id: str) -> bool:
+    def learning_event_exists(
+        self,
+        event_id: str,
+        *,
+        student_id: str | None = None,
+    ) -> bool:
+        clauses = [
+            "event_id = %s",
+            "tenant_id = current_setting('app.tenant_id', true)",
+        ]
+        params: list[object] = [event_id]
+        if student_id is not None:
+            clauses.append("student_id = %s")
+            params.append(student_id)
         row = self.connection.execute(
-            "SELECT 1 AS hit FROM learning_events WHERE event_id = %s",
-            (event_id,),
+            f"SELECT 1 AS hit FROM learning_events WHERE {' AND '.join(clauses)}",
+            params,
         ).fetchone()
         return row is not None
+
+    def learning_event_owner(self, event_id: str) -> str | None:
+        row = self.connection.execute(
+            """
+            SELECT student_id
+            FROM learning_events
+            WHERE event_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+            """,
+            (event_id,),
+        ).fetchone()
+        return None if row is None else row["student_id"]
 
     def get_learning_events(
         self,

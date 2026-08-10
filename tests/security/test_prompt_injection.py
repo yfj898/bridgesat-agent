@@ -9,7 +9,9 @@ cannot change the action, reason code, state machine, mastery, or memory.
 
 from __future__ import annotations
 
-from pathlib import Path
+from dataclasses import replace
+
+import psycopg
 
 import pytest
 
@@ -57,15 +59,21 @@ class TestDocumentTextCannotDriveDecisions:
     def test_retrieved_text_never_changes_state_or_mastery(
         self, injected: PolicyInput
     ) -> None:
-        baseline = decide_next_action(injected)
-        injected.student_id = "s1"
-        injected.skill = INJECTION_TEXT  # instruction-like skill cannot exist, but
+        baseline_input = replace(injected)
+        injected_input = replace(
+            injected,
+            skill=INJECTION_TEXT,  # instruction-like skill cannot exist, but
+        )
+        baseline = decide_next_action(baseline_input)
         # a compromised index must still fail closed: unknown skill gets no
         # special action, only the default bounded retry.
-        decision = decide_next_action(injected).decision
-        assert decision.action == BoundedAction.RETRY_SAME_SKILL.value
-        assert decision.reason_code == "CONTINUE_PRACTICE"
+        injected_result = decide_next_action(injected_input)
+        assert baseline.decision.action == BoundedAction.RETRY_SAME_SKILL.value
+        assert injected_result.decision.action == baseline.decision.action
+        assert injected_result.decision.reason_code == baseline.decision.reason_code
+        assert injected_result.next_state == baseline.next_state
         assert baseline.next_state in SessionState
+        assert injected_input.mastery == baseline_input.mastery == 0.5
 
     def test_reason_code_never_echoes_document_text(self) -> None:
         outcome = decide_next_action(
@@ -84,7 +92,7 @@ class TestDocumentTextCannotDriveDecisions:
 
 class TestKnowledgeResultsAreEvidenceOnly:
     def test_validate_metadata_rejects_instruction_fields(
-        self, db: Path, two_students
+        self, db: psycopg.Connection, two_students
     ) -> None:
         from app.knowledge.citations import validate_metadata
 
@@ -104,7 +112,7 @@ class TestKnowledgeResultsAreEvidenceOnly:
         assert validate_metadata(record) == []
 
     def test_student_free_text_is_never_a_control_input(
-        self, db: Path, two_students
+        self, db: psycopg.Connection, two_students
     ) -> None:
         # Free text typed by a student is stored as data only; it must never
         # appear in a decision action payload or reason.

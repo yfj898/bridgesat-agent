@@ -21,21 +21,21 @@ on-device (no external model, Mnemis, vector service, or network required).
   one-time token (only its hash is stored), and every student-scoped
   endpoint derives the learner identity from the token, never from the
   request body;
-- an immutable SQLite event log with sync protocol: offline queuing,
+- an immutable PostgreSQL event log with sync protocol: offline queuing,
   idempotent batches, refresh recovery, version-bound scoring;
-- episodic/strategy long-term memory (SQLite) with an optional Mnemis gateway
-  that degrades to SQLite fallback on timeout or unavailability;
+- episodic/strategy long-term memory (PostgreSQL) with an optional Mnemis gateway
+  that degrades to PostgreSQL fallback on timeout or unavailability;
 - optional LLM enhancements that never become dependencies of the main loop:
   a dual-mode next-action decision (`BRIDGESAT_LLM_API_KEY`) that prefers the
   LLM's structured decision and falls back to the deterministic policy on any
   failure, and an LLM-backed local memory index that distills episode
-  summaries and reranks recall, degrading to the authoritative SQLite recall
+  summaries and reranks recall, degrading to the authoritative PostgreSQL recall
   when the endpoint is unreachable;
-- FTS5 retrieval over the approved pack with citation/license filtering and
+- tsvector retrieval over the approved pack with citation/license filtering and
   restricted-source exclusion;
 - governed content pipeline: selection, drafting, exact-math validation,
   review ledger, approval blocking, pack build + hash verification;
-- recovery tooling: pre-migration backups, SQLite restore, learner projection
+- recovery tooling: pre-migration backups, learner projection
   rebuild from the event log, memory index rebuild, dead-letter replay;
 - security hardening and the full evaluation suite from
   `docs/EVALUATION_SPEC.md`.
@@ -80,11 +80,13 @@ Requirements: Python >= 3.11, Node >= 18 (for the web tests).
 
 ```bash
 cd bridgesat-agent
+docker compose up -d postgres          # start local PostgreSQL
 python -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
 
-python scripts/import_content_pack.py   # build FTS5 index from the published pack
+python scripts/dev_env.py up            # create roles/database (idempotent)
+python scripts/import_content_pack.py   # publish a pack and build the tsvector index
 python scripts/seed_demo.py             # seed the offline demo learner (idempotent)
 uvicorn app.main:app --reload
 ```
@@ -93,7 +95,7 @@ Open `http://127.0.0.1:8000` (PWA shell at `web/`), then run the tests and
 evaluations:
 
 ```bash
-pytest                                  # full test suite (278 tests)
+pytest                                  # full test suite (543 tests)
 python -m evals.run_all                 # regenerate every eval report
 node --test web/tests/*.test.js         # offline/weak-network/accessibility core paths
 ```
@@ -119,7 +121,7 @@ export BRIDGESAT_MODE=enhanced
 The default model is `deepseek-ai/deepseek-v4-flash-0731` on
 `https://integrate.api.nvidia.com/v1` (OpenAI-compatible). LLM failures are
 never fatal: decisions fall back to the deterministic policy and recall falls
-back to SQLite, exactly as before.
+back to PostgreSQL, exactly as before.
 
 The route layer (`/v1/adapt`) is wired to the LLM: with a key configured the
 next action is decided inside the `AdaptResponse` action domain, while the
@@ -178,7 +180,7 @@ simulation is never presented as real student improvement.
 | RAG citation/license coverage 100%, restricted-source recall 0 | controlled internal test | 100% / 0 hits |
 | content audit 100% | controlled internal test | 889/889 checks |
 | local policy p95 < 150 ms | controlled internal test | 0.01 ms (this machine) |
-| FTS5 p95 < 200 ms | controlled internal test | 2.3 ms (this machine) |
+| tsvector retrieval p95 < 200 ms | controlled internal test | 2.3 ms (this machine) |
 | session restore p95 < 500 ms | controlled internal test | 3.2 ms (this machine) |
 | security + sync suites | controlled internal test | 74 passed |
 | web core-flow tests | controlled internal test | 21 passed, 0 failed |

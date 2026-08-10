@@ -28,6 +28,26 @@ def _has_misconception_evidence_index(connection) -> bool:
     return row is not None
 
 
+def _columns(connection, table_name: str) -> set[str]:
+    return {
+        row["column_name"]
+        for row in connection.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = %s",
+            (table_name,),
+        ).fetchall()
+    }
+
+
+def _has_policy(connection, table_name: str, policy_name: str) -> bool:
+    row = connection.execute(
+        "SELECT 1 FROM pg_policy "
+        "WHERE polrelid = %s::regclass AND polname = %s",
+        (f"public.{table_name}", policy_name),
+    ).fetchone()
+    return row is not None
+
+
 @pytest.fixture()
 def database():
     conn = pg.connect_admin()
@@ -75,6 +95,186 @@ def isolated_database():
 
 def test_fresh_database_migrates_to_supported_version(database) -> None:
     assert pg.database_version(database) == SCHEMA_VERSION
+
+
+def test_fresh_database_has_runtime_safety_contract(database) -> None:
+    assert SCHEMA_VERSION == 15
+    assert pg.database_version(database) == 15
+    assert "claim_token" in _columns(database, "memory_outbox")
+    assert "tenant_id" in _columns(database, "legacy_mastery_imports")
+
+    legacy_rls = database.execute(
+        "SELECT relrowsecurity FROM pg_class "
+        "WHERE oid = 'public.legacy_mastery_imports'::regclass"
+    ).fetchone()
+    assert legacy_rls["relrowsecurity"] is True
+    assert _has_policy(database, "legacy_mastery_imports", "tenant_isolation")
+
+
+def test_migration_0014_normalizes_existing_processing_rows(
+    monkeypatch, isolated_database
+) -> None:
+    from app.infrastructure import migration_runner as runner
+
+    admin_dsn, _ = isolated_database
+    connection = pg.connect_admin(admin_dsn)
+    try:
+        monkeypatch.setattr(runner, "SCHEMA_VERSION", 13)
+        assert runner.migrate_database(connection) == 13
+        connection.execute(
+            "INSERT INTO memory_outbox "
+            "(outbox_id, tenant_id, student_id, payload_json, status, "
+            "attempt_count, next_attempt_at, last_error, created_at, "
+            "aggregate_type, aggregate_id, operation, idempotency_key) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (
+                "outbox_processing",
+                "tenant_demo",
+                "student_demo",
+                "{}",
+                "processing",
+                1,
+                "2026-01-01T00:00:00+00:00",
+                "stale worker",
+                "2026-01-01T00:00:00+00:00",
+                "episode",
+                "episode-1",
+                "upsert",
+                "processing-row",
+            ),
+        )
+        connection.commit()
+
+        monkeypatch.setattr(runner, "SCHEMA_VERSION", 14)
+        assert runner.migrate_database(connection) == 14
+        row = connection.execute(
+            "SELECT status, claim_token FROM memory_outbox "
+            "WHERE outbox_id = %s",
+            ("outbox_processing",),
+        ).fetchone()
+        assert row == {"status": "pending", "claim_token": None}
+    finally:
+        connection.close()
+
+
+def test_migration_0014_backfills_legacy_tenant_and_grants_runtime_access(
+    monkeypatch, isolated_database
+) -> None:
+    from app.infrastructure import migration_runner as runner
+
+    admin_dsn, _ = isolated_database
+    connection = pg.connect_admin(admin_dsn)
+    try:
+        monkeypatch.setattr(runner, "SCHEMA_VERSION", 13)
+        assert runner.migrate_database(connection) == 13
+        connection.execute(
+            "INSERT INTO students "
+            "(id, tenant_id, name, daily_minutes, target_score, mastery_json) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            ("student_known", "tenant_known", "Known", 30, 90, "{}"),
+        )
+        connection.execute(
+            "INSERT INTO legacy_mastery_imports "
+            "(import_id, student_id, mastery_json, imported_at) "
+            "VALUES (%s, %s, %s, %s), (%s, %s, %s, %s)",
+            (
+                "known-import",
+                "student_known",
+                "{}",
+                "2026-01-01",
+                "orphan-import",
+                "student_missing",
+                "{}",
+                "2026-01-01",
+            ),
+        )
+        connection.commit()
+
+        monkeypatch.setattr(runner, "SCHEMA_VERSION", 14)
+        assert runner.migrate_database(connection) == 14
+
+        rows = connection.execute(
+            "SELECT import_id, tenant_id FROM legacy_mastery_imports "
+            "ORDER BY import_id"
+        ).fetchall()
+        assert rows == [
+            {"import_id": "known-import", "tenant_id": "tenant_known"},
+            {"import_id": "orphan-import", "tenant_id": "tenant_demo"},
+        ]
+
+        column = connection.execute(
+            "SELECT is_nullable, column_default "
+            "FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = %s "
+            "AND column_name = 'tenant_id'",
+            ("legacy_mastery_imports",),
+        ).fetchone()
+        assert column["is_nullable"] == "NO"
+        assert "tenant_demo" in column["column_default"]
+
+        index = connection.execute(
+            "SELECT 1 FROM pg_indexes "
+            "WHERE schemaname = 'public' "
+            "AND indexname = 'idx_legacy_mastery_imports_tenant'"
+        ).fetchone()
+        assert index is not None
+
+        assert all(
+            connection.execute(
+                "SELECT has_table_privilege(%s, %s, %s) AS allowed",
+                ("bridgesat_app", "public.legacy_mastery_imports", privilege),
+            ).fetchone()["allowed"]
+            for privilege in ("SELECT", "INSERT", "UPDATE", "DELETE")
+        )
+    finally:
+        connection.close()
+
+
+def test_fresh_database_has_content_registry_contract(database) -> None:
+    shared = {
+        "content_sources": {"source_name", "source_type", "redistribution_allowed",
+                            "rag_ingestion_allowed", "access_method", "attribution",
+                            "maintenance_status", "last_verified_at"},
+        "content_items": {"schema_version", "domain", "stable_version", "status",
+                          "license_snapshot_json", "source_lineage_json",
+                          "canonical_body_hash", "created_at", "withdrawn_at",
+                          "withdrawn_reason"},
+        "content_item_versions": {"item_json", "content_hash", "created_at"},
+        "content_reviews": {"version", "reviewer_role", "reviewer_id", "conclusion",
+                            "notes", "release_batch"},
+        "content_packs": {"manifest_json"},
+        "content_pack_items": {"version"},
+    }
+    for table, columns in shared.items():
+        assert columns <= _columns(database, table), table
+
+    for table in (
+        "skills",
+        "skill_prerequisites",
+        "content_sources",
+        "content_items",
+        "content_item_versions",
+        "content_reviews",
+        "content_packs",
+        "content_pack_items",
+        "knowledge_fts",
+    ):
+        assert database.execute(
+            "SELECT has_table_privilege('bridgesat_app', %s, 'SELECT') AS allowed",
+            (f"public.{table}",),
+        ).fetchone()["allowed"]
+        assert not database.execute(
+            "SELECT has_table_privilege('bridgesat_app', %s, 'INSERT') AS allowed",
+            (f"public.{table}",),
+        ).fetchone()["allowed"]
+        assert not database.execute(
+            "SELECT has_table_privilege('bridgesat_app', %s, 'UPDATE') AS allowed",
+            (f"public.{table}",),
+        ).fetchone()["allowed"]
+        assert not database.execute(
+            "SELECT has_table_privilege('bridgesat_app', %s, 'DELETE') AS allowed",
+            (f"public.{table}",),
+        ).fetchone()["allowed"]
 
 
 def test_migrations_are_idempotent(database) -> None:
@@ -248,6 +448,7 @@ def test_migrate_database_acquires_and_releases_advisory_lock(monkeypatch, tmp_p
     conn = pg.connect_admin()
     try:
         assert runner.migrate_database(conn) == 9001
+        assert conn.info.transaction_status is psycopg.pq.TransactionStatus.IDLE
         other = pg.connect()
         try:
             row = other.execute(

@@ -20,7 +20,7 @@ from app.infrastructure.migration_runner import migrate_database
 from app.memory.episode_builder import utc_now_iso
 from app.memory.mnemis_backend import MnemisUnavailableError
 from app.memory.mnemis_stub import InMemoryMnemisIndex
-from app.memory.outbox import OutboxRepository
+from app.memory.outbox import OutboxRepository, student_advisory_lock
 from app.memory.worker import OutboxWorker
 
 
@@ -266,3 +266,106 @@ def test_delete_student_operation_removes_indexed_memories(
     worker.run_pending()
     assert asyncio.run(index.count_episodes(student_id)) == 0
     assert asyncio.run(index.count_facts(student_id)) == 0
+    assert repo.get(repo.list_by_status("deleted")[0].outbox_id).status == "deleted"
+
+
+def test_worker_filters_selected_student_and_drains_multiple_rows(
+    env: tuple[object, str, OutboxRepository]
+) -> None:
+    connection, first_student_id, repo = env
+    second_student_id, _ = LearnerStore(connection).create_student("Bea", 20, 1200)
+    first_ids = [
+        _enqueue(repo, first_student_id, aggregate_id=f"first_{index}")
+        for index in range(2)
+    ]
+    second_ids = [
+        _enqueue(repo, second_student_id, aggregate_id=f"second_{index}")
+        for index in range(2)
+    ]
+
+    index = InMemoryMnemisIndex()
+    worker = OutboxWorker(connection, index=index, batch_size=4)
+
+    assert worker.run_pending(
+        student_id=second_student_id,
+        outbox_ids=list(reversed(second_ids)),
+    ) == 2
+    assert all(repo.get(outbox_id).status == "indexed" for outbox_id in second_ids)
+    assert all(repo.get(outbox_id).status == "pending" for outbox_id in first_ids)
+    assert asyncio.run(index.count_episodes(second_student_id)) == 2
+
+    assert worker.run_pending() == 2
+    assert asyncio.run(index.count_episodes(first_student_id)) == 2
+
+
+def test_worker_rejects_mismatched_upsert_and_deletes_authoritative_student(
+    env: tuple[object, str, OutboxRepository]
+) -> None:
+    connection, student_id, repo = env
+    mismatch_id = _enqueue(
+        repo,
+        student_id,
+        payload=_episode_payload("different-student", "mismatch"),
+        aggregate_id="mismatch",
+    )
+    index = InMemoryMnemisIndex()
+    worker = OutboxWorker(connection, index=index)
+
+    assert worker.run_pending(student_id=student_id, outbox_ids=[mismatch_id]) == 1
+    mismatch = repo.get(mismatch_id)
+    assert mismatch.status == "retrying"
+    assert "student_id" in mismatch.last_error
+    assert asyncio.run(index.count_episodes(student_id)) == 0
+
+    valid_id = _enqueue(repo, student_id, aggregate_id="valid")
+    worker.run_pending(student_id=student_id, outbox_ids=[valid_id])
+    assert asyncio.run(index.count_episodes(student_id)) == 1
+
+    delete_id = _enqueue(
+        repo,
+        student_id,
+        operation="delete_student",
+        aggregate_type="student",
+        aggregate_id=student_id,
+        payload={"student_id": "different-student"},
+    )
+    assert worker.run_pending(student_id=student_id, outbox_ids=[delete_id]) == 1
+    assert repo.get(delete_id).status == "deleted"
+    assert asyncio.run(index.count_episodes(student_id)) == 0
+
+
+def test_async_worker_polls_student_lock_and_cancels_cleanly(
+    env: tuple[object, str, OutboxRepository]
+) -> None:
+    connection, student_id, repo = env
+    _enqueue(repo, student_id, aggregate_id="async_lock")
+    other = pg.connect()
+    worker_connection = pg.connect()
+    other.execute(
+        "SELECT set_config('app.tenant_id', %s, false)", ("tenant_test",)
+    )
+    other.commit()
+    worker_connection.execute(
+        "SELECT set_config('app.tenant_id', %s, false)", ("tenant_test",)
+    )
+    worker_connection.commit()
+    try:
+        with student_advisory_lock(other, student_id):
+            async def exercise() -> None:
+                task = asyncio.create_task(
+                    OutboxWorker(
+                        worker_connection, index=InMemoryMnemisIndex()
+                    ).run_pending_async(
+                        student_id=student_id
+                    )
+                )
+                await asyncio.sleep(0.05)
+                assert not task.done()
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+
+            asyncio.run(exercise())
+    finally:
+        pg.quiet_close(other)
+        pg.quiet_close(worker_connection)
