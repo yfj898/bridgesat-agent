@@ -98,8 +98,8 @@ def test_fresh_database_migrates_to_supported_version(database) -> None:
 
 
 def test_fresh_database_has_runtime_safety_contract(database) -> None:
-    assert SCHEMA_VERSION == 15
-    assert pg.database_version(database) == 15
+    assert SCHEMA_VERSION == 16
+    assert pg.database_version(database) == 16
     assert "claim_token" in _columns(database, "memory_outbox")
     assert "tenant_id" in _columns(database, "legacy_mastery_imports")
 
@@ -109,6 +109,27 @@ def test_fresh_database_has_runtime_safety_contract(database) -> None:
     ).fetchone()
     assert legacy_rls["relrowsecurity"] is True
     assert _has_policy(database, "legacy_mastery_imports", "tenant_isolation")
+
+
+def test_fresh_database_has_hybrid_decision_trace_contract(database) -> None:
+    assert SCHEMA_VERSION == 16
+    columns = _columns(database, "hybrid_decision_trace")
+    assert {
+        "trace_id",
+        "tenant_id",
+        "student_id",
+        "source_event_id",
+        "decision_token",
+        "fallback_action",
+        "verified_action",
+        "accepted_checks",
+        "created_at",
+    } <= columns
+    assert database.execute(
+        "SELECT relrowsecurity FROM pg_class "
+        "WHERE oid = 'public.hybrid_decision_trace'::regclass"
+    ).fetchone()["relrowsecurity"] is True
+    assert _has_policy(database, "hybrid_decision_trace", "tenant_isolation")
 
 
 def test_migration_0014_normalizes_existing_processing_rows(

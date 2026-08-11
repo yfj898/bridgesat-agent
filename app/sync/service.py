@@ -37,6 +37,7 @@ from psycopg.errors import UniqueViolation
 from app.agent.hybrid import (
     AuthoritativeEvidence,
     ContentRecord,
+    DecisionToken,
     HybridTask,
     MIN_INTERVENTION_STAT_ATTEMPTS,
     ShadowMaterial,
@@ -56,11 +57,12 @@ from app.agent.hybrid_contracts import (
 )
 from app.agent.policy import (
     POLICY_VERSION,
+    PolicyConstraints,
     PolicyInput,
     decide_next_action,
     derive_policy_constraints,
 )
-from app.domain.events import AgentEvent
+from app.domain.events import AgentDecision, AgentEvent
 from app.domain.learner import SkillState
 from app.domain.memory import BoundedAction, Episode, InterventionStat
 from app.domain.sessions import SessionState
@@ -352,6 +354,7 @@ class SyncService:
             []
             if task_enabled(HybridTask.DECISION_REASONING)
             or task_enabled(HybridTask.EXPLANATION)
+            or task_enabled(HybridTask.ACTION_RANKING)
             else None
         )
         with student_advisory_lock(self.connection, request.student_id):
@@ -368,8 +371,16 @@ class SyncService:
         # lock and transaction are released. Shadow work is response-only and
         # may never change the executed action; a verified explanation may
         # only add an optional sentence to the existing explanation surface.
+        # H7 (Section 22): only under BRIDGESAT_HYBRID_ACTION_RANKING_ENABLED
+        # a verified proposal may replace the response action, and only when
+        # the short Phase C revalidation transaction confirms the Phase A
+        # decision token (source event, fallback, session boundary) is still
+        # current. The durable agent event stays the deterministic fallback;
+        # the verified action is served plus an auditable decision trace.
         if shadow_sink:
-            explanations = self._run_shadow_observations(shadow_sink)
+            explanations, observations = self._run_shadow_observations(shadow_sink)
+            if task_enabled(HybridTask.ACTION_RANKING):
+                self._apply_ranked_actions(response, shadow_sink, observations)
             for event in response.server_events:
                 proposal = explanations.get(event["source_event_id"])
                 if proposal is not None:
@@ -1516,12 +1527,26 @@ class SyncService:
             content=records,
             expected_student_id=envelope.student_id,
         )
+        token = self._decision_token(
+            envelope=envelope,
+            decision=decision,
+            constraints=constraints,
+            meta=meta,
+        )
         return ShadowMaterial(
             source_event_id=envelope.event_id,
             context=context,
             constraints=constraints,
             evidence=evidence,
             fallback=decision,
+            token=token,
+            verified_payloads=self._verified_payloads(
+                inputs=inputs,
+                decision=decision,
+                constraints=constraints,
+                pack_key=pack_key,
+                meta=meta,
+            ),
             explanation=self._build_explanation_context(
                 inputs=inputs,
                 decision=decision,
@@ -1529,6 +1554,87 @@ class SyncService:
                 pack_key=pack_key,
             ),
         )
+
+    def _decision_token(
+        self,
+        *,
+        envelope: SyncEventEnvelope,
+        decision: AgentDecision,
+        constraints: PolicyConstraints,
+        meta: dict,
+    ) -> DecisionToken | None:
+        """Phase A boundary evidence for H7 Phase C revalidation. Derived from
+        the durable state inside the authoritative transaction: the committed
+        fallback identity, the post-transition session state, and the agent
+        event count that includes the just-committed fallback event."""
+        next_state = constraints.next_states.get(decision.action)
+        if next_state is None:
+            return None
+        row = self.connection.execute(
+            """
+            SELECT session_state FROM study_sessions
+            WHERE session_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+            """,
+            (envelope.session_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        count = self.connection.execute(
+            """
+            SELECT COUNT(*) AS n FROM agent_events
+            WHERE student_id = %s
+              AND session_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+            """,
+            (envelope.student_id, envelope.session_id),
+        ).fetchone()["n"]
+        return DecisionToken(
+            student_id=envelope.student_id,
+            session_id=envelope.session_id,
+            source_event_id=envelope.event_id,
+            fallback_action=decision.action,
+            reason_code=decision.reason_code,
+            policy_version=decision.policy_version,
+            state_after=next_state.value,
+            agent_event_count=int(count),
+        )
+
+    def _verified_payloads(
+        self,
+        *,
+        inputs: PolicyInput,
+        decision: AgentDecision,
+        constraints: PolicyConstraints,
+        pack_key,
+        meta: dict,
+    ) -> dict[str, dict]:
+        """Deterministic payload for every allowed teaching action, derived
+        inside the authoritative transaction (Phase A). Phase C serves one of
+        these payloads unchanged: it never carries model-authored content."""
+        lesson_type_by_action = {
+            BoundedAction.SHOW_WORKED_EXAMPLE.value: "worked_example",
+            BoundedAction.SHOW_MICRO_LESSON.value: "micro_lesson",
+        }
+        payloads: dict[str, dict] = {}
+        for action_value in constraints.allowed_actions:
+            lesson_type = lesson_type_by_action.get(action_value)
+            if lesson_type is None:
+                continue
+            lesson = pack_key.teaching_asset_meta(
+                meta["skill"], lesson_type, inputs.active_misconception
+            )
+            if lesson is None or not lesson.get("content_hash"):
+                continue
+            payloads[action_value] = {
+                **decision.action_payload,
+                "content_id": lesson["id"],
+                "content_version": lesson["version"],
+                "review_status": lesson["review_status"],
+                "license": lesson["license"],
+                "source_lineage": lesson["source_lineage"],
+            }
+        return payloads
 
     @staticmethod
     def _build_explanation_context(
@@ -1623,12 +1729,13 @@ class SyncService:
 
     def _run_shadow_observations(
         self, materials: list[ShadowMaterial]
-    ) -> dict[str, ExplanationProposal]:
+    ) -> tuple[dict[str, ExplanationProposal], list[HybridShadowObservation]]:
         """Post-commit shadow gateway: verified decision observations and
         verified personalized explanations. Returns explanations keyed by
-        source event id; failures only suppress enrichment, never the
-        executed deterministic response."""
+        source event id together with every observation produced; failures
+        only suppress enrichment, never the executed deterministic response."""
         explanations: dict[str, ExplanationProposal] = {}
+        observations: list[HybridShadowObservation] = []
         for material in materials:
             try:
                 observation = run_shadow_decision(material, self._shadow_client())
@@ -1639,6 +1746,7 @@ class SyncService:
                 )
                 observation = None
             if observation is not None:
+                observations.append(observation)
                 if self.on_shadow_observation is not None:
                     self.on_shadow_observation(observation)
                 logger.info(
@@ -1660,7 +1768,164 @@ class SyncService:
                 )
                 if proposal is not None:
                     explanations[material.source_event_id] = proposal
-        return explanations
+        return explanations, observations
+
+    def _apply_ranked_actions(
+        self,
+        response: SyncResponse,
+        materials: list[ShadowMaterial],
+        observations: list[HybridShadowObservation],
+    ) -> None:
+        """H7 Phase C: serve a verified action only after a short revalidation
+        transaction confirms the Phase A decision token is still current.
+
+        Every step fails closed: a stale token, an unverifiable payload,
+        a persistence error or any exception keeps the deterministic fallback
+        already present in the response, exactly as in H5."""
+        by_source: dict[str, ShadowMaterial] = {
+            material.source_event_id: material for material in materials
+        }
+        for observation in observations:
+            if not (observation.accepted and observation.would_change):
+                continue
+            if observation.model_proposal_action is None:
+                continue
+            material = by_source.get(observation.source_event_id)
+            if material is None or material.token is None:
+                continue
+            verified_action = observation.model_proposal_action.value
+            payload = (material.verified_payloads or {}).get(verified_action)
+            if payload is None:
+                logger.info(
+                    "hybrid_action_rank no verifiable payload for "
+                    "source_event_id=%s verified=%s",
+                    observation.source_event_id,
+                    verified_action,
+                )
+                continue
+            try:
+                fresh = self._revalidate_decision_token(material)
+            except Exception:
+                logger.exception(
+                    "hybrid action-ranking revalidation failed for "
+                    "source_event_id=%s",
+                    observation.source_event_id,
+                )
+                continue
+            if not fresh:
+                logger.info(
+                    "hybrid_action_rank stale token dropped source_event_id=%s",
+                    observation.source_event_id,
+                )
+                continue
+            try:
+                self._persist_decision_trace(material, observation)
+            except Exception:
+                logger.exception(
+                    "hybrid decision trace persist failed for "
+                    "source_event_id=%s",
+                    observation.source_event_id,
+                )
+                continue
+            for event in response.server_events:
+                if event["source_event_id"] == observation.source_event_id:
+                    event["action"] = verified_action
+                    event["action_payload"] = payload
+                    event["hybrid_ranked"] = True
+                    event["decision_trace_id"] = self._trace_id(
+                        observation.source_event_id
+                    )
+
+    def _revalidate_decision_token(self, material: ShadowMaterial) -> bool:
+        """Short Phase C transaction: the durable state must still match the
+        Phase A token exactly. Verifies the committed fallback agent event,
+        the session state, and the agent event count (no concurrent sync or
+        retry advanced the session)."""
+        token: DecisionToken = material.token  # type: ignore[assignment]
+        with transaction(self.connection):
+            row = self.connection.execute(
+                """
+                SELECT action, reason_code, policy_version FROM agent_events
+                WHERE student_id = %s
+                  AND session_id = %s
+                  AND source_event_id = %s
+                  AND tenant_id = current_setting('app.tenant_id', true)
+                """,
+                (token.student_id, token.session_id, token.source_event_id),
+            ).fetchone()
+            if row is None:
+                return False
+            if (row["action"], row["reason_code"], row["policy_version"]) != (
+                token.fallback_action,
+                token.reason_code,
+                token.policy_version,
+            ):
+                return False
+            session = self.connection.execute(
+                """
+                SELECT session_state FROM study_sessions
+                WHERE session_id = %s
+                  AND tenant_id = current_setting('app.tenant_id', true)
+                """,
+                (token.session_id,),
+            ).fetchone()
+            if session is None or session["session_state"] != token.state_after:
+                return False
+            count = self.connection.execute(
+                """
+                SELECT COUNT(*) AS n FROM agent_events
+                WHERE student_id = %s
+                  AND session_id = %s
+                  AND tenant_id = current_setting('app.tenant_id', true)
+                """,
+                (token.student_id, token.session_id),
+            ).fetchone()["n"]
+            return int(count) == token.agent_event_count
+
+    @staticmethod
+    def _trace_id(source_event_id: str) -> str:
+        return f"h7b_{source_event_id}"
+
+    def _persist_decision_trace(
+        self, material: ShadowMaterial, observation: HybridShadowObservation
+    ) -> None:
+        """Idempotent auditable trace binding the verified action to its
+        source event (H7). One trace row per source event: retries and
+        duplicate syncs cannot double-record."""
+        token: DecisionToken = material.token  # type: ignore[assignment]
+        with transaction(self.connection):
+            self.connection.execute(
+                """
+                INSERT INTO hybrid_decision_trace (
+                    trace_id, tenant_id, student_id, source_event_id,
+                    decision_token, fallback_action, verified_action,
+                    accepted_checks, created_at
+                ) VALUES (
+                    %s, current_setting('app.tenant_id', true), %s, %s, %s, %s, %s, %s, %s
+                )
+                ON CONFLICT (trace_id) DO NOTHING
+                """,
+                (
+                    self._trace_id(token.source_event_id),
+                    token.student_id,
+                    token.source_event_id,
+                    json.dumps(
+                        {
+                            "session_id": token.session_id,
+                            "fallback_action": token.fallback_action,
+                            "reason_code": token.reason_code,
+                            "policy_version": token.policy_version,
+                            "state_after": token.state_after,
+                            "agent_event_count": token.agent_event_count,
+                        },
+                        sort_keys=True,
+                    ),
+                    token.fallback_action,
+                    observation.model_proposal_action.value,
+                    json.dumps(list(observation.verification_checks), sort_keys=True),
+                    _utc_now_iso(),
+                ),
+            )
 
     def _evidence_weight(self, meta: dict, envelope: SyncEventEnvelope, repeated: bool) -> float:
         difficulty = meta.get("difficulty") or 2

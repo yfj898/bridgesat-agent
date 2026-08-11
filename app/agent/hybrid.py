@@ -6,7 +6,13 @@ is computed and recorded, but no model is called. Every deterministic fast
 path from Section 8.1 is implemented before the semantic-ambiguity path.
 H4 adds the post-commit shadow gateway: the deterministic answer commits
 first, then a bounded model call may produce a verified shadow proposal that
-never changes the executed action.
+never changes the executed action. H7 (Section 22) adds the conditional
+action-changing phase: when ``BRIDGESAT_HYBRID_ACTION_RANKING_ENABLED`` is
+set, a verified proposal may replace the response action, but only through a
+bounded two-phase path: Phase A commits the deterministic fallback plus an
+in-memory :class:`DecisionToken`, Phase B calls the model outside the
+advisory lock, Phase C revalidates the token in a short transaction before
+persisting an auditable decision trace and serving the verified action.
 """
 
 from __future__ import annotations
@@ -686,6 +692,31 @@ class ShadowMaterial:
     fallback: AgentDecision
     task: HybridTask = HybridTask.DECISION_REASONING
     explanation: "ExplanationContext" | None = None
+    token: "DecisionToken" | None = None
+    verified_payloads: dict[str, dict] | None = None
+
+
+@dataclass(frozen=True)
+class DecisionToken:
+    """Phase A boundary evidence bound to the committed deterministic agent
+    event (H7 two-phase revalidation).
+
+    Captured inside the authoritative transaction after the fallback agent
+    event is inserted; Phase C recomputes the same facts from the durable
+    state and requires an exact match before any verified action may be
+    served. Mismatch means the source event or session advanced (concurrent
+    sync, replay, retry) and the verified proposal is stale: the fallback
+    stays authoritative.
+    """
+
+    student_id: str
+    session_id: str
+    source_event_id: str
+    fallback_action: str
+    reason_code: str
+    policy_version: str
+    state_after: str
+    agent_event_count: int
 
 
 def evidence_for_shadow(recalled: list[Episode]) -> PolicyEvidence:

@@ -68,6 +68,65 @@ decision quality on adjudicated ambiguous cases before it may change actions.
 
 ---
 
+## 2026-08-11 — Hybrid H7: behavioral action ranking (conditional Go)
+
+Phase H7 (plan section 22): the H6 ablation proved a beneficial difference
+(h6-01) on adjudicated ambiguous cases, which earns the conditional Go —
+a verified Hybrid proposal may now replace the action in the sync response,
+exclusively through the bounded two-phase revalidation path.
+
+### What was done
+
+- Migration `0016_hybrid_decision_trace`: auditable, RLS-protected decision
+  trace table binding each served verified action to its source event
+  (`SCHEMA_VERSION` 15 → 16). Inert schema when the task flag is off; rollback
+  (H9 No-Go) keeps H5 behavior with the table simply unused.
+- `DecisionToken` contract (`app/agent/hybrid.py`): Phase A boundary evidence
+  captured inside the authoritative transaction — source event, fallback
+  action/reason/policy version, session state, and the agent event count that
+  includes the just-committed fallback event. Attached to `ShadowMaterial`
+  alongside `verified_payloads` (deterministic payload per allowed teaching
+  action, derived from approved pack assets inside the transaction).
+- Sync service two-phase wiring (`app/sync/service.py`):
+  - Phase A: fallback AgentEvent commits and the token/payloads are captured;
+  - Phase B: the model call happens after the advisory lock is released
+    (existing shadow gateway, now also returning observations);
+  - Phase C: gated by `BRIDGESAT_HYBRID_ACTION_RANKING_ENABLED`, a short
+    revalidation transaction recomputes the token from durable state — the
+    committed agent event must still match the fallback identity, the session
+    state must match, and the agent event count must be unchanged — then one
+    idempotent trace row is persisted (`h7b_<event_id>`), the response event
+    action/payload is replaced with the verified action plus
+    `hybrid_ranked`/`decision_trace_id` markers, and the durable agent event
+    stays the deterministic fallback.
+- Everything fails closed: stale token, missing payload, rejected proposal,
+  provider failure, or any exception keeps the deterministic fallback and
+  persists nothing.
+- Fixture pack: added `lessons.jsonl` to `tests/fixtures/packs/syncmath-0.1.0/`
+  (approved worked-example + micro-lesson assets for the sign-error scenario)
+  so the sync-test path can exercise Phase C payload resolution.
+- Tests: `tests/test_hybrid_action_ranking.py` (10 tests) — off-by-default H5
+  behavior, ranking requires master + shadow gates, verified action replaces
+  the fallback only in the response with an auditable trace, ranking +
+  explanation coexist, stale-token race (learner advances between Phase B and
+  Phase C via a nested sync) keeps the fallback, duplicate sync idempotency
+  (one trace, one model call), rejected/illegal/unavailable proposals keep the
+  fallback, model call never inside the advisory lock (recorded lock intervals
+  vs transport call timestamps), one-episode demo stays deterministic.
+  Plus `test_fresh_database_has_hybrid_decision_trace_contract`.
+
+### Results (controlled internal test, synthetic learners)
+
+- Full regression: 757 Python tests + 46 Node tests pass.
+- Zero illegal/stale action persistence: rejected proposals, timeouts, and the
+  concurrent-advance race never serve or persist a verified action.
+- Fallback remains 100%: durable agent events never diverge from the
+  deterministic policy; verified actions exist only in the response + trace.
+- One-episode demo stays deterministic (0 model calls, no trace).
+- No model call holds the advisory-lock transaction (lock-interval proof).
+
+---
+
 ## 2026-08-11 — Hybrid H5: verified personalized explanation
 
 Added the first student-visible Hybrid feature without changing action or
