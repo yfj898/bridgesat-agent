@@ -79,8 +79,8 @@ def _proposal(*, refs=("stat:misconception",), explanation=None, **overrides) ->
         student_explanation=(
             explanation
             or "Because two sign error mistakes were recorded in this "
-            "session, a worked example shows the error pattern before more "
-            "practice."
+            "session, a worked example isolates the pattern and builds "
+            "mastery."
         ),
         emphasis="process",
         evidence_refs=refs,
@@ -285,6 +285,21 @@ def test_verify_rejects_lesson_title_copy() -> None:
     assert outcome.rejected_reason == "protected_span_rewritten"
 
 
+def test_verify_rejects_suffix_copy_of_protected_span() -> None:
+    outcome = verify_explanation(
+        _context(),
+        _proposal(
+            explanation=(
+                "Map to the same misconception, so a worked example "
+                "isolates the error pattern before more practice - that is "
+                "the plan for this session."
+            )
+        ),
+    )
+    assert not outcome.accepted
+    assert outcome.rejected_reason == "protected_span_rewritten"
+
+
 def test_verify_rejects_prohibited_claims() -> None:
     for bad in (
         "This guarantees you will stop making this error.",
@@ -326,7 +341,7 @@ def test_verify_accepts_grounded_number_from_fact() -> None:
         _proposal(
             explanation=(
                 "Because 2 sign error mistakes were recorded this session, "
-                "a worked example shows the pattern before more practice."
+                "a worked example shows the pattern and builds mastery."
             )
         ),
     )
@@ -361,8 +376,8 @@ def test_run_shadow_explanation_returns_verified_proposal(monkeypatch) -> None:
                 {
                     "student_explanation": (
                         "Because two sign error mistakes were recorded in "
-                        "this session, a worked example shows the error "
-                        "pattern before more practice."
+                        "this session, a worked example isolates the pattern "
+                        "and builds mastery."
                     ),
                     "emphasis": "process",
                     "evidence_refs": ["stat:misconception"],

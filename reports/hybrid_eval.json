@@ -1,0 +1,427 @@
+{
+  "schema_version": "1.0",
+  "label": "controlled internal test",
+  "golden_set": "evals/hybrid/golden.jsonl",
+  "golden_version": "hybrid-golden-v1",
+  "summary": {
+    "cases": 10,
+    "decision_cases": 8,
+    "explanation_cases": 2,
+    "ambiguous_cases": 6,
+    "decisive_cases": 4,
+    "variants": 17,
+    "baseline_accuracy": 1.0,
+    "adjudicated_within_allowed": 1.0,
+    "accepted_allowed_action_violations": 0,
+    "allowed_action_violation_rate": 0.0,
+    "accepted_hallucinated_proposals": 0,
+    "hallucination_acceptance_rate": 0.0,
+    "adversarial_attempts": 6,
+    "adversarial_rejection_rate": 1.0,
+    "fallback_success_rate": 1.0,
+    "decisive_zero_model_calls": 1.0,
+    "beneficial_variants": 1,
+    "beneficial_variant_success": 1,
+    "beneficial_difference_rate": 1.0,
+    "beneficial_difference_cases": [
+      "h6-01"
+    ],
+    "action_difference_rate": 0.125,
+    "hybrid_selection_accuracy": 0.6666666666666666,
+    "explanation_grounding_accuracy": 1.0,
+    "decision_latency_p50_ms": 0.0,
+    "decision_latency_p95_ms": 0.0,
+    "model_calls_total": 13
+  },
+  "results": [
+    {
+      "case_id": "h6-01",
+      "category": "ambiguous",
+      "task": "decision",
+      "baseline_action": "SHOW_WORKED_EXAMPLE",
+      "allowed_actions": [
+        "RETRY_SAME_SKILL",
+        "SHOW_WORKED_EXAMPLE",
+        "SHOW_MICRO_LESSON"
+      ],
+      "baseline_matches": true,
+      "adjudicated_in_allowed": true,
+      "variants": [
+        {
+          "variant": "beneficial_micro_lesson",
+          "calls": 1,
+          "gate": "hybrid",
+          "accepted": true,
+          "would_change": true,
+          "proposed_action": "SHOW_MICRO_LESSON",
+          "rejection_reason": null,
+          "latency_ms": 0,
+          "checks": [
+            "action_allowed",
+            "state_transition_legal",
+            "episode_in_candidate_set",
+            "episode_tenant_scoped",
+            "episode_grounded",
+            "content_in_registry",
+            "content_approved",
+            "content_grounded",
+            "claims_grounded"
+          ],
+          "pass": true
+        },
+        {
+          "variant": "same_action_worked_example",
+          "calls": 1,
+          "gate": "hybrid",
+          "accepted": true,
+          "would_change": false,
+          "proposed_action": "SHOW_WORKED_EXAMPLE",
+          "rejection_reason": null,
+          "latency_ms": 0,
+          "checks": [
+            "action_allowed",
+            "state_transition_legal",
+            "episode_in_candidate_set",
+            "episode_tenant_scoped",
+            "episode_grounded",
+            "content_in_registry",
+            "content_approved",
+            "content_grounded",
+            "claims_grounded"
+          ],
+          "pass": true
+        },
+        {
+          "variant": "adversarial_hallucinated_episode",
+          "calls": 1,
+          "gate": "hybrid",
+          "accepted": false,
+          "would_change": false,
+          "proposed_action": "SHOW_MICRO_LESSON",
+          "rejection_reason": "ungrounded_episode",
+          "latency_ms": 0,
+          "checks": [
+            "action_allowed",
+            "state_transition_legal"
+          ],
+          "pass": true
+        }
+      ]
+    },
+    {
+      "case_id": "h6-02",
+      "category": "ambiguous",
+      "task": "decision",
+      "baseline_action": "SHOW_WORKED_EXAMPLE",
+      "allowed_actions": [
+        "RETRY_SAME_SKILL",
+        "SHOW_WORKED_EXAMPLE",
+        "SHOW_MICRO_LESSON"
+      ],
+      "baseline_matches": true,
+      "adjudicated_in_allowed": true,
+      "variants": [
+        {
+          "variant": "same_action_grounded",
+          "calls": 1,
+          "gate": "hybrid",
+          "accepted": true,
+          "would_change": false,
+          "proposed_action": "SHOW_WORKED_EXAMPLE",
+          "rejection_reason": null,
+          "latency_ms": 0,
+          "checks": [
+            "action_allowed",
+            "state_transition_legal",
+            "episode_in_candidate_set",
+            "episode_tenant_scoped",
+            "episode_grounded",
+            "content_in_registry",
+            "content_approved",
+            "content_grounded",
+            "claims_grounded"
+          ],
+          "pass": true
+        },
+        {
+          "variant": "adversarial_recency_trap",
+          "calls": 1,
+          "gate": "hybrid",
+          "accepted": false,
+          "would_change": false,
+          "proposed_action": "SHOW_MICRO_LESSON",
+          "rejection_reason": "episode_misconception_mismatch",
+          "latency_ms": 0,
+          "checks": [
+            "action_allowed",
+            "state_transition_legal",
+            "episode_in_candidate_set",
+            "episode_tenant_scoped"
+          ],
+          "pass": true
+        }
+      ]
+    },
+    {
+      "case_id": "h6-03a",
+      "category": "decisive",
+      "task": "decision",
+      "baseline_action": "RETRY_SAME_SKILL",
+      "allowed_actions": [
+        "RETRY_SAME_SKILL"
+      ],
+      "baseline_matches": true,
+      "adjudicated_in_allowed": true,
+      "variants": [
+        {
+          "variant": "no_model_call",
+          "calls": 0,
+          "gate": "deterministic",
+          "accepted": false,
+          "would_change": false,
+          "proposed_action": null,
+          "rejection_reason": null,
+          "latency_ms": null,
+          "checks": [],
+          "pass": true
+        }
+      ]
+    },
+    {
+      "case_id": "h6-03b",
+      "category": "decisive",
+      "task": "decision",
+      "baseline_action": "SHOW_WORKED_EXAMPLE",
+      "allowed_actions": [
+        "SHOW_WORKED_EXAMPLE"
+      ],
+      "baseline_matches": true,
+      "adjudicated_in_allowed": true,
+      "variants": [
+        {
+          "variant": "no_model_call",
+          "calls": 0,
+          "gate": "deterministic",
+          "accepted": false,
+          "would_change": false,
+          "proposed_action": null,
+          "rejection_reason": null,
+          "latency_ms": null,
+          "checks": [],
+          "pass": true
+        }
+      ]
+    },
+    {
+      "case_id": "h6-04",
+      "category": "decisive",
+      "task": "decision",
+      "baseline_action": "END_WITH_REVIEW",
+      "allowed_actions": [
+        "END_WITH_REVIEW"
+      ],
+      "baseline_matches": true,
+      "adjudicated_in_allowed": true,
+      "variants": [
+        {
+          "variant": "no_model_call",
+          "calls": 0,
+          "gate": "deterministic",
+          "accepted": false,
+          "would_change": false,
+          "proposed_action": null,
+          "rejection_reason": null,
+          "latency_ms": null,
+          "checks": [],
+          "pass": true
+        }
+      ]
+    },
+    {
+      "case_id": "h6-05",
+      "category": "ambiguous",
+      "task": "decision",
+      "baseline_action": "SHOW_WORKED_EXAMPLE",
+      "allowed_actions": [
+        "RETRY_SAME_SKILL",
+        "SHOW_WORKED_EXAMPLE",
+        "SHOW_MICRO_LESSON"
+      ],
+      "baseline_matches": true,
+      "adjudicated_in_allowed": true,
+      "variants": [
+        {
+          "variant": "adversarial_hallucinated_episode",
+          "calls": 1,
+          "gate": "hybrid",
+          "accepted": false,
+          "would_change": false,
+          "proposed_action": "SHOW_MICRO_LESSON",
+          "rejection_reason": "ungrounded_episode",
+          "latency_ms": 0,
+          "checks": [
+            "action_allowed",
+            "state_transition_legal"
+          ],
+          "pass": true
+        },
+        {
+          "variant": "adversarial_hallucinated_content",
+          "calls": 1,
+          "gate": "hybrid",
+          "accepted": false,
+          "would_change": false,
+          "proposed_action": "SHOW_MICRO_LESSON",
+          "rejection_reason": "ungrounded_content",
+          "latency_ms": 0,
+          "checks": [
+            "action_allowed",
+            "state_transition_legal",
+            "episode_in_candidate_set",
+            "episode_tenant_scoped",
+            "episode_grounded"
+          ],
+          "pass": true
+        }
+      ]
+    },
+    {
+      "case_id": "h6-06",
+      "category": "ambiguous",
+      "task": "decision",
+      "baseline_action": "SHOW_WORKED_EXAMPLE",
+      "allowed_actions": [
+        "RETRY_SAME_SKILL",
+        "SHOW_WORKED_EXAMPLE",
+        "SHOW_MICRO_LESSON"
+      ],
+      "baseline_matches": true,
+      "adjudicated_in_allowed": true,
+      "variants": [
+        {
+          "variant": "provider_unavailable",
+          "calls": 1,
+          "gate": "hybrid",
+          "accepted": false,
+          "would_change": false,
+          "proposed_action": null,
+          "rejection_reason": "model_unavailable",
+          "latency_ms": 0,
+          "checks": [],
+          "pass": true
+        }
+      ]
+    },
+    {
+      "case_id": "h6-07",
+      "category": "decisive",
+      "task": "decision",
+      "baseline_action": "SHOW_WORKED_EXAMPLE",
+      "allowed_actions": [
+        "SHOW_WORKED_EXAMPLE"
+      ],
+      "baseline_matches": true,
+      "adjudicated_in_allowed": true,
+      "variants": [
+        {
+          "variant": "no_model_call",
+          "calls": 0,
+          "gate": "deterministic",
+          "accepted": false,
+          "would_change": false,
+          "proposed_action": null,
+          "rejection_reason": null,
+          "latency_ms": null,
+          "checks": [],
+          "pass": true
+        }
+      ]
+    },
+    {
+      "case_id": "h6-08",
+      "category": "ambiguous",
+      "task": "explanation",
+      "baseline_action": "SHOW_WORKED_EXAMPLE",
+      "allowed_actions": [
+        "SHOW_WORKED_EXAMPLE"
+      ],
+      "baseline_matches": true,
+      "adjudicated_in_allowed": true,
+      "variants": [
+        {
+          "variant": "grounded",
+          "calls": 1,
+          "gate": "hybrid",
+          "accepted": true,
+          "would_change": false,
+          "proposed_action": "SHOW_WORKED_EXAMPLE",
+          "rejection_reason": null,
+          "latency_ms": null,
+          "checks": [],
+          "pass": true
+        },
+        {
+          "variant": "adversarial_ungrounded_number",
+          "calls": 1,
+          "gate": "hybrid",
+          "accepted": false,
+          "would_change": false,
+          "proposed_action": null,
+          "rejection_reason": "ungrounded_number",
+          "latency_ms": null,
+          "checks": [],
+          "pass": true
+        },
+        {
+          "variant": "adversarial_protected_span_rewrite",
+          "calls": 1,
+          "gate": "hybrid",
+          "accepted": false,
+          "would_change": false,
+          "proposed_action": null,
+          "rejection_reason": "protected_span_rewritten",
+          "latency_ms": null,
+          "checks": [],
+          "pass": true
+        },
+        {
+          "variant": "adversarial_hallucinated_ref",
+          "calls": 1,
+          "gate": "hybrid",
+          "accepted": false,
+          "would_change": false,
+          "proposed_action": null,
+          "rejection_reason": "ungrounded_explanation_ref",
+          "latency_ms": null,
+          "checks": [],
+          "pass": true
+        }
+      ]
+    },
+    {
+      "case_id": "h6-09",
+      "category": "ambiguous",
+      "task": "explanation",
+      "baseline_action": "SHOW_WORKED_EXAMPLE",
+      "allowed_actions": [
+        "SHOW_WORKED_EXAMPLE"
+      ],
+      "baseline_matches": true,
+      "adjudicated_in_allowed": true,
+      "variants": [
+        {
+          "variant": "provider_unavailable",
+          "calls": 1,
+          "gate": "hybrid",
+          "accepted": false,
+          "would_change": false,
+          "proposed_action": null,
+          "rejection_reason": "model_unavailable",
+          "latency_ms": null,
+          "checks": [],
+          "pass": true
+        }
+      ]
+    }
+  ]
+}

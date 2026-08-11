@@ -10,6 +10,64 @@ EVALUATION_SPEC.md); this file is a chronological log, not a spec.
 
 ---
 
+## 2026-08-11 — Hybrid H6: shadow ablation and behavioral-value proof
+
+Phase H6 (plan sections 21/22): proved the verified shadow Hybrid layer adds
+decision quality on adjudicated ambiguous cases before it may change actions.
+
+### What was done
+
+- `evals/hybrid/golden.jsonl` (`hybrid-golden-v1`): 10 versioned cases covering
+  the plan 21.1 benchmark set — supported-intervention evidence vs single
+  transfer (h6-01), semantic episode ranking over recency (h6-02), isolated
+  first error vs repeated errors with validated transfer (h6-03a/b), time-budget
+  hard action (h6-04), hallucinated episode/content (h6-05), provider outage
+  (h6-06), single-exact-episode invariant (h6-07), and the H5 explanation
+  grounding surface (h6-08/09). Every case carries the deterministic expected
+  action, the adjudicated best action, and scripted model variants with
+  expected gate/calls/accepted/would-change/reason.
+- `scripts/run_hybrid_ablation.py`: deterministic, offline runner that exercises
+  the production path (`derive_policy_constraints` → `choose_mode` → prompt →
+  parse → `verify_proposal`/`verify_explanation`) with a replay-only transport.
+  Emits `reports/hybrid_eval.json` (schema 1.0, "controlled internal test") and
+  `evals/hybrid/REPORT.md`. Scoped `_ShadowFlags` context manager sets the three
+  Hybrid env flags only for the duration of a run, so the harness never leaks
+  environment state into the sync service or the rest of the test suite.
+- Wiring: `run_hybrid()` registered in `evals/run_all.py` (after memory), with a
+  "Hybrid shadow ablation" section in `reports/final_summary.md` and an
+  evidence-pack row.
+- Harness tests: `tests/test_hybrid_ablation.py` (12 tests) — fixture validity
+  against the real policy, decisive-case zero-call invariant, hallucination
+  rejection, provider-outage fallback, benefit measurement, version guard, and
+  a subprocess smoke test of the exact `run_all` invocation.
+
+### Verifier hardening (found by the golden set)
+
+- `_span_overlap` only checked prefix windows of protected spans; a suffix or
+  mid-span copy of a lesson title was accepted. Now any contiguous window
+  covering >= 60% of the span is a rewrite, regardless of start position, while
+  shorter generic fragments ("a worked example") stay incidental. The H6 golden
+  case h6-08 pins the suffix-copy rejection; `test_verify_rejects_suffix_copy_
+  of_protected_span` pins the regression; the three existing tests whose
+  sentences incidentally contained >= 60% span windows were reworded to test
+  their actual intent (grounded numbers, sentence bound, gateway).
+
+### Results (controlled internal test, synthetic learners)
+
+- 10 cases / 17 scripted variants, all variant expectations pass.
+- Accepted allowed-action violations: 0. Accepted hallucinated episode/content:
+  0. Adversarial rejection: 6/6 (100%).
+- Deterministic fallback success: 100%. Decisive cases never call the model
+  (0/4 cases), preserving the single-exact-episode invariant.
+- Baseline accuracy vs golden: 100%. Verified beneficial difference: h6-01
+  (SHOW_MICRO_LESSON over SHOW_WORKED_EXAMPLE) — the only improvement claimed;
+  no benefit is claimed from cases with one obvious policy action.
+- Explanation grounding: 4/4 (grounded accepted; ungrounded number,
+  protected-span rewrite, invented ref rejected). Full regression: 746 Python
+  tests + 46 Node tests pass.
+
+---
+
 ## 2026-08-11 — Hybrid H5: verified personalized explanation
 
 Added the first student-visible Hybrid feature without changing action or

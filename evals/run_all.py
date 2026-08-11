@@ -119,6 +119,19 @@ def run_memory() -> Path:
     return path
 
 
+def run_hybrid() -> Path:
+    result = _run([sys.executable, "scripts/run_hybrid_ablation.py"])
+    if result.returncode != 0:
+        raise RuntimeError(f"hybrid eval failed: {result.stderr[-500:]}")
+    payload = _first_json_block(result.stdout)
+    payload["schema_version"] = "1.0"
+    payload["label"] = "controlled internal test"
+    payload["golden_set"] = "evals/hybrid/golden.jsonl"
+    path = REPORTS / "hybrid_eval.json"
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
 def run_security() -> Path:
     result = _run([sys.executable, "-m", "pytest", *SECURITY_SUITES,
                    "--disable-warnings", "-p", "no:cacheprovider"])
@@ -220,6 +233,7 @@ def write_summary(entries: dict[str, Path]) -> Path:
     offline = _read_json(entries["offline_sync"])
     rag = _read_json(entries["rag"])
     memory = _read_json(entries["memory"])
+    hybrid = _read_json(entries["hybrid"])
     security = _read_json(entries["security"])
     content_audit = _read_json(entries["content_audit"])
     performance = _read_json(entries["performance"])
@@ -284,6 +298,21 @@ def write_summary(entries: dict[str, Path]) -> Path:
         f"- Mnemis dual-route next-action accuracy: {_measured(memory['summary']['mnemis_dual'], 'next_action_accuracy')}",
         "- fallback success: PostgreSQL two-session loop and timeout fallback tested in the test suite",
         f"- report: reports/memory_eval.json",
+        "",
+        "## Hybrid shadow ablation (controlled internal test)",
+        "",
+        f"- cases: {hybrid['summary']['cases']} golden, "
+        f"{hybrid['summary']['variants']} scripted model variants (no live provider)",
+        f"- accepted allowed-action violations: {hybrid['summary']['accepted_allowed_action_violations']} "
+        f"(target 0)",
+        f"- accepted hallucinated episode/content: {hybrid['summary']['accepted_hallucinated_proposals']} "
+        f"(target 0)",
+        f"- deterministic fallback success: {hybrid['summary']['fallback_success_rate']:.0%} "
+        f"(target 100%)",
+        f"- decisive cases with zero model calls: {hybrid['summary']['decisive_zero_model_calls']:.0%}",
+        f"- adversarial rejection: {hybrid['summary']['adversarial_rejection_rate']:.0%}",
+        f"- verified beneficial differences: {hybrid['summary']['beneficial_difference_cases']}",
+        f"- report: reports/hybrid_eval.json",
         "",
         "## Offline and synchronization (controlled internal test)",
         "",
@@ -385,6 +414,7 @@ def write_evidence_pack(entries: dict[str, Path], summary_path: Path) -> Path:
         "| Educational behavior | synthetic simulation | reports/educational_eval.json | `.venv/bin/python scripts/run_educational_evals.py` |",
         "| Retrieval (RAG) | controlled internal test | reports/rag_eval.json | `.venv/bin/python scripts/import_content_pack.py && .venv/bin/python scripts/run_retrieval_evals.py` |",
         "| Long-term memory | controlled internal test | reports/memory_eval.json | `.venv/bin/python scripts/run_memory_ablation.py` |",
+        "| Hybrid shadow ablation | controlled internal test | reports/hybrid_eval.json | `.venv/bin/python scripts/run_hybrid_ablation.py` |",
         "| Offline and sync | controlled internal test | reports/offline_sync_eval.json | `.venv/bin/python scripts/run_offline_sync_evals.py` |",
         "| Security | controlled internal test | reports/security_eval.json | `.venv/bin/python -m pytest tests/security tests/test_sync_protocol.py -q` |",
         "| Web core-flow tests | controlled internal test | reports/web_tests.json | `node --test web/tests/*.test.js` |",
@@ -446,6 +476,7 @@ def main() -> int:
         ("offline_sync", run_offline_sync),
         ("rag", run_retrieval),
         ("memory", run_memory),
+        ("hybrid", run_hybrid),
         ("security", run_security),
         ("content_audit", run_content_audit),
         ("performance", run_performance),

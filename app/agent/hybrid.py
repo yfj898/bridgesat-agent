@@ -908,17 +908,20 @@ def parse_explanation_proposal(text: str) -> ExplanationProposal:
 def _span_overlap(explanation: str, span: str) -> bool:
     """True when the explanation copies (a large part of) a protected span.
 
-    Simple subsequence-free check: the span must not appear as a substring,
-    and no sliding window of the span may appear unless it is short enough
-    to be incidental (<= 12 chars).
+    Verbatim-copy detection with a proportional floor: a contiguous window
+    of the span appearing in the explanation is a rewrite when it covers at
+    least 60% of the span (a "large part"), and any start position counts
+    (a mid-span or suffix copy is as much a rewrite as a prefix copy).
+    Shorter shared fragments (generic phrasing such as "a worked example"
+    inside a long reason text) are incidental and pass.
     """
-    if not span or len(span.strip()) <= 12:
+    if not span or len(span.strip()) <= 20:
         return False
-    if span in explanation:
-        return True
-    for end in range(len(span), 12, -1):
-        if span[:end] in explanation:
-            return True
+    floor = int(len(span) * 0.6) + 1
+    for start in range(len(span)):
+        for end in range(len(span), start + floor - 1, -1):
+            if span[start:end] in explanation:
+                return True
     return False
 
 
