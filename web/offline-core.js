@@ -392,6 +392,8 @@ function agentEventToView(event) {
     why: recalled
       ? "You had a similar misconception before, and a worked example was followed by success on a different item. BridgeSAT is reusing that strategy earlier this time."
       : event.reason_text,
+    personalized: event.personalized_explanation || "",
+    personalizedEmphasis: event.personalized_emphasis || "",
     reasonCode: event.reason_code,
     episodeLabel: episodeId ? `Episode ${episodeId}` : "",
     policyVersion: event.policy_version || OFFLINE_POLICY_VERSION,

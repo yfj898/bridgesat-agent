@@ -10,6 +10,60 @@ EVALUATION_SPEC.md); this file is a chronological log, not a spec.
 
 ---
 
+## 2026-08-11 — Hybrid H5: verified personalized explanation
+
+Added the first student-visible Hybrid feature without changing action or
+math: one optional, grounded sentence behind the existing "Why this
+recommendation?" surface.
+
+### What was done
+
+- `ExplanationContext`/`ExplanationFact` contracts (strict allowlists, no PII,
+  no lesson body, no math truth); `ExplanationProposal` now requires at least
+  one evidence ref and a non-empty sentence.
+- `hybrid.py`: `explanation_gate` (wording-task gate: provider healthy + master
+  flag + task flag, offline/circuit/budget deterministic), fixed
+  `build_explanation_prompt` (structured JSON only), robust
+  `parse_explanation_proposal`, and fail-closed `verify_explanation`:
+  - every `evidence_ref` must exist in the provided facts;
+  - protected spans (deterministic reason_text, lesson title) may not be
+    rewritten or copied;
+  - deny list blocks guarantees, permanence, diagnosis, score claims, human
+    approval, comparative superiority, markdown/HTML;
+  - every number in the sentence must appear in the grounded fact phrases
+    (math immutability);
+  - at most two sentences.
+- `SyncService` builds the explanation context only for SHOW_WORKED_EXAMPLE /
+  SHOW_MICRO_LESSON decisions inside the authoritative transaction and runs
+  the gated task post-commit; a verified proposal adds
+  `personalized_explanation` + `personalized_emphasis` to the response event.
+  Any failure (timeout, unparsable, ungrounded, unavailable) leaves the event
+  untouched.
+- PWA: `.intervention-why` shows the personalized sentence when present,
+  otherwise the existing deterministic copy; `.recommendation-detail`
+  (collapsed "Why this recommendation?") stays deterministic; the technical
+  evidence meta gains a `personalized: <emphasis>` marker.
+- Tests: 27 unit tests (`tests/test_hybrid_explanation.py`) covering contract
+  bounds, gate branches, parse robustness, the full verifier rejection
+  matrix, and never-raises gateway behavior; 3 sync integration scenarios in
+  `tests/test_hybrid_sync.py` (enriched response after commit, unavailable
+  model, flags off); Node tests for the `agentEventToView` passthrough and
+  app wiring.
+
+### Verification
+
+- Full Python suite passes (618 tests); all Node PWA tests pass.
+- Debugging note: the first integration attempt used an ungrounded number in
+  the fake model output ("2" vs the real context "3 recorded errors") — the
+  verifier correctly rejected it, which validated the numeric grounding path.
+
+### Follow-ups
+
+- H6 (behavioral-value ablation) is next; H5's explanation task stays
+  independently toggleable.
+
+---
+
 ## 2026-08-11 — Hybrid H0–H4: bounded model reasoning on the real sync path
 
 Executed the first continuous Hybrid stage (plan sections 22 H0–H4) with the

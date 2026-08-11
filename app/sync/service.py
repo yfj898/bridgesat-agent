@@ -41,10 +41,14 @@ from app.agent.hybrid import (
     MIN_INTERVENTION_STAT_ATTEMPTS,
     ShadowMaterial,
     run_shadow_decision,
+    run_shadow_explanation,
     task_enabled,
 )
 from app.agent.hybrid_contracts import (
     ContentCandidate,
+    ExplanationContext,
+    ExplanationFact,
+    ExplanationProposal,
     HybridDecisionContext,
     HybridShadowObservation,
     InterventionEvidence,
@@ -345,7 +349,10 @@ class SyncService:
                 ],
             )
         shadow_sink: list[ShadowMaterial] | None = (
-            [] if task_enabled(HybridTask.DECISION_REASONING) else None
+            []
+            if task_enabled(HybridTask.DECISION_REASONING)
+            or task_enabled(HybridTask.EXPLANATION)
+            else None
         )
         with student_advisory_lock(self.connection, request.student_id):
             try:
@@ -357,11 +364,17 @@ class SyncService:
                     )
             except StudentInactiveError:
                 return self._unauthorized_student_response()
-        # H4: the deterministic answer/AgentEvent committed; the advisory lock
-        # and transaction are released. Shadow work is response-only and may
-        # never affect the returned response or any persisted state.
+        # H4/H5: the deterministic answer/AgentEvent committed; the advisory
+        # lock and transaction are released. Shadow work is response-only and
+        # may never change the executed action; a verified explanation may
+        # only add an optional sentence to the existing explanation surface.
         if shadow_sink:
-            self._run_shadow_observations(shadow_sink)
+            explanations = self._run_shadow_observations(shadow_sink)
+            for event in response.server_events:
+                proposal = explanations.get(event["source_event_id"])
+                if proposal is not None:
+                    event["personalized_explanation"] = proposal.student_explanation
+                    event["personalized_emphasis"] = proposal.emphasis
         return response
 
     @staticmethod
@@ -1509,9 +1522,113 @@ class SyncService:
             constraints=constraints,
             evidence=evidence,
             fallback=decision,
+            explanation=self._build_explanation_context(
+                inputs=inputs,
+                decision=decision,
+                recalled=recalled,
+                pack_key=pack_key,
+            ),
         )
 
-    def _run_shadow_observations(self, materials: list[ShadowMaterial]) -> None:
+    @staticmethod
+    def _build_explanation_context(
+        *,
+        inputs: PolicyInput,
+        decision,
+        recalled: list[Episode],
+        pack_key,
+    ) -> ExplanationContext | None:
+        """Sanitized H5 context for the executed teaching action (plan
+        Section 14): only when the action shows a lesson, with grounded
+        facts as the single source of numbers and claims."""
+        lesson_type = {
+            BoundedAction.SHOW_WORKED_EXAMPLE: "worked_example",
+            BoundedAction.SHOW_MICRO_LESSON: "micro_lesson",
+        }.get(BoundedAction(decision.action))
+        if lesson_type is None:
+            return None
+        lesson = pack_key.teaching_asset_meta(
+            inputs.skill, lesson_type, inputs.active_misconception
+        )
+        lesson_title = lesson.get("title") if lesson is not None else None
+        misconception = inputs.active_misconception
+        evidence_counts = inputs.misconception_observation_count
+        confidence_label = (
+            "high" if evidence_counts >= 2 else "medium" if evidence_counts >= 1 else "low"
+        )
+        facts: list[ExplanationFact] = []
+        for episode in recalled[:3]:
+            outcome = episode.outcome or {}
+            if not (outcome.get("correct") and outcome.get("different_item")):
+                continue
+            if episode.effectiveness < 0.6 or episode.confidence < 0.5:
+                continue
+            facts.append(
+                ExplanationFact(
+                    ref=f"episode:{episode.episode_id}",
+                    phrase=(
+                        f"A validated {episode.intervention} episode on this "
+                        "skill was followed by success on a different item."
+                    ),
+                )
+            )
+        if evidence_counts >= 1 and misconception:
+            facts.append(
+                ExplanationFact(
+                    ref="stat:misconception",
+                    phrase=(
+                        f"{evidence_counts} recorded {misconception} error"
+                        f"{'s' if evidence_counts != 1 else ''} in this session"
+                    ),
+                )
+            )
+        if inputs.consecutive_errors >= 1:
+            facts.append(
+                ExplanationFact(
+                    ref="stat:consecutive_errors",
+                    phrase=(
+                        f"{inputs.consecutive_errors} consecutive wrong answer"
+                        f"{'s' if inputs.consecutive_errors != 1 else ''} on {inputs.skill}"
+                    ),
+                )
+            )
+        facts.append(
+            ExplanationFact(
+                ref="stat:mastery",
+                phrase=f"mastery {inputs.mastery:.2f}",
+            )
+        )
+        protected = [decision.reason_text]
+        if lesson_title:
+            protected.append(lesson_title)
+        return ExplanationContext(
+            task="explanation",
+            skill=inputs.skill,
+            subskill=inputs.subskill,
+            fallback_action=BoundedAction(decision.action),
+            reason_code=decision.reason_code,
+            reason_text=decision.reason_text,
+            lesson_title=lesson_title,
+            misconception=misconception,
+            misconception_evidence_count=evidence_counts,
+            misconception_confidence=confidence_label,
+            learner_summary=(
+                f"{inputs.consecutive_errors} wrong answers in a row on "
+                f"{inputs.skill}; {evidence_counts} recorded misconception "
+                "errors this session."
+            ),
+            facts=tuple(facts),
+            protected_spans=tuple(span for span in protected if span),
+        )
+
+    def _run_shadow_observations(
+        self, materials: list[ShadowMaterial]
+    ) -> dict[str, ExplanationProposal]:
+        """Post-commit shadow gateway: verified decision observations and
+        verified personalized explanations. Returns explanations keyed by
+        source event id; failures only suppress enrichment, never the
+        executed deterministic response."""
+        explanations: dict[str, ExplanationProposal] = {}
         for material in materials:
             try:
                 observation = run_shadow_decision(material, self._shadow_client())
@@ -1520,24 +1637,30 @@ class SyncService:
                     "hybrid shadow failed for source_event_id=%s",
                     material.source_event_id,
                 )
-                continue
-            if observation is None:
-                continue
-            if self.on_shadow_observation is not None:
-                self.on_shadow_observation(observation)
-            logger.info(
-                "hybrid_shadow_observation source_event_id=%s fallback=%s "
-                "proposal=%s accepted=%s would_change=%s rejection=%s latency_ms=%d",
-                observation.source_event_id,
-                observation.fallback_action.value,
-                observation.model_proposal_action.value
-                if observation.model_proposal_action is not None
-                else "none",
-                observation.accepted,
-                observation.would_change,
-                observation.rejection_reason or "ok",
-                observation.latency_ms,
-            )
+                observation = None
+            if observation is not None:
+                if self.on_shadow_observation is not None:
+                    self.on_shadow_observation(observation)
+                logger.info(
+                    "hybrid_shadow_observation source_event_id=%s fallback=%s "
+                    "proposal=%s accepted=%s would_change=%s rejection=%s latency_ms=%d",
+                    observation.source_event_id,
+                    observation.fallback_action.value,
+                    observation.model_proposal_action.value
+                    if observation.model_proposal_action is not None
+                    else "none",
+                    observation.accepted,
+                    observation.would_change,
+                    observation.rejection_reason or "ok",
+                    observation.latency_ms,
+                )
+            if material.explanation is not None:
+                proposal = run_shadow_explanation(
+                    material.explanation, self._shadow_client()
+                )
+                if proposal is not None:
+                    explanations[material.source_event_id] = proposal
+        return explanations
 
     def _evidence_weight(self, meta: dict, envelope: SyncEventEnvelope, repeated: bool) -> float:
         difficulty = meta.get("difficulty") or 2

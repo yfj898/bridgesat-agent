@@ -569,9 +569,10 @@ function renderAgentIntervention(event) {
   agentIntervention.querySelector(".intervention-title").textContent =
     event.validated_episode_id ? "Learning memory validated" : view.title;
   agentIntervention.querySelector(".intervention-why").textContent =
-    event.validated_episode_id
+    view.personalized ||
+    (event.validated_episode_id
       ? "The intervention was followed by success on a different item, so BridgeSAT can reuse this evidence later."
-      : view.why;
+      : view.why);
   agentIntervention.querySelector(".recommendation-detail").textContent =
     view.memoryBased
       ? "BridgeSAT matched this misconception to a validated earlier learning episode. Because the earlier worked example was followed by transfer success, the same teaching move is shown on the first similar error instead of waiting for the mistake to repeat."
@@ -591,6 +592,9 @@ function renderAgentIntervention(event) {
   }
   const meta = [view.reasonCode, view.policyVersion];
   if (view.episodeLabel) meta.push(view.episodeLabel);
+  if (view.personalized) {
+    meta.push(`personalized: ${view.personalizedEmphasis || "explanation"}`);
+  }
   if (event.validated_episode_id) meta.push(`Validated Episode ${event.validated_episode_id}`);
   if (lesson) {
     const simulatedReview = Object.values(lesson.reviewers || {}).some((reviewer) =>

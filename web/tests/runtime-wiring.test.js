@@ -68,6 +68,14 @@ test("memory-aware intervention is visible and traceable", () => {
   assert.match(app, /source_answer_event_id: sourceEventId/);
 });
 
+test("verified personalized explanation is rendered without replacing the deterministic copy", () => {
+  assert.match(core, /event\.personalized_explanation \|\| ""/);
+  assert.match(core, /event\.personalized_emphasis \|\| ""/);
+  assert.match(app, /view\.personalized[\s\S]{0,40}event\.validated_episode_id/);
+  assert.match(app, /personalized: \$\{view\.personalizedEmphasis/);
+  assert.match(app, /view\.personalized/);
+});
+
 test("offline and reconnect states remain student-visible", () => {
   assert.match(app, /Offline — keep practicing with saved questions/);
   assert.match(app, /Back online — reconnecting/);

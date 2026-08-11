@@ -609,6 +609,34 @@ test("memory changes the first-error offline intervention students see", () => {
   assert.equal(view.episodeLabel, "Episode ep_success_1");
 });
 
+test("agent event view keeps deterministic copy and passes through verified personalized explanation", () => {
+  const without = agentEventToView({
+    action: "SHOW_WORKED_EXAMPLE",
+    reason_code: "REPEATED_MISCONCEPTION",
+    reason_text: "Repeated errors map to the same misconception.",
+    policy_version: "policy-0.1.0",
+    episode_ids: [],
+  });
+  assert.equal(without.personalized, "");
+  assert.equal(without.personalizedEmphasis, "");
+  assert.equal(without.why, "Repeated errors map to the same misconception.");
+
+  const withPersonalized = agentEventToView({
+    action: "SHOW_WORKED_EXAMPLE",
+    reason_code: "REPEATED_MISCONCEPTION",
+    reason_text: "Repeated errors map to the same misconception.",
+    personalized_explanation:
+      "Because 3 sign error mistakes were recorded this session, review the pattern before more practice.",
+    personalized_emphasis: "process",
+    policy_version: "policy-0.1.0",
+    episode_ids: [],
+  });
+  assert.equal(withPersonalized.personalized,
+    "Because 3 sign error mistakes were recorded this session, review the pattern before more practice.");
+  assert.equal(withPersonalized.personalizedEmphasis, "process");
+  assert.equal(withPersonalized.why, "Repeated errors map to the same misconception.");
+});
+
 test("active learning session survives a browser refresh", () => {
   const stored = createActiveSessionSnapshot({
     sessionId: "sess_keep",

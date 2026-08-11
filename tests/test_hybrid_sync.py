@@ -236,6 +236,20 @@ def _proposal_json(action: str = "RETRY_SAME_SKILL") -> str:
     )
 
 
+def _explanation_json() -> str:
+    return json.dumps(
+        {
+            "student_explanation": (
+                "Because 3 sign error mistakes were recorded in this "
+                "session, a worked example shows the error pattern before "
+                "more practice."
+            ),
+            "emphasis": "process",
+            "evidence_refs": ["stat:misconception"],
+        }
+    )
+
+
 # ---------------------------------------------------------------------------
 # Flags off: no shadow overhead
 # ---------------------------------------------------------------------------
@@ -395,3 +409,65 @@ def test_duplicate_sync_creates_no_second_decision_or_observation(
     ).fetchone()["total"]
     assert row == 1
     assert len(observations) == 1
+
+
+# ---------------------------------------------------------------------------
+# H5: verified personalized explanation enriches the response post-commit
+# ---------------------------------------------------------------------------
+
+
+def test_explanation_enriches_response_after_commit_without_changing_action(
+    isolated_pg_database, monkeypatch
+) -> None:
+    _shadow_flags_on(monkeypatch)
+    monkeypatch.setenv("BRIDGESAT_HYBRID_EXPLANATION_ENABLED", "1")
+    transport = ChatTransport(content=_explanation_json())
+    service = _make_service(isolated_pg_database, client=_fake_client(transport))
+    _seed_repeated_misconception(service)
+
+    response = service.process_batch(_request(("evt_07", 1)))
+
+    event = response.server_events[0]
+    assert event["action"] == "SHOW_WORKED_EXAMPLE"
+    assert event["reason_code"] == "REPEATED_MISCONCEPTION"
+    assert event["personalized_explanation"] == (
+        "Because 3 sign error mistakes were recorded in this session, a "
+        "worked example shows the error pattern before more practice."
+    )
+    assert event["personalized_emphasis"] == "process"
+    assert len(transport.calls) == 2
+
+
+def test_explanation_absent_when_model_unavailable(
+    isolated_pg_database, monkeypatch
+) -> None:
+    _shadow_flags_on(monkeypatch)
+    monkeypatch.setenv("BRIDGESAT_HYBRID_EXPLANATION_ENABLED", "1")
+    transport = ChatTransport(fail=True)
+    service = _make_service(isolated_pg_database, client=_fake_client(transport))
+    _seed_repeated_misconception(service)
+
+    response = service.process_batch(_request(("evt_08", 1)))
+
+    event = response.server_events[0]
+    assert event["action"] == "SHOW_WORKED_EXAMPLE"
+    assert "personalized_explanation" not in event
+    assert "personalized_emphasis" not in event
+    assert len(transport.calls) == 2
+
+
+def test_explanation_absent_when_flag_off(
+    isolated_pg_database, monkeypatch
+) -> None:
+    monkeypatch.setenv("BRIDGESAT_HYBRID_ENABLED", "0")
+    monkeypatch.setenv("BRIDGESAT_HYBRID_EXPLANATION_ENABLED", "1")
+    transport = ChatTransport(content=_explanation_json())
+    service = _make_service(isolated_pg_database, client=_fake_client(transport))
+    _seed_repeated_misconception(service)
+
+    response = service.process_batch(_request(("evt_09", 1)))
+
+    event = response.server_events[0]
+    assert event["action"] == "SHOW_WORKED_EXAMPLE"
+    assert "personalized_explanation" not in event
+    assert transport.calls == []

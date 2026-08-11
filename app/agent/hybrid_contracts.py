@@ -183,6 +183,49 @@ class ExplanationProposal(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    student_explanation: str = Field(max_length=320)
+    student_explanation: str = Field(min_length=1, max_length=320)
     emphasis: Literal["process", "sign", "setup", "transfer", "review"]
-    evidence_refs: tuple[str, ...] = Field(max_length=8)
+    evidence_refs: tuple[str, ...] = Field(min_length=1, max_length=8)
+
+
+class ExplanationFact(BaseModel):
+    """A grounded, citable fact the explanation task may reference.
+
+    ``ref`` is a stable identifier the model echoes back in
+    ``ExplanationProposal.evidence_refs``; ``phrase`` is the exact safe
+    phrasing the model may build on. Facts are the only place numbers may
+    originate, so numeric grounding is checked against them.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    ref: str = Field(min_length=1, max_length=64)
+    phrase: str = Field(min_length=1, max_length=320)
+
+
+class ExplanationContext(BaseModel):
+    """Sanitized, scoped input for the H5 explanation task (plan Section 14).
+
+    Input is limited to: the final verified action and deterministic reason
+    code, approved lesson title, current misconception evidence, verified
+    episode facts, a minimal learner-state summary, and the allowed phrasing
+    claims. Never includes student identity, raw history, lesson body text,
+    math truth, or provider secrets.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    task: Literal["explanation"]
+    context_version: str = CONTEXT_VERSION
+    skill: str = Field(min_length=1, max_length=64)
+    subskill: str | None = Field(default=None, max_length=64)
+    fallback_action: BoundedAction
+    reason_code: str = Field(min_length=1, max_length=64)
+    reason_text: str = Field(min_length=1, max_length=320)
+    lesson_title: str | None = Field(default=None, max_length=160)
+    misconception: str | None = Field(default=None, max_length=64)
+    misconception_evidence_count: int = Field(ge=0, le=256)
+    misconception_confidence: Literal["low", "medium", "high"]
+    learner_summary: str = Field(min_length=1, max_length=320)
+    facts: tuple[ExplanationFact, ...] = Field(min_length=1, max_length=16)
+    protected_spans: tuple[str, ...] = Field(max_length=8)
