@@ -36,42 +36,84 @@ def import_pack(
     pack_version = manifest["pack_version"]
 
     items = []
-    items_path = pack_dir / "items.jsonl"
-    if items_path.is_file():
-        for line in items_path.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                items.append(json.loads(line))
+    for filename in ("items.jsonl", "lessons.jsonl"):
+        artifact = pack_dir / filename
+        if artifact.is_file():
+            for line in artifact.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    items.append(json.loads(line))
 
     now = datetime.now(timezone.utc).isoformat()
     with pg.transaction(connection):
-        connection.execute(
-            """
-            INSERT INTO content_sources (
-                source_id, name, license, permitted_use, is_trusted,
-                source_name, source_type, redistribution_allowed,
-                rag_ingestion_allowed, access_method, attribution,
-                maintenance_status, last_verified_at
-            ) VALUES (%s, %s, %s, 'candidate_generation_only', FALSE,
-                      %s, %s, FALSE, FALSE, 'pack_import', %s,
-                      'candidate_generation_only', %s)
-            ON CONFLICT (source_id) DO UPDATE SET
-                name = EXCLUDED.name,
-                license = EXCLUDED.license,
-                source_name = EXCLUDED.source_name,
-                source_type = EXCLUDED.source_type,
-                attribution = EXCLUDED.attribution,
-                last_verified_at = EXCLUDED.last_verified_at
-            """,
-            (
-                "deepmind_mathematics_dataset",
-                source_name,
-                source_license,
-                source_name,
-                source_type,
-                source_attribution,
-                now,
-            ),
+        source_ids = sorted(
+            {
+                (item.get("source_lineage") or {}).get("source_id")
+                for item in items
+                if (item.get("source_lineage") or {}).get("source_id")
+            }
         )
+        for source_id in source_ids:
+            if source_id == "bridgesat_original":
+                profile = {
+                    "name": "BridgeSAT original authored content",
+                    "license": "bridgesat_original",
+                    "permitted_use": "student_delivery",
+                    "trusted": True,
+                    "type": "first_party_authored",
+                    "redistribution": True,
+                    "rag": True,
+                    "attribution": "BridgeSAT original educational content",
+                    "maintenance": "active",
+                }
+            else:
+                profile = {
+                    "name": source_name,
+                    "license": source_license,
+                    "permitted_use": "candidate_generation_only",
+                    "trusted": False,
+                    "type": source_type,
+                    "redistribution": False,
+                    "rag": False,
+                    "attribution": source_attribution,
+                    "maintenance": "candidate_generation_only",
+                }
+            connection.execute(
+                """
+                INSERT INTO content_sources (
+                    source_id, name, license, permitted_use, is_trusted,
+                    source_name, source_type, redistribution_allowed,
+                    rag_ingestion_allowed, access_method, attribution,
+                    maintenance_status, last_verified_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+                          'pack_import', %s, %s, %s)
+                ON CONFLICT (source_id) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    license = EXCLUDED.license,
+                    permitted_use = EXCLUDED.permitted_use,
+                    is_trusted = EXCLUDED.is_trusted,
+                    source_name = EXCLUDED.source_name,
+                    source_type = EXCLUDED.source_type,
+                    redistribution_allowed = EXCLUDED.redistribution_allowed,
+                    rag_ingestion_allowed = EXCLUDED.rag_ingestion_allowed,
+                    attribution = EXCLUDED.attribution,
+                    maintenance_status = EXCLUDED.maintenance_status,
+                    last_verified_at = EXCLUDED.last_verified_at
+                """,
+                (
+                    source_id,
+                    profile["name"],
+                    profile["license"],
+                    profile["permitted_use"],
+                    profile["trusted"],
+                    profile["name"],
+                    profile["type"],
+                    profile["redistribution"],
+                    profile["rag"],
+                    profile["attribution"],
+                    profile["maintenance"],
+                    now,
+                ),
+            )
 
         inserted = 0
         for item in items:
@@ -79,6 +121,20 @@ def import_pack(
             version = item.get("version", 1)
             lineage = item.get("source_lineage") or {}
             license_snapshot = item.get("license") or {}
+            existing_version = connection.execute(
+                """
+                SELECT content_hash
+                FROM content_item_versions
+                WHERE content_id = %s AND version = %s
+                """,
+                (content_id, version),
+            ).fetchone()
+            incoming_hash = item.get("content_hash", "")
+            if existing_version and existing_version["content_hash"] != incoming_hash:
+                raise ValueError(
+                    "immutable content version conflict: "
+                    f"{content_id}@{version} already has a different hash"
+                )
             connection.execute(
                 """
                 INSERT INTO content_items (
@@ -120,7 +176,7 @@ def import_pack(
                     license_snapshot.get("name", ""),
                     lineage.get("source_id", ""),
                     item.get("review_status", "approved"),
-                    item.get("prompt", ""),
+                    item.get("prompt") or item.get("body", ""),
                     item.get("schema_version", "v1"),
                     item.get("domain", "math"),
                     version,
@@ -137,11 +193,7 @@ def import_pack(
                     content_id, version, item_json, content_hash, created_at,
                     versioned_body, versioned_at
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (content_id, version) DO UPDATE SET
-                    item_json = EXCLUDED.item_json,
-                    content_hash = EXCLUDED.content_hash,
-                    versioned_body = EXCLUDED.versioned_body,
-                    versioned_at = EXCLUDED.versioned_at
+                ON CONFLICT (content_id, version) DO NOTHING
                 """,
                 (
                     content_id,
@@ -195,12 +247,13 @@ def verify_import(
         (pack_id,),
     ).fetchone()["total"]
     sources = connection.execute(
-        "SELECT COUNT(*) AS total FROM content_sources WHERE source_id = %s",
-        ("deepmind_mathematics_dataset",),
+        "SELECT COUNT(*) AS total FROM content_sources "
+        "WHERE source_id IN (%s, %s)",
+        ("deepmind_mathematics_dataset", "bridgesat_original"),
     ).fetchone()["total"]
     return {
         "content_items": items,
         "content_item_versions": versions,
         "content_pack_items": pack_rows,
-        "deepmind_source_rows": sources,
+        "source_rows": sources,
     }

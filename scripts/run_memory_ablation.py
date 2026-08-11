@@ -3,14 +3,12 @@
 
 Compares five memory routes on golden probes:
   no_memory      - policy default only, no recall
-  recent_sqlite  - most recent episode per skill from the PG authority
-  similar_sqlite - similar episodes (skill + misconception) from the PG authority
+  recent_postgres  - most recent episode per skill from PostgreSQL
+  similar_postgres - similar episodes (skill + misconception) from PostgreSQL
   mnemis_system1 - Mnemis System-1 recall (stub backend)
   mnemis_dual    - FallbackStudentMemory: Mnemis 800 ms -> PG authority
 
-The ``recent_sqlite`` and ``similar_sqlite`` route identifiers are retained as
-compatibility keys for existing reports and consumers. Their implementation is
-now PGMemory, not SQLite.
+Report route identifiers name the storage they actually exercise.
 
 Metrics: episode recall@3 + MRR, next-action accuracy, intervention
 accuracy, fallback success, latency (avg/p95). Writes JSON to stdout and
@@ -54,8 +52,8 @@ from app.memory.worker import OutboxWorker
 DEFAULT_INTERVENTION = "SHOW_WORKED_EXAMPLE"
 ROUTES = (
     "no_memory",
-    "recent_sqlite",
-    "similar_sqlite",
+    "recent_postgres",
+    "similar_postgres",
     "mnemis_system1",
     "mnemis_dual",
 )
@@ -298,7 +296,7 @@ async def _probe(
         skill=probe["skill"],
         limit=1,
     )
-    record("recent_sqlite", recent, (asyncio.get_running_loop().time() - start) * 1000)
+    record("recent_postgres", recent, (asyncio.get_running_loop().time() - start) * 1000)
 
     start = asyncio.get_running_loop().time()
     similar = pg_memory.recall_episodes(
@@ -307,7 +305,7 @@ async def _probe(
         misconception=probe["misconception"],
         limit=5,
     )
-    record("similar_sqlite", similar, (asyncio.get_running_loop().time() - start) * 1000)
+    record("similar_postgres", similar, (asyncio.get_running_loop().time() - start) * 1000)
 
     start = asyncio.get_running_loop().time()
     results = await stub.recall_similar(

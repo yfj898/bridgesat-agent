@@ -1,6 +1,6 @@
 """Mnemis memory adapter (MEMORY_CONSISTENCY §9.2, §9.3, §10).
 
-Mnemis is an optional derived long-term-memory index. SQLite remains the
+Mnemis is an optional derived long-term-memory index. PostgreSQL remains the
 authoritative store. This adapter only ever carries validated episodes and
 evidenced facts, never answers, mastery, state-machine or authoritative data.
 """
@@ -52,7 +52,7 @@ class MnemisMemoryAdapter:
     The transport is an async ``request(method, path, body, timeout_ms)``
     callable returning the parsed JSON response and raising on non-success or
     timeout. Injects for tests; defaults to an unavailable transport so
-    enhanced mode degrades to SQLite when no Mnemis endpoint is configured.
+    enhanced mode degrades to PostgreSQL when no Mnemis endpoint is configured.
     """
 
     def __init__(

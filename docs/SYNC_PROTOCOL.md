@@ -44,11 +44,19 @@ Every client-generated event uses:
 Rules:
 
 - `event_id` is globally unique and immutable;
-- `device_sequence` increases per device;
+- `device_sequence` strictly increases per device, including within one batch;
 - device wall-clock time is informative only;
 - ordering is not based solely on device timestamps;
 - question scoring is bound to the specified question version;
 - event payloads are validated against an event-type schema.
+
+`WORKED_EXAMPLE_PRESENTED` is the client confirmation that a server-selected
+intervention was actually shown. Its payload binds the source answer event,
+worked-example content ID/version, skill, misconception, and intervention. The
+server accepts it only when all fields match the same-session
+`SHOW_WORKED_EXAMPLE` decision. A runtime Episode then remains a candidate until
+a correct, low-hint answer arrives on a question different from the triggering
+question.
 
 ---
 
@@ -136,7 +144,7 @@ For each batch:
 4. identify duplicate event IDs;
 5. validate referenced content versions;
 6. store valid events append-only;
-7. apply events to projections in server receive order with domain rules;
+7. apply events in strict device-sequence order with domain rules;
 8. detect semantic conflicts;
 9. generate server-side Agent events where applicable;
 10. commit transaction;
@@ -224,12 +232,9 @@ Events may declare:
 }
 ```
 
-If a dependency is missing:
-
-- store the event as `pending_dependency`;
-- request missing events from the client;
-- retry projection after dependencies arrive;
-- dead-letter only after the retention window expires.
+If a dependency is missing, the server returns retryable
+`MISSING_DEPENDENCY`; the client retains the stable event ID and resubmits it
+after the dependency is acknowledged. It is not projected early.
 
 ---
 

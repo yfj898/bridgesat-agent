@@ -36,6 +36,7 @@ class PackAnswerKey:
         self.pack_version = pack_version
         self.pack_dir = pack_dir
         self._items: dict[str, dict] = {}
+        self._lessons: list[dict] = []
         self._load()
 
     def _load(self) -> None:
@@ -50,6 +51,13 @@ class PackAnswerKey:
                 continue
             item = json.loads(line)
             self._items[item["id"]] = item
+        lessons_path = self.pack_dir / "lessons.jsonl"
+        if lessons_path.exists():
+            self._lessons = [
+                json.loads(line)
+                for line in lessons_path.read_text().splitlines()
+                if line.strip()
+            ]
 
     def answer_choice_id(self, question_id: str, question_version: int) -> str:
         item = self._items.get(question_id)
@@ -85,7 +93,66 @@ class PackAnswerKey:
             "difficulty": item.get("difficulty"),
             "misconception_map": item.get("misconception_map", {}),
             "hints": item.get("hints", []),
+            "author_metadata": item.get("author_metadata", {}),
         }
+
+    def teaching_asset_meta(
+        self,
+        skill: str,
+        content_type: str,
+        misconception: str | None = None,
+    ) -> dict | None:
+        """Return an approved lesson, preferring an exact misconception match."""
+        candidates = sorted(
+            (
+                entry
+                for entry in self._lessons
+                if entry.get("content_type") == content_type
+                and entry.get("target_skill") == skill
+                and entry.get("review_status") == "approved"
+            ),
+            key=lambda entry: entry["id"],
+        )
+        lesson = next(
+            (
+                entry
+                for entry in candidates
+                if misconception
+                and misconception in (entry.get("target_misconceptions") or [])
+            ),
+            candidates[0] if candidates else None,
+        )
+        if lesson is None:
+            return None
+        license_meta = lesson.get("license", {})
+        lineage = lesson.get("source_lineage", {})
+        return {
+            "id": lesson["id"],
+            "version": lesson.get("version"),
+            "review_status": lesson["review_status"],
+            "license": license_meta,
+            "source_lineage": lineage,
+            "content_type": lesson.get("content_type"),
+            "target_misconceptions": lesson.get("target_misconceptions", []),
+            # Additive registry facts (H4 shadow context): the Hybrid verifier
+            # requires approved content to carry lineage and a content hash.
+            "content_hash": lesson.get("content_hash", ""),
+            "target_skill": lesson.get("target_skill"),
+            "license_id": license_meta.get("id"),
+            "license_name": license_meta.get("name"),
+            "source_id": lineage.get("source_id"),
+            "pack_version": self.pack_version,
+        }
+
+    def worked_example_meta(
+        self, skill: str, misconception: str | None = None
+    ) -> dict | None:
+        return self.teaching_asset_meta(skill, "worked_example", misconception)
+
+    def micro_lesson_meta(
+        self, skill: str, misconception: str | None = None
+    ) -> dict | None:
+        return self.teaching_asset_meta(skill, "micro_lesson", misconception)
 
 
 class VersionedAnswerKey:

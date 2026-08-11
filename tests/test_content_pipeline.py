@@ -17,6 +17,7 @@ from app.content_pipeline.contracts import (
     REVIEWS_DIR,
     SCHEMA_VERSION,
     VALIDATED_DIR,
+    content_hash,
 )
 from app.content_pipeline.generation import generate_all_drafts, generate_item
 from app.content_pipeline.packaging import (
@@ -24,6 +25,7 @@ from app.content_pipeline.packaging import (
     approve_items,
     build_pack,
     read_reviews,
+    review_row_complete_for_item,
     verify_pack_hashes,
     write_review_template,
 )
@@ -38,6 +40,7 @@ from app.content_pipeline.validation import (
     rewrite_similarity,
     validate_all,
     validate_item,
+    validate_lesson,
 )
 
 REVIEWED = Path("data/reviewed/routes/ready_for_rewrite.jsonl")
@@ -286,6 +289,36 @@ def test_review_template_and_approval(drafts: tuple[list[dict], list[dict]], tmp
     assert all(item["review_status"] == "approved" for item in approved)
 
 
+def test_review_approval_is_bound_to_item_version_and_hash(
+    drafts: tuple[list[dict], list[dict]], tmp_path: Path
+) -> None:
+    item = drafts[0][0]
+    template = tmp_path / "reviews.csv"
+    write_review_template([item], template)
+    review = read_reviews(template)[item["id"]]
+    review.update(
+        {
+            "educational_reviewer": "edu@example.com",
+            "answer_reviewer": "ans@example.com",
+            "license_reviewer": "lic@example.com",
+            "accessibility_reviewer": "acc@example.com",
+            "reviewed_at": "2026-08-11T00:00:00Z",
+            "conclusion": "approved",
+            "notes": "ok",
+            "source_lineage_confirmed": "yes",
+            "release_batch": "batch-1",
+        }
+    )
+
+    assert review_row_complete_for_item(review, item) == []
+    assert "version" in review_row_complete_for_item(
+        review, {**item, "version": item["version"] + 1}
+    )
+    assert "content_hash" in review_row_complete_for_item(
+        review, {**item, "content_hash": "sha256:" + "0" * 64}
+    )
+
+
 def test_approval_blocked_without_license_reviewer(
     drafts: tuple[list[dict], list[dict]], tmp_path: Path
 ) -> None:
@@ -358,14 +391,66 @@ def test_build_pack_rejects_unapproved(tmp_path: Path) -> None:
         build_pack([item], [], out_dir=tmp_path)
 
 
+def test_build_pack_requires_explicit_demo_flag_for_simulated_review(tmp_path: Path) -> None:
+    item = _minimal_approved_item("math.linear_equations.099", "linear_equations")
+    item["reviewers"] = {
+        role: f"sim.{role}"
+        for role in ("educational", "answer", "license", "accessibility")
+    }
+
+    with pytest.raises(ApprovalBlockedError, match="not human approval"):
+        build_pack([item], [], out_dir=tmp_path)
+
+    manifest = build_pack(
+        [item], [], out_dir=tmp_path, allow_simulated_review=True
+    )
+    assert manifest["review_provenance"] == {
+        "mode": "simulated_competition_review",
+        "human_approved": False,
+    }
+
+
 def test_build_pack_verifies_hashes(tmp_path: Path, drafts: tuple[list[dict], list[dict]]) -> None:
-    items, _ = drafts
+    items, lessons = drafts
     approved = [dict(item, review_status="approved", reviewers={r: r for r in ("educational", "answer", "license", "accessibility")}, release_batch="b1") for item in items[:2]]
-    manifest = build_pack(approved, [], out_dir=tmp_path)
+    approved_lessons = [dict(lessons[0], review_status="approved", reviewers={r: r for r in ("educational", "answer", "license", "accessibility")}, release_batch="b1")]
+    manifest = build_pack(approved, approved_lessons, out_dir=tmp_path)
     assert manifest["status"] == "published"
     assert len(manifest["item_hashes"]) == 2
+    assert len(manifest["lesson_hashes"]) == 1
+    assert manifest["content_counts"] == {"questions": 2, "lessons": 1}
     mismatches = verify_pack_hashes(tmp_path / f"{manifest['pack_id']}-{manifest['pack_version']}")
     assert mismatches == {}
+
+
+def test_historical_pack_remains_hash_and_schema_auditable() -> None:
+    historical_pack = Path("content/packs/bridgesat-math-0.1.0")
+    lessons = [
+        json.loads(line)
+        for line in (historical_pack / "lessons.jsonl").read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+
+    assert verify_pack_hashes(historical_pack) == {}
+    assert all(validate_lesson(lesson) == [] for lesson in lessons)
+
+
+def test_version_three_lesson_requires_targets_and_hashes_its_body(
+    drafts: tuple[list[dict], list[dict]]
+) -> None:
+    lesson = dict(drafts[1][0])
+    original_hash = lesson["content_hash"]
+    without_targets = dict(lesson)
+    without_targets.pop("target_misconceptions")
+    without_targets["content_hash"] = content_hash(without_targets)
+
+    assert any(
+        "requires target_misconceptions" in error
+        for error in validate_lesson(without_targets)
+    )
+
+    changed_body = {**lesson, "body": "A completely changed teaching body."}
+    assert content_hash(changed_body) != original_hash
 
 
 def test_source_licenses_in_manifest(tmp_path: Path) -> None:

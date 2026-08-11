@@ -1609,7 +1609,7 @@ def test_performance_eval_cli_uses_pg_and_preserves_report_shape(
                 str(report_path),
                 "--samples-policy",
                 "20",
-                "--samples-fts5",
+                "--samples-tsvector",
                 "20",
                 "--samples-restore",
                 "5",
@@ -1636,7 +1636,7 @@ def test_performance_eval_cli_uses_pg_and_preserves_report_shape(
         }
         assert set(report["results"]) == {
             "local_policy",
-            "fts5",
+            "tsvector",
             "session_restore",
         }
         actual_tenant = report["tenant_id"]
@@ -1692,8 +1692,8 @@ def test_memory_ablation_cli_uses_pg_and_preserves_metrics_shape(
         assert set(payload["summary"]) >= {
             "probes",
             "no_memory",
-            "recent_sqlite",
-            "similar_sqlite",
+            "recent_postgres",
+            "similar_postgres",
             "mnemis_system1",
             "mnemis_dual",
         }
@@ -1829,7 +1829,7 @@ def test_performance_uses_explicit_app_and_admin_dsns(
             str(report_path),
             "--samples-policy",
             "1",
-            "--samples-fts5",
+            "--samples-tsvector",
             "1",
             "--samples-restore",
             "1",
@@ -1847,7 +1847,15 @@ def test_performance_uses_explicit_app_and_admin_dsns(
     assert report["tenant_id"].startswith("task5b_dsn_probe_")
 
 
-@pytest.mark.parametrize("flag", ["--samples-policy", "--samples-fts5", "--samples-restore"])
+@pytest.mark.parametrize(
+    "flag",
+    [
+        "--samples-policy",
+        "--samples-tsvector",
+        "--samples-fts5",
+        "--samples-restore",
+    ],
+)
 def test_performance_rejects_nonpositive_samples(
     monkeypatch: pytest.MonkeyPatch, flag: str
 ) -> None:

@@ -9,7 +9,7 @@ Executes:
 - retrieval (RAG) eval          -> reports/rag_eval.json
 - memory ablation eval          -> reports/memory_eval.json
 - security test suite (pytest)  -> reports/security_eval.json
-- web core-flow tests (pytest) -> reports/web_tests.json
+- web core-flow tests (node)   -> reports/web_tests.json
 - content audit                -> reports/content_audit_eval.json
 - performance gates            -> reports/performance_eval.json
 - accessibility checklist      -> reports/accessibility_eval.md
@@ -39,6 +39,19 @@ SECURITY_SUITES = [
 
 def _run(command: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(command, capture_output=True, text=True, cwd=ROOT)
+
+
+def _refresh_content_index() -> None:
+    """Rebuild the approved PostgreSQL content registry/search index.
+
+    Several evaluation/test paths intentionally reset shared PostgreSQL state.
+    Retrieval and performance evidence must therefore establish their own
+    deterministic content precondition instead of depending on command order.
+    """
+    result = _run([sys.executable, "scripts/import_content_pack.py"])
+    if result.returncode != 0:
+        tail = (result.stdout + result.stderr)[-1000:]
+        raise RuntimeError(f"content index refresh failed: {tail}")
 
 
 def _read_json(path: Path) -> dict:
@@ -73,6 +86,7 @@ def run_offline_sync() -> Path:
 
 
 def run_retrieval() -> Path:
+    _refresh_content_index()
     result = _run([sys.executable, "scripts/run_retrieval_evals.py"])
     if result.returncode != 0:
         raise RuntimeError(f"retrieval eval failed: {result.stderr[-500:]}")
@@ -130,6 +144,7 @@ def run_content_audit() -> Path:
 
 
 def run_performance() -> Path:
+    _refresh_content_index()
     result = _run([sys.executable, "scripts/run_performance_evals.py"])
     if result.returncode not in (0, 2):
         raise RuntimeError(f"performance eval failed: {result.stderr[-500:]}")
@@ -263,11 +278,11 @@ def write_summary(entries: dict[str, Path]) -> Path:
         "## Long-term memory (controlled internal test)",
         "",
         f"- probes: {memory['summary']['probes']}",
-        f"- similarity recall@3: {_measured(memory['summary']['similar_sqlite'], 'recall_at_3')}",
-        f"- similarity next-action accuracy: {_measured(memory['summary']['similar_sqlite'], 'next_action_accuracy')}",
+        f"- PostgreSQL similarity recall@3: {_measured(memory['summary']['similar_postgres'], 'recall_at_3')}",
+        f"- PostgreSQL similarity next-action accuracy: {_measured(memory['summary']['similar_postgres'], 'next_action_accuracy')}",
         f"- Mnemis dual-route recall@3: {_measured(memory['summary']['mnemis_dual'], 'recall_at_3')}",
         f"- Mnemis dual-route next-action accuracy: {_measured(memory['summary']['mnemis_dual'], 'next_action_accuracy')}",
-        "- fallback success: SQLite two-session loop and timeout fallback tested in the test suite",
+        "- fallback success: PostgreSQL two-session loop and timeout fallback tested in the test suite",
         f"- report: reports/memory_eval.json",
         "",
         "## Offline and synchronization (controlled internal test)",
@@ -290,13 +305,15 @@ def write_summary(entries: dict[str, Path]) -> Path:
         "",
         f"- checks: {content_audit['checks']}, pass rate: {content_audit['pass_rate']:.0%}",
         f"- pack: {content_audit['pack']}",
+        "- limitation: reviewer IDs are simulated (`sim.*`); this is not a real human approval",
         f"- report: reports/content_audit_eval.json",
         "",
         "## Performance gates (controlled internal test, this machine)",
         "",
         f"- local policy p95: {performance['results']['local_policy']['p95_ms']} ms "
         f"(target < 150 ms)",
-        f"- FTS5 p95: {performance['results']['fts5']['p95_ms']} ms (target < 200 ms)",
+        f"- PostgreSQL tsvector p95: {performance['results']['tsvector']['p95_ms']} ms "
+        f"(target < 200 ms)",
         f"- session restore p95: {performance['results']['session_restore']['p95_ms']} ms "
         f"(target < 500 ms)",
         f"- sync throughput: {performance['sync_throughput_events_per_sec']} events/s, "
@@ -321,8 +338,8 @@ def write_summary(entries: dict[str, Path]) -> Path:
         f"| content audit 100% | controlled internal test | {content_audit['pass_rate']:.0%} |",
         f"| local policy p95 < 150 ms | controlled internal test | "
         f"{performance['results']['local_policy']['p95_ms']} ms |",
-        f"| FTS5 p95 < 200 ms | controlled internal test | "
-        f"{performance['results']['fts5']['p95_ms']} ms |",
+        f"| PostgreSQL tsvector p95 < 200 ms | controlled internal test | "
+        f"{performance['results']['tsvector']['p95_ms']} ms |",
         f"| session restore p95 < 500 ms | controlled internal test | "
         f"{performance['results']['session_restore']['p95_ms']} ms |",
         f"| educational improvement over control | synthetic simulation | "
@@ -331,19 +348,20 @@ def write_summary(entries: dict[str, Path]) -> Path:
         "## Reproduction",
         "",
         "```bash",
-        "python -m evals.run_all   # regenerates every report above",
-        "python scripts/seed_demo.py   # seeds the offline demo data",
-        "pytest                    # full test suite",
+        ".venv/bin/python scripts/import_content_pack.py",
+        ".venv/bin/python -m pytest",
+        "node --test web/tests/*.test.js",
+        ".venv/bin/python -m evals.run_all",
+        ".venv/bin/python scripts/seed_demo.py",
         "```",
         "",
         "## Recovery capabilities (API_AND_OPERATIONS sections 7-8)",
         "",
         "| Capability | Implementation | Evidence |",
         "|---|---|---|",
-        "| Pre-migration backup | `app/infrastructure/migration_runner.py` copies the DB to `data/backups/` before pending migrations | `tests/test_migrations.py` (backup created, no backup for fresh DB, no second backup on idempotent rerun) |",
-        "| Restore SQLite backup | `scripts/restore_sqlite_backup.py` (refuses same-path, missing, non-SQLite) | `tests/test_migrations.py::test_restore_backup_round_trip` |",
+        "| PostgreSQL schema migration | `app/infrastructure/migration_runner.py` applies versioned `migrations_pg` transactions under an advisory lock | `tests/test_pg_migration_runner.py` |",
         "| Rebuild learner projections from events | `scripts/rebuild_learner_projections.py` replays `learning_events` through the sync apply path | `tests/test_sync_protocol.py::test_rebuild_projection_from_events_restores_state` (golden equality) |",
-        "| Rebuild FTS5 index from approved content | `app/knowledge/local_backend.index_pack` via `scripts/import_content_pack.py` | `tests/test_retrieval.py`, `tests/test_content_loader.py` |",
+        "| Rebuild PostgreSQL tsvector index from approved content | `app/knowledge/local_backend.index_pack` via `scripts/import_content_pack.py` | `tests/test_pg_retrieval.py`, `tests/test_retrieval.py` |",
         "| Rebuild Mnemis from validated episodes/facts | `scripts/rebuild_memory_index.py` (idempotency keys, dead-letter replay) | `tests/test_scripts.py` |",
         "| Verify content-pack checksums | `verify_pack_hashes` in `app/content_pipeline/packaging.py` | `scripts/build_content_pack.py` + `scripts/run_content_audit.py` |",
         "",
@@ -363,22 +381,23 @@ def write_evidence_pack(entries: dict[str, Path], summary_path: Path) -> Path:
         "",
         "| Evaluation | Label | Report | Command |",
         "|---|---|---|---|",
-        "| Policy golden | synthetic simulation | reports/policy_eval.json | `python scripts/run_policy_evals.py` |",
-        "| Educational behavior | synthetic simulation | reports/educational_eval.json | `python scripts/run_educational_evals.py` |",
-        "| Retrieval (RAG) | controlled internal test | reports/rag_eval.json | `python scripts/run_retrieval_evals.py` |",
-        "| Long-term memory | controlled internal test | reports/memory_eval.json | `python scripts/run_memory_ablation.py` |",
-        "| Offline and sync | controlled internal test | reports/offline_sync_eval.json | `python scripts/run_offline_sync_evals.py` |",
-        "| Security | controlled internal test | reports/security_eval.json | `pytest tests/security -q` |",
+        "| Policy golden | synthetic simulation | reports/policy_eval.json | `.venv/bin/python scripts/run_policy_evals.py` |",
+        "| Educational behavior | synthetic simulation | reports/educational_eval.json | `.venv/bin/python scripts/run_educational_evals.py` |",
+        "| Retrieval (RAG) | controlled internal test | reports/rag_eval.json | `.venv/bin/python scripts/import_content_pack.py && .venv/bin/python scripts/run_retrieval_evals.py` |",
+        "| Long-term memory | controlled internal test | reports/memory_eval.json | `.venv/bin/python scripts/run_memory_ablation.py` |",
+        "| Offline and sync | controlled internal test | reports/offline_sync_eval.json | `.venv/bin/python scripts/run_offline_sync_evals.py` |",
+        "| Security | controlled internal test | reports/security_eval.json | `.venv/bin/python -m pytest tests/security tests/test_sync_protocol.py -q` |",
         "| Web core-flow tests | controlled internal test | reports/web_tests.json | `node --test web/tests/*.test.js` |",
-        "| Content audit | controlled internal test | reports/content_audit_eval.json | `python scripts/run_content_audit.py` |",
-        "| Performance gates | controlled internal test | reports/performance_eval.json | `python scripts/run_performance_evals.py` |",
-        "| Accessibility | checklist | reports/accessibility_eval.md | `python -m evals.run_all` |",
-        "| Final summary | aggregation | reports/final_summary.md | `python -m evals.run_all` |",
+        "| Content audit | controlled internal test | reports/content_audit_eval.json | `.venv/bin/python scripts/run_content_audit.py` |",
+        "| Performance gates | controlled internal test | reports/performance_eval.json | `.venv/bin/python scripts/import_content_pack.py && .venv/bin/python scripts/run_performance_evals.py` |",
+        "| Accessibility | checklist | reports/accessibility_eval.md | `.venv/bin/python -m evals.run_all` |",
+        "| Final summary | aggregation | reports/final_summary.md | `.venv/bin/python -m evals.run_all` |",
         "",
         "## Design targets not yet measured",
         "",
         "- real educational outcome (requires a human usability study, EVALUATION_SPEC section 2);",
         "- accessibility manual walkthrough items marked 'manual check required'.",
+        "- real human content review (the current `sim.*` ledger is controlled test data).",
         "",
         "## Honesty rules (EVALUATION_SPEC section 2)",
         "",
@@ -390,25 +409,26 @@ def write_evidence_pack(entries: dict[str, Path], summary_path: Path) -> Path:
         "## Reproduction",
         "",
         "```bash",
-        "python -m evals.run_all",
-        "python scripts/seed_demo.py",
-        "pytest",
+        ".venv/bin/python scripts/import_content_pack.py",
+        ".venv/bin/python -m pytest",
+        "node --test web/tests/*.test.js",
+        ".venv/bin/python -m evals.run_all",
+        ".venv/bin/python scripts/seed_demo.py",
         "```",
         "",
         "## Recovery capabilities (API_AND_OPERATIONS sections 7-8)",
         "",
         "| Capability | Implementation | Evidence |",
         "|---|---|---|",
-        "| Pre-migration backup | `app/infrastructure/migration_runner.py` copies the DB to `data/backups/` before pending migrations | `tests/test_migrations.py` |",
-        "| Restore SQLite backup | `scripts/restore_sqlite_backup.py` | `tests/test_migrations.py::test_restore_backup_round_trip` |",
+        "| PostgreSQL schema migration | `app/infrastructure/migration_runner.py` + `app/infrastructure/migrations_pg/` | `tests/test_pg_migration_runner.py` |",
         "| Rebuild learner projections from events | `scripts/rebuild_learner_projections.py` | `tests/test_sync_protocol.py::test_rebuild_projection_from_events_restores_state` |",
-        "| Rebuild FTS5 index | `app/knowledge/local_backend.index_pack` via `scripts/import_content_pack.py` | `tests/test_retrieval.py` |",
+        "| Rebuild PostgreSQL tsvector index | `app/knowledge/local_backend.index_pack` via `scripts/import_content_pack.py` | `tests/test_pg_retrieval.py`, `tests/test_retrieval.py` |",
         "| Rebuild Mnemis | `scripts/rebuild_memory_index.py` | `tests/test_scripts.py` |",
         "| Verify content-pack checksums | `verify_pack_hashes` | `scripts/run_content_audit.py` |",
         "",
         "## Status",
         "",
-        "Generated by `python -m evals.run_all`. Regenerate after any change.",
+        "Generated by `.venv/bin/python -m evals.run_all`. Regenerate after any change.",
         "",
     ]
     path = ROOT / "docs" / "EVIDENCE_PACK.md"

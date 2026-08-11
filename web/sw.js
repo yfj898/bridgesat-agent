@@ -1,4 +1,4 @@
-const CACHE_NAME = "bridgesat-shell-v1";
+const CACHE_NAME = "bridgesat-shell-v4";
 const PACK_CACHE_NAME = "bridgesat-packs-v1";
 const APP_SHELL = ["/", "/styles.css", "/app.js", "/offline.js", "/offline-core.js", "/manifest.webmanifest"];
 const PACK_URL_PREFIX = "/v1/content-packs";
@@ -43,10 +43,26 @@ async function fetchWithPackCache(request) {
   }
 }
 
+async function fetchPackListing(request) {
+  const cache = await caches.open(PACK_CACHE_NAME);
+  try {
+    const response = await fetch(request);
+    if (response.ok) await cache.put(request, response.clone());
+    return response;
+  } catch (_error) {
+    return (await cache.match(request)) || caches.match("/", { cacheName: CACHE_NAME });
+  }
+}
+
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   if (event.request.url.includes(PACK_URL_PREFIX)) {
-    event.respondWith(fetchWithPackCache(event.request));
+    const path = new URL(event.request.url).pathname;
+    event.respondWith(
+      path === PACK_URL_PREFIX
+        ? fetchPackListing(event.request)
+        : fetchWithPackCache(event.request)
+    );
     return;
   }
   event.respondWith(

@@ -1,8 +1,85 @@
 # BridgeSAT Worklog
 
+> Chronological historical record. SQLite/FTS5 references and test counts below
+> describe earlier repository states and are superseded by the current
+> PostgreSQL runtime and freshly generated reports.
+
 Session records: what was done, methods used, problems encountered, and
 follow-ups. Companion to the spec docs (IMPLEMENTATION_PLAN.md,
 EVALUATION_SPEC.md); this file is a chronological log, not a spec.
+
+---
+
+## 2026-08-11 — Hybrid H0–H4: bounded model reasoning on the real sync path
+
+Executed the first continuous Hybrid stage (plan sections 22 H0–H4) with the
+model in shadow mode: the executed teaching action stays fully deterministic;
+model proposals are verified post-commit and never change the response.
+
+### H0 — correctness and baseline freeze
+
+- Fixed intervention-specific memory aggregation: `PGMemory.list_episodes_for_fact`
+  now filters by the episode's own `intervention` and requires validated
+  effectiveness >= 0.6, so a fact can no longer be supported by episodes from
+  another intervention; added regression coverage.
+- Documented the runtime authority (PostgreSQL-backed `/v1/sync/events →
+  SyncService → shared deterministic policy`), deprecated engine/orchestrator
+  decision paths, and froze the full baseline: 591 Python tests, 44 Node tests,
+  content audit 1799/1799, all eval reports regenerated.
+
+### H1 — policy constraints API
+
+- `app/agent/policy.py` now derives `PolicyConstraints` (hard action, allowed
+  actions, legal next states, preferred deterministic fallback) from one policy
+  source, in addition to the backward-compatible `decide_next_action()`.
+- Trajectory tests (`tests/test_policy_constraints.py`) cover every existing
+  branch; all pre-existing policy/golden outputs unchanged.
+
+### H2 — Hybrid contracts and Reasoning Gate (dark)
+
+- New `app/agent/hybrid_contracts.py` (strict context/proposal/observation
+  contracts, field allowlists, bounds) and `app/agent/hybrid.py` (gate,
+  prompt building, task settings).
+- `choose_mode` stays deterministic unless: no hard action, provider
+  configured/healthy/within budget, task enabled, and
+  `semantic_reasoning_needed` (>= 2 allowed actions, conflicting episodes,
+  or supported-intervention disagreement).
+- `tests/test_hybrid_reasoning_gate.py` covers every gate branch; feature
+  flags default off.
+
+### H3 — proposal verifier, adversarial first
+
+- `verify_proposal(context, constraints, evidence)` fails closed against:
+  illegal actions, hallucinated IDs, wrong-tenant evidence, unapproved
+  content, fake claims, math mutation, and unparsable proposals.
+- Full adversarial matrix in `tests/test_hybrid_verifier.py` plus prompt-
+  injection security tests (`tests/security/test_hybrid_prompt_injection.py`):
+  zero accepted unsafe proposals.
+
+### H4 — real-path Hybrid shadow integration
+
+- `SyncService` now assembles a sanitized shadow context while the
+  authoritative transaction is active and runs the gated model task
+  post-commit (`_run_shadow_observations`); `LLMClient` gained per-task
+  timeout support.
+- `tests/test_hybrid_sync.py` proves, against a real PostgreSQL fixture:
+  flags off → deterministic fallback with zero model calls; flags on with a
+  decisive policy (single allowed action) → no model call; flags on with
+  ambiguity → shadow runs after commit, produces a verified observation
+  (fallback vs proposal action, accepted, would_change, latency), and never
+  changes the returned action; the AgentEvent is committed before the model
+  is called; model failure leaves the response unchanged; duplicate sync
+  creates no second decision.
+- Two-session golden memory scenario unchanged; full Python/Node regression
+  passes.
+
+### Follow-ups
+
+- H5 (grounded personalized explanation) is the next heading: verified
+  student-facing wording behind "Why this recommendation?" with action/math
+  unchanged.
+- Real human content review and real-student learning-effect evidence remain
+  open for any competition claim.
 
 ---
 
@@ -799,3 +876,34 @@ Closed the three remaining pre-submission checklist items
 
 - Remaining human items only: accessibility manual walkthrough, real
   educational outcome study, and the demo recording itself.
+
+---
+
+## 2026-08-11 — Content Expansion Phase
+
+Expanded the governed SAT Math catalog without changing the Agent, memory, or
+sync architecture:
+
+1. Added 48 BridgeSAT-original questions across `inequalities`,
+   `quadratic_equations`, `exponents_radicals`, and `coordinate_geometry`, with
+   4/5/3 difficulty distribution per skill and explicit trigger/transfer paths.
+2. Added one micro lesson and one worked example per new skill, with explicit
+   misconception targets. The full pack now contains 103 questions and 24
+   lessons across eight skills and 17 used misconception types.
+3. Published `bridgesat-math-0.3.0`; the manifest records question and lesson
+   hashes, counts, skills, and misconceptions. The controlled `sim.*` ledger is
+   labeled not human approval.
+4. PostgreSQL import now registers and indexes questions and lessons. The PWA
+   selects the latest semantic pack version, preserves the active version for
+   offline scoring, and renders homepage counts/cards from pack content.
+5. Content audit: 1799/1799 checks passed. PostgreSQL import: 127 registry rows;
+   tsvector index: 103 questions + 24 lessons.
+6. Final review hardening moved questions to v3 and lessons to v4, rejects
+   distractor collisions instead of changing their misconception meaning,
+   independently recomputes expansion answers, binds review records to
+   `id/version/content_hash`, preserves historical lesson verification, and
+   blocks `sim.*` provenance before artifact writes unless the competition-demo
+   override is explicit. Correct-answer labels are distributed A/B/C/D =
+   21/27/26/29, with zero placeholder choices.
+
+Real human content review and real-student learning-effect evidence remain open.

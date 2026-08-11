@@ -51,6 +51,7 @@ class EpisodeBuilder:
         teaching_content_id: str,
         summary: str,
         episode_id: str | None = None,
+        commit: bool = True,
     ) -> Episode:
         episode_id = episode_id or f"ep_{uuid.uuid4().hex[:12]}"
         now = utc_now_iso()
@@ -78,10 +79,10 @@ class EpisodeBuilder:
             created_at=now,
             updated_at=now,
         )
-        self._insert_episode(self.connection, episode)
+        self._insert_episode(self.connection, episode, commit=commit)
         return episode
 
-    def validate(self, episode: Episode) -> Episode:
+    def validate(self, episode: Episode, *, commit: bool = True) -> Episode:
         """Validate a candidate episode against the contract rules."""
         if episode.status != "candidate":
             return episode
@@ -126,13 +127,21 @@ class EpisodeBuilder:
                         version=1,
                         now=updated.updated_at,
                     )
-                self.connection.commit()
+                if commit:
+                    self.connection.commit()
             except BaseException:
-                self.connection.rollback()
+                if commit:
+                    self.connection.rollback()
                 raise
         return updated
 
-    def _insert_episode(self, connection: psycopg.Connection, episode: Episode) -> None:
+    def _insert_episode(
+        self,
+        connection: psycopg.Connection,
+        episode: Episode,
+        *,
+        commit: bool = True,
+    ) -> None:
         with student_advisory_lock(connection, episode.student_id):
             try:
                 ensure_active_student(connection, episode.student_id)
@@ -164,10 +173,146 @@ class EpisodeBuilder:
                         episode.updated_at,
                     ),
                 )
-                connection.commit()
+                if commit:
+                    connection.commit()
             except BaseException:
-                connection.rollback()
+                if commit:
+                    connection.rollback()
                 raise
+
+    def start_runtime_candidate(
+        self,
+        *,
+        student_id: str,
+        session_id: str,
+        skill: str,
+        misconception: str,
+        intervention: str,
+        teaching_content_id: str,
+        trigger_content_id: str,
+        evidence_event_id: str,
+        episode_id: str | None = None,
+        commit: bool = True,
+    ) -> Episode:
+        """Record an intervention now and wait for a distinct transfer item."""
+        now = utc_now_iso()
+        episode = Episode(
+            episode_id=episode_id or f"ep_{uuid.uuid4().hex[:12]}",
+            student_id=student_id,
+            session_id=session_id,
+            skill=skill,
+            misconception=misconception,
+            intervention=intervention,
+            outcome={
+                "correct": False,
+                "hint_level": 0,
+                "outcome_content_id": None,
+                "teaching_content_id": teaching_content_id,
+                "trigger_content_id": trigger_content_id,
+                "different_item": False,
+                "pending_transfer": True,
+            },
+            effectiveness=0.0,
+            evidence_event_ids=[evidence_event_id],
+            summary=(
+                f"{intervention} selected for {misconception}; awaiting a distinct "
+                "transfer item."
+            ),
+            confidence=0.0,
+            status="candidate",
+            created_at=now,
+            updated_at=now,
+        )
+        self._insert_episode(self.connection, episode, commit=commit)
+        return episode
+
+    def complete_runtime_candidate(
+        self,
+        *,
+        student_id: str,
+        session_id: str,
+        skill: str,
+        outcome_event_id: str,
+        outcome_content_id: str,
+        outcome_correct: bool,
+        outcome_hint_level: int,
+        commit: bool = True,
+    ) -> Episode | None:
+        """Complete the latest pending intervention with a real transfer answer."""
+        rows = self.connection.execute(
+            """
+            SELECT *
+            FROM learning_episodes
+            WHERE student_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+              AND session_id = %s
+              AND skill = %s
+              AND status = 'candidate'
+            ORDER BY created_at DESC
+            """,
+            (student_id, session_id, skill),
+        ).fetchall()
+        candidate = next(
+            (
+                _row_to_episode(row)
+                for row in rows
+                if json.loads(row["outcome_json"]).get("trigger_content_id")
+                != outcome_content_id
+            ),
+            None,
+        )
+        if candidate is None:
+            return None
+
+        score = outcome_component_score(outcome_correct, outcome_hint_level)
+        outcome = {
+            "correct": outcome_correct,
+            "hint_level": outcome_hint_level,
+            "outcome_content_id": outcome_content_id,
+            "teaching_content_id": candidate.outcome.get("teaching_content_id"),
+            "trigger_content_id": candidate.outcome.get("trigger_content_id"),
+            "different_item": True,
+            "pending_transfer": False,
+        }
+        updated = candidate.model_copy(
+            update={
+                "outcome": outcome,
+                "effectiveness": score,
+                "evidence_event_ids": [
+                    *candidate.evidence_event_ids,
+                    outcome_event_id,
+                ],
+                "summary": (
+                    f"{candidate.intervention} for {candidate.misconception or 'the error'} "
+                    f"was followed by a {'successful' if outcome_correct else 'failed'} "
+                    "distinct transfer item."
+                ),
+                "confidence": score,
+                "updated_at": utc_now_iso(),
+            }
+        )
+        self.connection.execute(
+            """
+            UPDATE learning_episodes
+            SET outcome_json = %s, effectiveness = %s,
+                evidence_event_ids_json = %s, summary = %s,
+                confidence = %s, updated_at = %s
+            WHERE episode_id = %s
+              AND student_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+            """,
+            (
+                _json(updated.outcome),
+                updated.effectiveness,
+                _json(updated.evidence_event_ids),
+                updated.summary,
+                updated.confidence,
+                updated.updated_at,
+                updated.episode_id,
+                updated.student_id,
+            ),
+        )
+        return self.validate(updated, commit=commit)
 
     def get_episode(self, episode_id: str) -> Episode | None:
         row = self.connection.execute(

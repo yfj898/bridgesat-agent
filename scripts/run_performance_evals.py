@@ -52,7 +52,7 @@ PACK_DIR = packs_root() / f"bridgesat-math-{PACK_VERSION}"
 
 TARGETS = {
     "local_policy_p95_ms": 150.0,
-    "fts5_p95_ms": 200.0,
+    "tsvector_p95_ms": 200.0,
     "session_restore_p95_ms": 500.0,
 }
 
@@ -214,8 +214,8 @@ def bench_local_policy(n: int = 2000) -> dict:
     return _percentiles(samples)
 
 
-def bench_fts5(connection: psycopg.Connection, n: int = 200) -> dict:
-    """Benchmark the compatibility-labelled FTS gate on PG tsvector."""
+def bench_tsvector(connection: psycopg.Connection, n: int = 200) -> dict:
+    """Benchmark PostgreSQL tsvector retrieval."""
     queries = [
         {"query": "solve linear equation isolate variable", "skill": "linear_equations"},
         {"query": "unit rate ratio parts per minute", "skill": "ratios_percentages"},
@@ -429,7 +429,14 @@ def main() -> int:
     parser.add_argument("--tenant", default=None, help="label for an isolated benchmark tenant")
     parser.add_argument("--json", type=Path, default=REPORT_JSON)
     parser.add_argument("--samples-policy", type=_positive_int, default=2000)
-    parser.add_argument("--samples-fts5", type=_positive_int, default=200)
+    parser.add_argument(
+        "--samples-tsvector",
+        "--samples-fts5",
+        dest="samples_tsvector",
+        type=_positive_int,
+        default=200,
+        help="PostgreSQL tsvector samples (--samples-fts5 is deprecated)",
+    )
     parser.add_argument("--samples-restore", type=_positive_int, default=100)
     args = parser.parse_args()
 
@@ -445,7 +452,7 @@ def main() -> int:
         policy = bench_local_policy(args.samples_policy)
         with _tenant_connection(target, tenant_id) as connection:
             _require_knowledge_index(connection)
-            fts5 = bench_fts5(connection, args.samples_fts5)
+            tsvector = bench_tsvector(connection, args.samples_tsvector)
 
         with _tenant_connection(target, tenant_id) as connection:
             student_id, device_id = _seed_snapshot_student(
@@ -465,9 +472,9 @@ def main() -> int:
             "local_policy": {**policy,
                              "target_p95_ms": TARGETS["local_policy_p95_ms"],
                              "passed": policy["p95_ms"] < TARGETS["local_policy_p95_ms"]},
-            "fts5": {**fts5,
-                     "target_p95_ms": TARGETS["fts5_p95_ms"],
-                     "passed": fts5["p95_ms"] < TARGETS["fts5_p95_ms"]},
+            "tsvector": {**tsvector,
+                         "target_p95_ms": TARGETS["tsvector_p95_ms"],
+                         "passed": tsvector["p95_ms"] < TARGETS["tsvector_p95_ms"]},
             "session_restore": {**restore,
                                 "target_p95_ms": TARGETS["session_restore_p95_ms"],
                                 "passed": restore["p95_ms"] < TARGETS["session_restore_p95_ms"]},
@@ -494,7 +501,7 @@ def main() -> int:
             "tenant_id": summary["tenant_id"],
             "all_gates_passed": passed,
             "local_policy_p95_ms": results["local_policy"]["p95_ms"],
-            "fts5_p95_ms": results["fts5"]["p95_ms"],
+            "tsvector_p95_ms": results["tsvector"]["p95_ms"],
             "session_restore_p95_ms": results["session_restore"]["p95_ms"],
             "sync_throughput_events_per_sec": summary["sync_throughput_events_per_sec"],
             "max_rss_mb": summary["max_rss_mb"],

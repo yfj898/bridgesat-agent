@@ -69,13 +69,22 @@ class PGMemory:
         student_id: str,
         skill: str,
         misconception: str | None = None,
+        intervention: str | None = None,
         limit: int = 5,
     ) -> list[Any]:
-        clauses = ["student_id = %s", "status = 'validated'", "skill = %s"]
+        clauses = [
+            "student_id = %s",
+            "status = 'validated'",
+            "effectiveness >= 0.6",
+            "skill = %s",
+        ]
         params: list[object] = [student_id, skill]
         if misconception is not None:
             clauses.append("misconception = %s")
             params.append(misconception)
+        if intervention is not None:
+            clauses.append("intervention = %s")
+            params.append(intervention)
         where = " AND ".join(clauses)
         params.append(limit)
         rows = self.connection.execute(
@@ -91,17 +100,28 @@ class PGMemory:
 
     # ---------- semantic facts ----------
 
-    def upsert_fact_for_episode(self, episode: Any) -> MemoryFact:
+    def upsert_fact_for_episode(
+        self,
+        episode: Any,
+        *,
+        commit: bool = True,
+    ) -> MemoryFact:
         """Create or update a fact while serializing with deletion/writes."""
         with student_advisory_lock(self.connection, episode.student_id):
             try:
                 ensure_active_student(self.connection, episode.student_id)
-                return self._upsert_fact_for_episode(episode)
+                return self._upsert_fact_for_episode(episode, commit=commit)
             except BaseException:
-                self.connection.rollback()
+                if commit:
+                    self.connection.rollback()
                 raise
 
-    def _upsert_fact_for_episode(self, episode: Any) -> MemoryFact:
+    def _upsert_fact_for_episode(
+        self,
+        episode: Any,
+        *,
+        commit: bool = True,
+    ) -> MemoryFact:
         """Create or update a semantic fact from a validated episode.
 
         Normalized key: skill + misconception + intervention. Promotion:
@@ -234,7 +254,8 @@ class PGMemory:
             version=fact.version,
             now=now,
         )
-        self.connection.commit()
+        if commit:
+            self.connection.commit()
         return fact
 
     def list_episodes_for_fact(self, student_id: str, key: str) -> list[Any]:
@@ -243,6 +264,7 @@ class PGMemory:
             student_id=student_id,
             skill=skill,
             misconception=misconception or None,
+            intervention=intervention or None,
             limit=50,
         )
 
@@ -274,6 +296,7 @@ class PGMemory:
         window: str,
         component_score: float,
         weight: float,
+        commit: bool = True,
     ) -> InterventionStat:
         with student_advisory_lock(self.connection, student_id):
             try:
@@ -287,9 +310,11 @@ class PGMemory:
                     window=window,
                     component_score=component_score,
                     weight=weight,
+                    commit=commit,
                 )
             except BaseException:
-                self.connection.rollback()
+                if commit:
+                    self.connection.rollback()
                 raise
 
     def _record_intervention_outcome(
@@ -303,6 +328,7 @@ class PGMemory:
         window: str,
         component_score: float,
         weight: float,
+        commit: bool = True,
     ) -> InterventionStat:
         now = utc_now_iso()
         stat_id = None
@@ -341,7 +367,8 @@ class PGMemory:
             """,
             (component_score, weight, now, stat_id),
         )
-        self.connection.commit()
+        if commit:
+            self.connection.commit()
         return self.get_intervention_stat(stat_id)
 
     def get_intervention_stat(self, stat_id: str) -> InterventionStat:

@@ -1,5 +1,5 @@
 from app.engine import adapt, score_diagnostic
-from app.models import AdaptRequest, DiagnosticAnswer, Skill, Student
+from app.models import AdaptRequest, DiagnosticAnswer, Question, Skill, Student
 
 
 def make_student() -> Student:
@@ -27,6 +27,36 @@ def test_diagnostic_prioritizes_lowest_skill() -> None:
 
     assert result.weakest_skills[0] == Skill.LINEAR_EQUATIONS
     assert sum(item.minutes for item in result.plan) == 20
+
+
+def test_diagnostic_prioritizes_sampled_expansion_skill_over_untested_legacy_skill(
+    monkeypatch,
+) -> None:
+    student = make_student()
+    student.mastery[Skill.READING_INFERENCE] = 0.0
+    question = Question(
+        id="math.inequalities.001",
+        skill=Skill.INEQUALITIES,
+        difficulty=1,
+        prompt="Which integer satisfies the inequality?",
+        choices=["3", "4"],
+        answer="4",
+        hints=["Check the boundary."],
+        explanation="The boundary is excluded.",
+    )
+    monkeypatch.setattr("app.engine.question_map", lambda: {question.id: question})
+
+    result = score_diagnostic(
+        student,
+        [
+            DiagnosticAnswer(
+                question_id="math.inequalities.001",
+                selected_answer="not-the-correct-choice",
+            )
+        ],
+    )
+
+    assert result.weakest_skills[0] == Skill.INEQUALITIES
 
 
 def test_repeated_errors_insert_micro_lesson() -> None:

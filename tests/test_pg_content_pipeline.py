@@ -13,7 +13,7 @@ import pytest
 from app.content_pipeline.contracts import SCHEMA_VERSION as PACK_SCHEMA_VERSION
 from app.content_pipeline.contracts import content_hash
 from app.content_pipeline.importing import import_pack, verify_import
-from app.content_pipeline.packaging import build_pack
+from app.content_pipeline.packaging import PACK_VERSION, build_pack
 from app.infrastructure import pg
 from app.infrastructure.migration_runner import migrate_database
 
@@ -59,11 +59,41 @@ def _minimal_approved_item(content_id: str, skill: str) -> dict:
     return item
 
 
+def _minimal_approved_lesson() -> dict:
+    lesson = {
+        "id": "math.linear_equations.worked_example.001",
+        "version": 2,
+        "schema_version": PACK_SCHEMA_VERSION,
+        "domain": "math",
+        "content_type": "worked_example",
+        "target_skill": "linear_equations",
+        "target_subskill": "isolate_variables",
+        "target_misconceptions": ["sign_error"],
+        "required_prerequisites": ["integer_operations"],
+        "difficulty": 1,
+        "title": "Sign check",
+        "body": "Apply the same inverse operation to both sides and check the sign.",
+        "estimated_seconds": 90,
+        "source_lineage": {
+            "source_id": "bridgesat_original",
+            "lineage_id": "bridgesat-original:test-lesson",
+            "role": "concept_source_only",
+        },
+        "license": {"id": "bridgesat_original", "name": "BridgeSAT original"},
+        "review_status": "approved",
+        "reviewers": {r: r for r in ("educational", "answer", "license", "accessibility")},
+        "release_batch": "b1",
+        "content_hash": "",
+    }
+    lesson["content_hash"] = content_hash(lesson)
+    return lesson
+
+
 @pytest.fixture()
 def built_pack(tmp_path: Path) -> Path:
     item = _minimal_approved_item("math.linear_equations.003", "linear_equations")
-    build_pack([item], [], out_dir=tmp_path / "packs")
-    return tmp_path / "packs" / "bridgesat-math-0.1.0"
+    build_pack([item], [_minimal_approved_lesson()], out_dir=tmp_path / "packs")
+    return tmp_path / "packs" / f"bridgesat-math-{PACK_VERSION}"
 
 
 def test_pg_import_pack_writes_registry_and_is_idempotent(
@@ -73,18 +103,43 @@ def test_pg_import_pack_writes_registry_and_is_idempotent(
     try:
         migrate_database(admin)
         imported = import_pack(admin, built_pack)
-        assert imported == 1
+        assert imported == 2
         summary = verify_import(admin, pack_id="bridgesat-math")
         assert summary == {
-            "content_items": 1,
-            "content_item_versions": 1,
-            "content_pack_items": 1,
-            "deepmind_source_rows": 1,
+            "content_items": 2,
+            "content_item_versions": 2,
+            "content_pack_items": 2,
+            "source_rows": 2,
         }
 
         again = import_pack(admin, built_pack)
-        assert again == 1
+        assert again == 2
         assert verify_import(admin, pack_id="bridgesat-math") == summary
+    finally:
+        admin.close()
+
+
+def test_pg_import_rejects_changed_body_for_existing_content_version(
+    isolated_pg_database, built_pack: Path, tmp_path: Path
+) -> None:
+    admin = pg.connect_admin(isolated_pg_database.admin_dsn)
+    try:
+        migrate_database(admin)
+        import_pack(admin, built_pack)
+
+        changed = _minimal_approved_item(
+            "math.linear_equations.003", "linear_equations"
+        )
+        changed["prompt"] = "A changed prompt must use a new version."
+        changed["content_hash"] = content_hash(changed)
+        changed_pack_root = tmp_path / "changed-packs"
+        build_pack([changed], [], out_dir=changed_pack_root)
+
+        with pytest.raises(ValueError, match="immutable content version conflict"):
+            import_pack(
+                admin,
+                changed_pack_root / f"bridgesat-math-{PACK_VERSION}",
+            )
     finally:
         admin.close()
 
@@ -140,6 +195,12 @@ def test_pg_import_pack_records_governance_metadata(
             ("bridgesat-math", "math.linear_equations.003"),
         ).fetchone()
         assert membership["version"] == 1
+        lesson = admin.execute(
+            "SELECT content_type, body FROM content_items WHERE content_id = %s",
+            ("math.linear_equations.worked_example.001",),
+        ).fetchone()
+        assert lesson["content_type"] == "worked_example"
+        assert lesson["body"].startswith("Apply the same inverse operation")
     finally:
         admin.close()
 
@@ -180,7 +241,7 @@ def test_pg_import_cli_accepts_dsn_and_avoids_sqlite_artifacts(
         row = app.execute(
             "SELECT COUNT(*) AS total FROM content_items"
         ).fetchone()
-        assert row["total"] == 1
+        assert row["total"] == 2
     finally:
         app.close()
 

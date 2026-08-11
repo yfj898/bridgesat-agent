@@ -22,6 +22,29 @@ Normative companion specifications:
 - `DATA_SOURCE_REGISTRY.md`: source rights decisions, approved uses, review workflow, and withdrawal policy;
 - `../config/sources.yaml`: machine-readable fail-closed source and acquisition registry.
 
+### 1.1 Decision authority (Hybrid Integration Plan H0)
+
+The competition runtime authority is the real PWA path:
+
+```text
+POST /v1/sync/events -> SyncService.process_batch()
+  -> exact re-score (VersionedAnswerKey)
+  -> learner mastery projection
+  -> EpisodeBuilder.complete_runtime_candidate()
+  -> PGMemory intervention/episode evidence
+  -> decide_next_action() deterministic policy
+  -> EventStore.append_agent_event()
+  -> SyncResponse -> PWA
+```
+
+`app/engine.py` (`/v1/adapt`) and `SessionOrchestrator` are secondary/legacy
+decision paths with their own action vocabularies and prompts; they are not
+called from the PWA and are not the competition authority. Server-side
+decision logic converges on one constraints/fallback API; API entry points
+need not be physically merged. PostgreSQL is the only authoritative
+learner/event/memory/sync/content state. Optional LLM or memory layers are
+derived and degrade safely.
+
 ---
 
 ## 2. Product definition

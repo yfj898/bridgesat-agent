@@ -25,7 +25,7 @@ from .selection import verify_selection_counts
 
 MINIMUM_APP_VERSION = "0.1.0"
 PACK_ID = "bridgesat-math"
-PACK_VERSION = "0.1.0"
+PACK_VERSION = "0.3.0"
 REVIEW_FILE = "math-v1.csv"
 APPROVED_FILE = "math-v1.jsonl"
 
@@ -36,6 +36,26 @@ class ReviewIncompleteError(RuntimeError):
 
 class ApprovalBlockedError(RuntimeError):
     pass
+
+
+def review_provenance(
+    entries: list[dict], *, allow_simulated_review: bool = False
+) -> dict[str, object]:
+    """Classify reviewer provenance and enforce the demo-only simulation gate."""
+    simulated_review = any(
+        str(reviewer).startswith("sim.")
+        for entry in entries
+        for reviewer in (entry.get("reviewers") or {}).values()
+    )
+    if simulated_review and not allow_simulated_review:
+        raise ApprovalBlockedError(
+            "simulated reviewers are competition-demo evidence, not human approval; "
+            "pass allow_simulated_review explicitly for a demo-only pack"
+        )
+    return {
+        "mode": "simulated_competition_review" if simulated_review else "human_review",
+        "human_approved": not simulated_review,
+    }
 
 
 def _review_row_complete(row: dict) -> list[str]:
@@ -69,13 +89,16 @@ def write_review_template(items: list[dict], path: Path) -> None:
     """Write an empty review ledger with the required columns."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=REVIEW_REQUIRED_COLUMNS)
+        writer = csv.DictWriter(
+            handle, fieldnames=REVIEW_REQUIRED_COLUMNS, lineterminator="\n"
+        )
         writer.writeheader()
         for item in items:
             writer.writerow(
                 {
                     "content_id": item["id"],
                     "version": item.get("version", 1),
+                    "content_hash": item.get("content_hash", ""),
                     "educational_reviewer": "",
                     "answer_reviewer": "",
                     "license_reviewer": "",
@@ -90,7 +113,14 @@ def write_review_template(items: list[dict], path: Path) -> None:
 
 
 def review_row_complete_for_item(review: dict, item: dict) -> list[str]:
-    return _review_row_complete(review)
+    missing = _review_row_complete(review)
+    if str(review.get("content_id", "")) != str(item.get("id", "")):
+        missing.append("content_id")
+    if str(review.get("version", "")) != str(item.get("version", "")):
+        missing.append("version")
+    if str(review.get("content_hash", "")) != str(item.get("content_hash", "")):
+        missing.append("content_hash")
+    return missing
 
 
 def approve_items(items: list[dict], reviews: dict[str, dict]) -> list[dict]:
@@ -100,7 +130,7 @@ def approve_items(items: list[dict], reviews: dict[str, dict]) -> list[dict]:
         review = reviews.get(item["id"])
         if not review:
             continue
-        missing = _review_row_complete(review)
+        missing = review_row_complete_for_item(review, item)
         if missing:
             continue
         item = dict(item)
@@ -123,6 +153,7 @@ def build_pack(
     pack_version: str = PACK_VERSION,
     out_dir: Path = PACKS_DIR,
     withdrawn: list[dict] | None = None,
+    allow_simulated_review: bool = False,
 ) -> dict:
     """Build a pack directory containing manifest, items, and lessons."""
     pack_dir = out_dir / f"{pack_id}-{pack_version}"
@@ -137,7 +168,29 @@ def build_pack(
         if not item.get("release_batch"):
             raise ApprovalBlockedError(f"{item['id']} has no release batch")
 
-    lessons = [lesson for lesson in approved_lessons if lesson.get("review_status") == "approved"]
+    for lesson in approved_lessons:
+        if lesson.get("review_status") != "approved":
+            raise ApprovalBlockedError(f"{lesson['id']} is not approved")
+        review = lesson.get("reviewers") or {}
+        if not review or len(review) < len(REVIEWER_ROLES):
+            raise ApprovalBlockedError(f"{lesson['id']} has incomplete reviewers")
+        if not lesson.get("release_batch"):
+            raise ApprovalBlockedError(f"{lesson['id']} has no release batch")
+    lessons = list(approved_lessons)
+
+    provenance = review_provenance(
+        [*approved_items, *lessons],
+        allow_simulated_review=allow_simulated_review,
+    )
+
+    skills = sorted({item["target_skill"] for item in approved_items})
+    misconceptions = sorted(
+        {
+            misconception
+            for item in approved_items
+            for misconception in (item.get("misconception_map") or {}).values()
+        }
+    )
 
     manifest = {
         "pack_id": pack_id,
@@ -147,22 +200,44 @@ def build_pack(
         "minimum_app_version": MINIMUM_APP_VERSION,
         "allowed_item_schema_versions": [SCHEMA_VERSION],
         "item_hashes": {item["id"]: item.get("content_hash", "") for item in approved_items},
+        "lesson_hashes": {lesson["id"]: lesson.get("content_hash", "") for lesson in lessons},
+        "content_counts": {"questions": len(approved_items), "lessons": len(lessons)},
+        "skills": skills,
+        "misconceptions": misconceptions,
         "source_licenses": _source_license_manifest(approved_items + lessons),
         "withdrawn": withdrawn or [],
         "created_at": datetime.now(timezone.utc).isoformat(),
         "reviewers_present": True,
+        "review_provenance": provenance,
     }
-    (pack_dir / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8"
-    )
-    (pack_dir / "items.jsonl").write_text(
-        "".join(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n" for item in approved_items),
-        encoding="utf-8",
-    )
-    (pack_dir / "lessons.jsonl").write_text(
-        "".join(json.dumps(lesson, ensure_ascii=False, sort_keys=True) + "\n" for lesson in lessons),
-        encoding="utf-8",
-    )
+    manifest_path = pack_dir / "manifest.json"
+    if manifest_path.exists():
+        existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+        immutable_keys = ("item_hashes", "lesson_hashes", "content_counts")
+        if any(existing.get(key) != manifest.get(key) for key in immutable_keys):
+            raise ApprovalBlockedError(
+                f"pack {pack_id}-{pack_version} already exists with different content; "
+                "publish a new pack version"
+            )
+        return existing
+
+    staged = {
+        "items.jsonl": "".join(
+            json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n"
+            for item in approved_items
+        ),
+        "lessons.jsonl": "".join(
+            json.dumps(lesson, ensure_ascii=False, sort_keys=True) + "\n"
+            for lesson in lessons
+        ),
+        "manifest.json": json.dumps(
+            manifest, ensure_ascii=False, sort_keys=True, indent=2
+        ),
+    }
+    for filename, body in staged.items():
+        temporary = pack_dir / f".{filename}.tmp"
+        temporary.write_text(body, encoding="utf-8")
+        temporary.replace(pack_dir / filename)
     return manifest
 
 
@@ -195,18 +270,28 @@ def summarize_selection(items: list[dict]) -> dict[str, int]:
 
 
 def verify_pack_hashes(pack_dir: Path) -> dict[str, str]:
-    """Recompute item hashes inside a built pack and return any mismatches."""
+    """Recompute question and lesson hashes inside a built pack."""
     manifest = json.loads((pack_dir / "manifest.json").read_text(encoding="utf-8"))
     mismatches: dict[str, str] = {}
     from .contracts import content_hash
 
-    for line in (pack_dir / "items.jsonl").read_text(encoding="utf-8").splitlines():
-        if not line.strip():
+    for filename, hashes_key in (
+        ("items.jsonl", "item_hashes"),
+        ("lessons.jsonl", "lesson_hashes"),
+    ):
+        artifact = pack_dir / filename
+        if not artifact.exists():
             continue
-        item = json.loads(line)
-        expected = manifest["item_hashes"].get(item["id"])
-        actual = item.get("content_hash")
-        recomputed = content_hash(item)
-        if expected != actual or actual != recomputed:
-            mismatches[item["id"]] = f"manifest={expected} item={actual} recomputed={recomputed}"
+        for line in artifact.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            item = json.loads(line)
+            manifest_hashes = manifest.get(hashes_key)
+            expected = (manifest_hashes or {}).get(item["id"])
+            actual = item.get("content_hash")
+            recomputed = content_hash(item)
+            if (manifest_hashes is not None and expected != actual) or actual != recomputed:
+                mismatches[item["id"]] = (
+                    f"manifest={expected} item={actual} recomputed={recomputed}"
+                )
     return mismatches

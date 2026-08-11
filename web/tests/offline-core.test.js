@@ -24,12 +24,91 @@ const {
   evaluateAnswer,
   updateTemporaryMastery,
   pickNextQuestion,
+  localAgentDecision,
+  agentEventToView,
+  createActiveSessionSnapshot,
+  restoreActiveSessionSnapshot,
+  pickDiagnosticQuestion,
+  weakestSkill,
+  minutesRemaining,
+  isSessionEndingAction,
+  selectRelevantAgentEvent,
   PendingEventQueue,
   OfflineSyncClient,
   resumeOrSync,
   RETRY_SCHEDULE_MS,
   nextRetryDelayMs,
+  latestPackVersion,
+  summarizePackCatalog,
 } = core;
+
+test("latest content pack uses semantic version order", () => {
+  assert.equal(latestPackVersion(["0.2.0", "0.10.0", "0.1.9"]), "0.10.0");
+  assert.equal(latestPackVersion([]), null);
+});
+
+test("homepage catalog summary is derived from pack content", () => {
+  const summary = summarizePackCatalog({
+    items: [
+      { target_skill: "inequalities", content_type: "question" },
+      { target_skill: "quadratic_equations", content_type: "question" },
+    ],
+    lessons: [{ target_skill: "inequalities", content_type: "worked_example" }],
+  });
+  assert.equal(summary.questionCount, 2);
+  assert.equal(summary.lessonCount, 1);
+  assert.deepEqual(summary.skills.map((skill) => skill.id), [
+    "inequalities",
+    "quadratic_equations",
+  ]);
+  assert.equal(summary.skills[0].label, "Inequalities");
+});
+
+test("micro-lesson decisions expose a renderable teaching asset", () => {
+  const view = agentEventToView({
+    action: "SHOW_MICRO_LESSON",
+    action_payload: { skill: "inequalities" },
+    reason_code: "REPEATED_SKILL_ERRORS",
+    reason_text: "Review the rule before continuing.",
+    policy_version: "policy-v1",
+  });
+  assert.equal(view.title, "Micro lesson");
+  assert.equal(view.showTeachingAsset, true);
+  assert.equal(view.showWorkedExample, false);
+});
+
+test("session time budget decreases before it reaches the policy", () => {
+  const startedAt = Date.parse("2026-08-10T10:00:00Z");
+  const now = Date.parse("2026-08-10T10:08:30Z");
+  assert.equal(minutesRemaining(10, startedAt, now), 2);
+  assert.equal(minutesRemaining(10, startedAt, startedAt + 20 * 60_000), 0);
+});
+
+test("offline policy closes with review when the time budget is nearly exhausted", () => {
+  const decision = localAgentDecision({
+    skill: "linear_equations",
+    misconception: "sign_error",
+    observationCount: 2,
+    validatedEpisodes: [],
+    minutesRemaining: 2,
+  });
+  assert.equal(decision.action, "END_WITH_REVIEW");
+  assert.equal(decision.reason_code, "TIME_BUDGET_EXHAUSTED");
+  assert.equal(isSessionEndingAction(decision), true);
+  assert.equal(isSessionEndingAction({ action: "RETRY_SAME_SKILL" }), false);
+});
+
+test("a late server response cannot replace the current answer decision", () => {
+  const events = [
+    { source_event_id: "answer_old", action: "RETRY_SAME_SKILL" },
+    { source_event_id: "answer_current", action: "SHOW_WORKED_EXAMPLE" },
+  ];
+  assert.equal(
+    selectRelevantAgentEvent(events, "answer_current").action,
+    "SHOW_WORKED_EXAMPLE"
+  );
+  assert.equal(selectRelevantAgentEvent(events, "answer_future"), null);
+});
 
 // ---------------------------------------------------------------------------
 // In-memory store with the same shape as web/offline.js OfflineStore.
@@ -102,6 +181,71 @@ test("full offline session: all events sync and are acknowledged", async () => {
   const acknowledged = await store.all("acknowledged_events");
   assert.equal(pending.length, 0);
   assert.deepEqual(acknowledged.map((r) => r.id).sort(), events);
+});
+
+test("a server-reported duplicate is acknowledged after a lost response", async () => {
+  const store = new MemoryStore();
+  const client = new OfflineSyncClient({
+    store,
+    deviceId: "device_a",
+    studentId: "student_01",
+    transport: transportThat(async () => ({
+      accepted_event_ids: [],
+      duplicate_event_ids: ["e1"],
+      rejected_events: [],
+    })),
+  });
+  await client.queue.enqueue({ ...ENVELOPE(), event_id: "e1" });
+
+  const result = await client.sync();
+
+  assert.equal(result.synced, true);
+  assert.equal((await store.all("pending_events")).length, 0);
+  assert.deepEqual(
+    (await store.all("acknowledged_events")).map((row) => row.id),
+    ["e1"]
+  );
+});
+
+test("concurrent sync calls cannot let a later device sequence overtake", async () => {
+  const store = new MemoryStore();
+  const batches = [];
+  const completedSequences = [];
+  let releaseFirst;
+  const firstBlocked = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  let transportCalls = 0;
+  const client = new OfflineSyncClient({
+    store,
+    deviceId: "device_a",
+    studentId: "student_01",
+    transport: transportThat(async (_url, options) => {
+      const events = JSON.parse(options.body).events;
+      batches.push(events.map((event) => event.device_sequence));
+      transportCalls += 1;
+      if (transportCalls === 1) await firstBlocked;
+      completedSequences.push(events[0].device_sequence);
+      return {
+        accepted_event_ids: events.map((event) => event.event_id),
+        duplicate_event_ids: [],
+        rejected_events: [],
+      };
+    }),
+  });
+  await client.queue.enqueue({ ...ENVELOPE(), event_id: "e1", device_sequence: 1 });
+  const first = client.sync();
+  await new Promise((resolve) => setImmediate(resolve));
+  await client.queue.enqueue({ ...ENVELOPE(), event_id: "e2", device_sequence: 2 });
+  const second = client.sync();
+  await new Promise((resolve) => setImmediate(resolve));
+  releaseFirst();
+
+  await Promise.all([first, second]);
+
+  assert.deepEqual(batches, [[1], [2]]);
+  assert.deepEqual(completedSequences, [1, 2]);
+  assert.equal((await store.all("pending_events")).length, 0);
 });
 
 test("empty queue reports empty without transport call", async () => {
@@ -204,6 +348,25 @@ test("weak network: retryable HTTP failure backs off and keeps the event", async
   assert.ok(record.next_retry_at > Date.now());
 });
 
+test("dropped connection returns queued events to retryable state", async () => {
+  const store = new MemoryStore();
+  const client = new OfflineSyncClient({
+    store,
+    deviceId: "device_a",
+    studentId: "student_01",
+    transport: async () => {
+      throw new TypeError("network disconnected");
+    },
+  });
+  await client.queue.enqueue({ ...ENVELOPE(), event_id: "e_network_drop" });
+  const result = await client.sync();
+  assert.equal(result.synced, false);
+  assert.equal(result.reason, "network");
+  const [record] = await store.all("pending_events");
+  assert.equal(record.status, "pending");
+  assert.equal(record.attempts, 1);
+});
+
 test("non-retryable rejection marks the event failed without backoff", async () => {
   const store = new MemoryStore();
   const client = new OfflineSyncClient({
@@ -274,6 +437,25 @@ test("dequeue batches at most 100 events", async () => {
   assert.equal(batch.length, 100);
 });
 
+test("dequeue preserves device sequence even when records arrive out of order", async () => {
+  const store = new MemoryStore();
+  const queue = new PendingEventQueue(store);
+  for (const sequence of [3, 1, 2]) {
+    await queue.enqueue({
+      ...ENVELOPE(),
+      event_id: `event_${sequence}`,
+      device_sequence: sequence,
+    });
+  }
+
+  const batch = await queue.dequeue();
+
+  assert.deepEqual(
+    batch.map((event) => event.device_sequence),
+    [1, 2, 3]
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Version-bound evaluation and mastery
 // ---------------------------------------------------------------------------
@@ -323,6 +505,155 @@ test("pickNextQuestion prefers the weakest skill, unanswered, within difficulty"
   const states = { linear_equations: { mastery: 0.8 }, ratios_percentages: { mastery: 0.3 } };
   const picked = pickNextQuestion(pack, states, new Set([ITEM.id]), 2);
   assert.equal(picked.id, "q3");
+});
+
+test("pickNextQuestion is deterministic for the same learner state", () => {
+  const pack = [
+    { ...ITEM, id: "linear-easy", difficulty: 1 },
+    { ...ITEM, id: "linear-hard", difficulty: 2 },
+  ];
+  const originalRandom = Math.random;
+  Math.random = () => 0.99;
+  try {
+    assert.equal(pickNextQuestion(pack, {}, new Set()).id, "linear-easy");
+  } finally {
+    Math.random = originalRandom;
+  }
+});
+
+test("bounded action skill and difficulty constrain the next question", () => {
+  const items = [
+    { id: "weak.easy", content_type: "question", target_skill: "weak", difficulty: 1 },
+    { id: "target.easy", content_type: "question", target_skill: "target", difficulty: 1 },
+    { id: "target.hard", content_type: "question", target_skill: "target", difficulty: 3 },
+  ];
+  const states = { weak: { mastery: 0.1 }, target: { mastery: 0.8 } };
+
+  const selected = pickNextQuestion(items, states, new Set(), 3, {
+    skill: "target",
+    difficulty: 3,
+  });
+
+  assert.equal(selected.id, "target.hard");
+});
+
+test("worked-example constraint selects the declared transfer item", () => {
+  const items = [
+    {
+      id: "trigger",
+      content_type: "question",
+      target_skill: "inequalities",
+      difficulty: 1,
+      author_metadata: { transfer_group: "ineq-sign", instruction_role: "trigger" },
+    },
+    {
+      id: "ordinary",
+      content_type: "question",
+      target_skill: "inequalities",
+      difficulty: 1,
+      author_metadata: { transfer_group: "other", instruction_role: "practice" },
+    },
+    {
+      id: "transfer",
+      content_type: "question",
+      target_skill: "inequalities",
+      difficulty: 2,
+      author_metadata: { transfer_group: "ineq-sign", instruction_role: "transfer" },
+    },
+  ];
+
+  const selected = pickNextQuestion(
+    items,
+    { inequalities: { mastery: 0.2 } },
+    new Set(["trigger"]),
+    3,
+    { skill: "inequalities", transfer_group: "ineq-sign", instruction_role: "transfer" }
+  );
+
+  assert.equal(selected.id, "transfer");
+});
+
+test("memory changes the first-error offline intervention students see", () => {
+  const baseline = localAgentDecision({
+    skill: "linear_equations",
+    misconception: "sign_error",
+    observationCount: 1,
+    validatedEpisodes: [],
+  });
+  assert.equal(baseline.action, "RETRY_SAME_SKILL");
+  assert.equal(baseline.reason_code, "MISCONCEPTION_OBSERVED");
+
+  const recalled = localAgentDecision({
+    skill: "linear_equations",
+    misconception: "sign_error",
+    observationCount: 1,
+    validatedEpisodes: [
+      {
+        episode_id: "ep_success_1",
+        skill: "linear_equations",
+        misconception: "sign_error",
+        intervention: "SHOW_WORKED_EXAMPLE",
+      },
+    ],
+  });
+  assert.equal(recalled.action, "SHOW_WORKED_EXAMPLE");
+  assert.equal(recalled.reason_code, "RECALLED_SUCCESSFUL_EPISODE");
+  assert.deepEqual(recalled.episode_ids, ["ep_success_1"]);
+
+  const view = agentEventToView(recalled);
+  assert.equal(view.showWorkedExample, true);
+  assert.equal(view.memoryBased, true);
+  assert.equal(view.memoryBanner, "Based on what helped you before");
+  assert.match(view.why, /similar misconception/i);
+  assert.match(view.why, /different item/i);
+  assert.equal(view.episodeLabel, "Episode ep_success_1");
+});
+
+test("active learning session survives a browser refresh", () => {
+  const stored = createActiveSessionSnapshot({
+    sessionId: "sess_keep",
+    branchId: "branch_keep",
+    currentQuestionId: "math.linear_equations.002",
+    answeredIds: new Set(["math.linear_equations.001"]),
+    hintLevel: 2,
+    skillStates: { linear_equations: { mastery: 0.4, evidence_count: 1 } },
+    misconceptionCounts: { "linear_equations:sign_error": 1 },
+    stage: "question_active",
+    phase: "practice",
+    nextActionConstraint: { skill: "linear_equations", difficulty: 1 },
+  });
+  const restored = restoreActiveSessionSnapshot(stored);
+  assert.equal(restored.sessionId, "sess_keep");
+  assert.equal(restored.currentQuestionId, "math.linear_equations.002");
+  assert.deepEqual([...restored.answeredIds], ["math.linear_equations.001"]);
+  assert.equal(restored.hintLevel, 2);
+  assert.equal(restored.skillStates.linear_equations.mastery, 0.4);
+  assert.equal(restored.misconceptionCounts["linear_equations:sign_error"], 1);
+  assert.equal(restored.stage, "question_active");
+  assert.deepEqual(restored.nextActionConstraint, {
+    skill: "linear_equations",
+    difficulty: 1,
+  });
+});
+
+test("short diagnostic samples distinct skills and identifies the weakest", () => {
+  const items = [
+    ITEM,
+    { ...ITEM, id: "ratio-1", target_skill: "ratios_percentages" },
+    { ...ITEM, id: "linear-2", target_skill: "linear_equations" },
+  ];
+  assert.equal(pickDiagnosticQuestion(items, new Set()).id, ITEM.id);
+  assert.equal(
+    pickDiagnosticQuestion(items, new Set(["linear_equations"])).id,
+    "ratio-1"
+  );
+  assert.equal(
+    weakestSkill({
+      linear_equations: { mastery: 0.4 },
+      ratios_percentages: { mastery: 0.6 },
+    }),
+    "linear_equations"
+  );
 });
 
 // ---------------------------------------------------------------------------

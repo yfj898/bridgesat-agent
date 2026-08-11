@@ -1,209 +1,118 @@
 # BridgeSAT Agent
 
 BridgeSAT is an offline-first adaptive SAT learning agent for students with
-limited tutoring access, older devices, or unstable internet connections.
+limited tutoring access, older devices, or unstable internet. It does more than
+select the next question: it records which intervention helped a learner recover
+from a misconception and reuses that evidence in a later session.
 
-Competition MVP: a **math closed loop** — diagnose → plan → teach → observe →
-diagnose misconception → recall learner memory → retrieve approved content →
-choose and explain the next action → record outcome — completed fully offline
-on-device (no external model, Mnemis, vector service, or network required).
+## Competition proof
+
+```text
+diagnose a weak skill
+→ observe a sign_error
+→ choose SHOW_WORKED_EXAMPLE
+→ confirm the exact versioned example was shown
+→ verify success on a different item
+→ create a validated Learning Episode
+→ recall it in a later session
+→ show the worked example earlier, with an explanation
+```
+
+The PWA consumes the same memory-aware decisions returned by
+`POST /v1/sync/events`. A recalled decision includes the Episode ID,
+`RECALLED_SUCCESSFUL_EPISODE`, the policy version, and a student-readable reason.
+With no successful memory, the same first error produces `RETRY_SAME_SKILL`.
+Only a server-selected example that the PWA confirms as displayed can begin a
+runtime Episode, and the outcome must be a different question from the triggering
+error.
 
 ## What is delivered
 
-- a FastAPI application (`app/main.py`) and a mobile-first PWA shell (`web/`);
-- a deterministic adaptive engine: diagnostic, skill-gap analysis, daily plan,
-  mastery (Bayesian), misconception evidence, interventions;
-- a published content pack `bridgesat-math-0.1.0`: 55 original math items
-  across four skills (`linear_equations`, `systems_equations`,
-  `ratios_percentages`, `functions_models`), plus 8 micro-lessons and 8
-  worked examples, all with reviewer ledgers, licenses, and content hashes;
-- scoped bearer-token authentication: `POST /v1/students` returns a
-  one-time token (only its hash is stored), and every student-scoped
-  endpoint derives the learner identity from the token, never from the
-  request body;
-- an immutable PostgreSQL event log with sync protocol: offline queuing,
-  idempotent batches, refresh recovery, version-bound scoring;
-- episodic/strategy long-term memory (PostgreSQL) with an optional Mnemis gateway
-  that degrades to PostgreSQL fallback on timeout or unavailability;
-- optional LLM enhancements that never become dependencies of the main loop:
-  a dual-mode next-action decision (`BRIDGESAT_LLM_API_KEY`) that prefers the
-  LLM's structured decision and falls back to the deterministic policy on any
-  failure, and an LLM-backed local memory index that distills episode
-  summaries and reranks recall, degrading to the authoritative PostgreSQL recall
-  when the endpoint is unreachable;
-- tsvector retrieval over the approved pack with citation/license filtering and
-  restricted-source exclusion;
-- governed content pipeline: selection, drafting, exact-math validation,
-  review ledger, approval blocking, pack build + hash verification;
-- recovery tooling: pre-migration backups, learner projection
-  rebuild from the event log, memory index rebuild, dead-letter replay;
-- security hardening and the full evaluation suite from
-  `docs/EVALUATION_SPEC.md`.
+- FastAPI modular monolith and a mobile-first, browser-only PWA;
+- PostgreSQL as the authoritative learner state, event store, episodic memory,
+  synchronization store, content registry, and `tsvector` retrieval backend;
+- 15 ordered PostgreSQL migrations under
+  `app/infrastructure/migrations_pg/`;
+- deterministic diagnostic, weighted-Beta mastery, misconception evidence,
+  bounded teaching actions, and cross-session intervention memory;
+- IndexedDB active-session recovery, local scoring and bounded policy, pending
+  events, device sequence numbers, reconnect sync, and duplicate protection;
+- a governed math pack with 103 original items, 12 micro-lessons, and 12 worked
+  examples across 8 skills, with hashes, lineage, misconception targets,
+  transfer paths, license metadata, and review ledgers;
+- license/review/skill filters, PostgreSQL full-text retrieval, prerequisite
+  expansion, deterministic reranking, and citation validation;
+- optional Mnemis and LLM adapters. Neither can change answers, mastery, the
+  state machine, or authoritative records; failure falls back to PostgreSQL and
+  deterministic policy.
 
-## Out of scope (honest scope statement)
+## Honest scope
 
-- Reading/writing skills and the full eight-skill taxonomy are **future
-  extension scope**; the competition demo does not imply reading support.
-- Original skeleton questions are quarantined (`content/quarantined/`) and
-  never student-facing; only published packs under `content/packs/` load.
-- GSM8K is evaluation-only and never enters the student content path.
-- College Board / Khan Academy / OpenStax are `reference_only` sources: no
-  acquisition, no crawler, no RAG (see `config/sources.yaml` and
-  `docs/DATA_SOURCE_REGISTRY.md`).
-- No external LLM is required for question selection, mastery updates,
-  progress storage, or offline practice (design boundary, enforced by tests).
-- Mnemis, embeddings, LightRAG are conditional enhancements, never
-  dependencies of the main loop. The LLM layer (`app/agent/llm_client.py`,
-  `app/memory/nvidia_backend.py`) is the same kind of conditional enhancement:
-  unset `BRIDGESAT_LLM_API_KEY` and every code path is byte-identical to the
-  deterministic engine.
+- The competition scope is math; reading/writing is future work.
+- Core learning does not require an external LLM, Mnemis, embeddings, or a live
+  network after initial profile/content-pack setup.
+- GSM8K is evaluation-only. College Board, Khan Academy, OpenStax, and
+  license-unclear sources are blocked from acquisition and product retrieval.
+- The current content ledger is a controlled/simulated review artifact. A real
+  human review of all 103 questions and 24 lessons remains a release blocker for
+  student deployment.
+- Reported educational gains are synthetic simulation, not real student or SAT
+  score outcomes. A human study has not been completed.
 
-## Planning and contract documents
+## Repository map
 
-- `docs/COMPETITION_MVP_EXECUTION_PLAN.md`: dated plan, gates, demo path;
-- `docs/ARCHITECTURE.md`: system architecture and design boundaries;
-- `docs/IMPLEMENTATION_PLAN.md`: technology choices and module contracts;
-- `docs/PEDAGOGY_SPEC.md`: curriculum, mastery, misconception, fairness;
-- `docs/MEMORY_CONSISTENCY.md`: memory store, outbox, Mnemis, deletion;
-- `docs/SYNC_PROTOCOL.md`: offline events, idempotency, conflicts, snapshots;
-- `docs/THREAT_MODEL.md`: privacy and security threat model;
-- `docs/API_AND_OPERATIONS.md`: API, migration, backup/restore, operations;
-- `docs/EVALUATION_SPEC.md`: evaluation and acceptance criteria;
-- `docs/DATA_SOURCE_REGISTRY.md` + `config/sources.yaml`: source permissions;
-- `docs/DATA_ACQUISITION.md`: governed acquisition and review workflow;
-- `docs/EVIDENCE_PACK.md`: measured results and reproduction commands;
-- `docs/WORKLOG.md`: chronological session records.
+- `app/`: API, policy, PostgreSQL infrastructure, sync, memory, retrieval;
+- `web/`: PWA shell, IndexedDB/sync code, service worker, Node tests;
+- `content/`: schemas, governed drafts/reviews, published packs, quarantine;
+- `tests/`: unit, integration, security, and two-session golden tests;
+- `evals/`, `scripts/`, `reports/`: reproducible evaluation and evidence;
+- `docs/ONE_PAGE_WRITEUP.md`, `docs/SUBMISSION_READINESS.md`, and
+  `docs/DEMO_SCRIPT.md`: submission assets and remaining gates.
 
-## Quick start
+## One reproducible setup and verification path
 
-Requirements: Python >= 3.11, Node >= 18 (for the web tests).
+Requirements: Python 3.11+, Node 18+, Docker with Compose.
 
 ```bash
 cd bridgesat-agent
-docker compose up -d postgres          # start local PostgreSQL
 python -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
-
-python scripts/dev_env.py up            # create roles/database (idempotent)
-python scripts/import_content_pack.py   # publish a pack and build the tsvector index
-python scripts/seed_demo.py             # seed the offline demo learner (idempotent)
-uvicorn app.main:app --reload
+.venv/bin/pip install -e '.[dev]'
+.venv/bin/python scripts/dev_env.py up
+.venv/bin/python -m pytest
+node --test web/tests/*.test.js
+.venv/bin/python -m evals.run_all
+.venv/bin/python scripts/import_content_pack.py
+.venv/bin/python scripts/seed_demo.py
+.venv/bin/uvicorn app.main:app --reload
 ```
 
-Open `http://127.0.0.1:8000` (PWA shell at `web/`), then run the tests and
-evaluations:
+Open `http://127.0.0.1:8000`. The first profile creation requires the server;
+after the content pack and strategy snapshot are cached, practice, hints, local
+adaptation, refresh recovery, and event queuing continue offline.
 
-```bash
-pytest                                  # full test suite (543 tests)
-python -m evals.run_all                 # regenerate every eval report
-node --test web/tests/*.test.js         # offline/weak-network/accessibility core paths
-```
+The evaluation runner prepares approved PostgreSQL content and its `tsvector`
+index before retrieval and performance evaluation; it does not rely on hidden
+database state.
 
-The PWA issues its own bearer token on first profile creation, so no manual
-login is needed for the demo. Manual API use requires the token returned by
-`POST /v1/students` (`Authorization: Bearer <token>`).
+## Measured evidence
 
-### Optional LLM enhancements
+The latest values are regenerated by `.venv/bin/python -m evals.run_all` and
+recorded in `reports/final_summary.md` and `docs/EVIDENCE_PACK.md`. Results are
+labeled as synthetic simulation or controlled internal tests. Key controlled
+results include 567/567 Python tests and 43/43 Web tests from the 2026-08-11
+content-expansion verification. The final 2026-08-10 evaluation run recorded
+24/24 policy trajectories, 10/10 offline/sync scenarios, PostgreSQL similarity
+recall@3 and next-action accuracy of 100%, and restricted-source retrieval hits
+of zero. See `docs/SUBMISSION_READINESS.md` for unresolved human and
+submission-asset work.
 
-Set `BRIDGESAT_LLM_API_KEY` (plus optional `BRIDGESAT_LLM_BASE_URL`,
-`BRIDGESAT_LLM_MODEL`, `BRIDGESAT_LLM_TIMEOUT_MS`) to enable the dual-mode
-decision and the LLM-backed memory index. Without the key every path is
-unchanged. With `BRIDGESAT_MODE=enhanced`, the index is used by the memory
-outbox worker:
+## Safety and data governance
 
-```bash
-export BRIDGESAT_LLM_API_KEY=nvapi-...   # never committed; env-only
-export BRIDGESAT_LLM_TIMEOUT_MS=8000     # default; NIM queues can exceed 1s
-export BRIDGESAT_MODE=enhanced
-```
+Bearer-token scope determines learner identity; request bodies cannot select a
+different learner. Immutable event IDs and device sequences protect sync
+integrity. External text is treated as data, never as a system instruction.
+Only review-approved records may be selected by the PWA, and deletion propagates
+through a transactional outbox to rebuildable enhanced indexes.
 
-The default model is `deepseek-ai/deepseek-v4-flash-0731` on
-`https://integrate.api.nvidia.com/v1` (OpenAI-compatible). LLM failures are
-never fatal: decisions fall back to the deterministic policy and recall falls
-back to PostgreSQL, exactly as before.
-
-The route layer (`/v1/adapt`) is wired to the LLM: with a key configured the
-next action is decided inside the `AdaptResponse` action domain, while the
-mastery update stays deterministic. A slow or timed-out call falls back to
-the deterministic policy mid-request, so a cold model never stalls a
-session.
-
-Verified NVIDIA NIM availability and behavior (free tier, 2026-08-08).
-Measured with the decision task (JSON-only action selection):
-
-- `deepseek-ai/deepseek-v4-flash-0731` — **default**; correct JSON at
-  `max_tokens=120`, math ~0.7s, decision ~1-9s (occasional queue). Same
-  model family as the opencode assistant runtime.
-- `openai/gpt-oss-120b` — strong quality but it is a reasoning model: it
-  returns `content=None` until `max_tokens` ~400 (the reasoning pass fills
-  the budget), and intermittently returns empty content. Usable via
-  `BRIDGESAT_LLM_MODEL=openai/gpt-oss-120b` + larger max-token headroom;
-  our client treats empty content as unavailable, so a missed call degrades,
-  it never crashes.
-- `nvidia/nemotron-3-super-120b-a12b` — correct JSON, ~3s;
-- `nvidia/nemotron-3-nano-30b-a3b` — correct JSON, ~1-4s;
-- `nvidia/llama-3.3-nemotron-super-49b-v1.5` — correct but very slow (16-46s);
-- `thinkingmachines/inkling` — reasoning-only output (content always None),
-  not usable for the structured decision;
-- `meta/llama-3.1-8b-instruct` — fine but weaker than the default;
-- `meta/llama-3.1-70b-instruct` — works; cold ~51s, warm ~18-31s. Use
-  `BRIDGESAT_LLM_TIMEOUT_MS=90000` and expect occasional timeouts on the
-  first call (which degrade to the deterministic policy);
-- `meta/llama-3.3-70b-instruct` — exceeds 90s on this key; not usable;
-- `nvidia/llama-3.1-nemotron-70b-instruct`, `moonshotai/kimi-k2.6`,
-  `mistralai/mistral-large*`, `z-ai/glm-5.2` — 404/unauthorized or timeout.
-
-## Data sources
-
-- `bridgesat_original`: authored originals (all published items/lessons);
-- `deepmind_mathematics_dataset`: `candidate_generation_only` — concept
-  source for drafting, never verbatim content, license
-  `bridgesat_original` on derived items;
-- `project_gutenberg`, `library_of_congress_free_to_use`: approved with item
-  review (not yet used by the math pack);
-- `gsm8k`, `belebele`: evaluation-only;
-- `college_board_sat`, `khan_academy`, `openstax`: `reference_only` —
-  acquisition, crawlers, and RAG are blocked and audited.
-
-## Measured results (reproducible via `python -m evals.run_all`)
-
-All results are labeled per `docs/EVALUATION_SPEC.md` section 2. Synthetic
-simulation is never presented as real student improvement.
-
-| Target | Kind | Measured |
-|---|---|---|
-| policy golden trajectories >= 20, overall >= 90% | design target | 24/24 (100%), 12/12 categories |
-| policy safety-critical 100% | design target | 100% |
-| two-session memory, sync, security-critical 100% | design target | 100% |
-| offline core-flow / duplicate-sync / restart recovery 100% | design target | 10/10 scenarios |
-| RAG citation/license coverage 100%, restricted-source recall 0 | controlled internal test | 100% / 0 hits |
-| content audit 100% | controlled internal test | 889/889 checks |
-| local policy p95 < 150 ms | controlled internal test | 0.01 ms (this machine) |
-| tsvector retrieval p95 < 200 ms | controlled internal test | 2.3 ms (this machine) |
-| session restore p95 < 500 ms | controlled internal test | 3.2 ms (this machine) |
-| security + sync suites | controlled internal test | 74 passed |
-| web core-flow tests | controlled internal test | 21 passed, 0 failed |
-| educational improvement over control | synthetic simulation | +5.7pp correctness |
-
-Not yet measured or not yet done (each labeled honestly):
-
-- **real educational outcome** — requires a human usability study;
-- **accessibility manual walkthrough** — items marked "manual check required"
-  in `reports/accessibility_eval.md`;
-- **submission assets** — screenshots, one-page description, and the
-  3-minute demo video from `docs/IMPLEMENTATION_PLAN.md` section 14 do not
-  exist yet;
-- **human content review** — the review ledger is a simulated pass (see
-  "What is delivered"); a real human review of the 55 items is outstanding;
-- **newer API surface** — the full session/memory API contract
-  (`/v1/sessions`, `/v1/memory/*`) is not yet built; only the legacy
-  endpoints plus sync/content/knowledge routers exist.
-
-## Status
-
-Competition MVP implemented end to end; every pre-submission checklist item
-in `docs/COMPETITION_MVP_EXECUTION_PLAN.md` section 12 is closed at the code
-level except the human items above (usability study, accessibility
-walkthrough, submission assets, real content review) and the demo recording
-itself.
+Historical SQLite plans and migrations are retained only as superseded design
+history. The current runtime authority is PostgreSQL.

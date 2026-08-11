@@ -26,6 +26,8 @@ router = APIRouter(prefix="/v1/sync", tags=["sync"])
 
 
 def get_service(request: Request) -> SyncService:
+    # Request-scoped service: SyncService owns the Hybrid shadow gateway
+    # (LLMClient + post-commit observations) as well as the connection.
     return SyncService(request_connection(request))
 
 

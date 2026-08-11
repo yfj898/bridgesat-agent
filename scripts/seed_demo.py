@@ -44,7 +44,6 @@ from app.models import DiagnosticAnswer
 from app.repository import StudentRepository
 from app.sync.protocol import SyncEventEnvelope, SyncRequest
 from app.sync.service import SyncService
-from app.memory.episode_builder import EpisodeBuilder
 from app.memory.worker import OutboxWorker
 
 PACK_VERSION = "0.1.0"
@@ -118,7 +117,8 @@ def _practice_events(
     Session 1 shows two consecutive `sign_error` answers on linear equations
     (the sign-error distractor choice), then a same-misconception transfer
     item answered correctly without hints, followed by correct answers in the
-    other covered skills. EpisodeBuilder later encodes this as a
+    other covered skills. A WORKED_EXAMPLE_PRESENTED event proves the selected
+    intervention was actually displayed. SyncService records this as a
     `linear_equations`/`sign_error` episode with the SHOW_WORKED_EXAMPLE
     intervention (see setup_*_episode in main()).
     """
@@ -127,6 +127,15 @@ def _practice_events(
     identifiers = identifiers or _demo_identifiers(_default_tenant())
     items_path = packs_root() / f"bridgesat-math-{PACK_VERSION}" / "items.jsonl"
     items = [json.loads(line) for line in items_path.open(encoding="utf-8") if line.strip()]
+    lessons_path = packs_root() / f"bridgesat-math-{PACK_VERSION}" / "lessons.jsonl"
+    lessons = [json.loads(line) for line in lessons_path.open(encoding="utf-8") if line.strip()]
+    worked_example = next(
+        lesson
+        for lesson in lessons
+        if lesson["content_type"] == "worked_example"
+        and lesson["target_skill"] == "linear_equations"
+        and lesson["review_status"] == "approved"
+    )
     by_skill: dict[str, list] = {}
     for item in items:
         by_skill.setdefault(item["target_skill"], []).append(item)
@@ -171,7 +180,7 @@ def _practice_events(
         sequence += 1
 
     previous_id: str | None = None
-    for item, forced_choice in picks:
+    for pick_index, (item, forced_choice) in enumerate(picks):
         append(
             "CONTENT_PRESENTED",
             {"question_id": item["id"]},
@@ -192,7 +201,24 @@ def _practice_events(
             version=1,
             depends_on=[presented_id],
         )
-        previous_id = events[-1].event_id
+        answer_event_id = events[-1].event_id
+        previous_id = answer_event_id
+        if pick_index == 1:
+            append(
+                "WORKED_EXAMPLE_PRESENTED",
+                {
+                    "source_answer_event_id": answer_event_id,
+                    "content_id": worked_example["id"],
+                    "content_version": worked_example["version"],
+                    "skill": "linear_equations",
+                    "misconception": "sign_error",
+                    "intervention": "SHOW_WORKED_EXAMPLE",
+                },
+                question_id=worked_example["id"],
+                version=worked_example["version"],
+                depends_on=[answer_event_id],
+            )
+            previous_id = events[-1].event_id
     append("SESSION_COMPLETED", {"summary": "demo practice session"},
            depends_on=[previous_id] if previous_id else None)
     return events
@@ -442,50 +468,24 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
 
-        from app.domain.events import LearningEvent, LearningEventType, utc_now_iso
-
-        now = utc_now_iso()
-
-        def _event(event_id: str, event_type: LearningEventType, payload: dict,
-                   session_id: str = identifiers.session_id) -> LearningEvent:
-            return LearningEvent(
-                event_id=f"{identifiers.event_prefix}_{event_id}",
-                student_id=student_id,
-                session_id=session_id,
-                event_type=event_type,
-                payload=payload,
-                occurred_at=now,
-                received_at=now,
-                origin="online",
-            ).with_integrity()
-
-        context = _event("ctx_1", LearningEventType.INTERVENTION_SELECTED,
-                         {"intervention": "SHOW_WORKED_EXAMPLE"})
-        observation = _event("obs_1", LearningEventType.MISCONCEPTION_IDENTIFIED,
-                             {"skill": "linear_equations", "misconception": "sign_error"})
-        outcome = _event("out_1", LearningEventType.ANSWER_SUBMITTED,
-                         {"question_id": "math.linear_equations.003", "correct": True})
-
-        builder = EpisodeBuilder(connection)
-        episode = builder.build_candidate(
-            student_id=student_id,
-            session_id=identifiers.session_id,
-            skill="linear_equations",
-            misconception="sign_error",
-            intervention="SHOW_WORKED_EXAMPLE",
-            context_event=context,
-            evidence_events=[observation],
-            outcome_event=outcome,
-            outcome_correct=True,
-            outcome_hint_level=0,
-            outcome_content_id="math.linear_equations.003",
-            teaching_content_id="math.linear_equations.001",
-            summary="worked example resolved sign_error on a transfer item",
-        )
-        validated = builder.validate(episode)
-        if validated.status != "validated":
+        validated = connection.execute(
+            """
+            SELECT episode_id
+            FROM learning_episodes
+            WHERE tenant_id = current_setting('app.tenant_id', true)
+              AND student_id = %s
+              AND session_id = %s
+              AND skill = 'linear_equations'
+              AND misconception = 'sign_error'
+              AND intervention = 'SHOW_WORKED_EXAMPLE'
+              AND status = 'validated'
+            LIMIT 1
+            """,
+            (student_id, identifiers.session_id),
+        ).fetchone()
+        if validated is None:
             print(
-                f"Demo memory episode was not validated: {validated.status}",
+                "Demo runtime did not create the expected validated learning episode",
                 file=sys.stderr,
             )
             return 2
@@ -527,7 +527,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  plan: {[p.activity for p in plan]}")
         print(f"  sync accepted: {len(response.accepted_event_ids)} events")
         print(f"  sync rejected: {[r.code for r in response.rejected_events]}")
-        print(f"  memory episode: {validated.episode_id} status={validated.status}")
+        print(f"  memory episode: {validated['episode_id']} status=validated")
         if index is None:
             print("  memory outbox left pending (local mode)")
         else:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 import threading
 
 import psycopg
@@ -23,6 +24,7 @@ from app.sync.service import (
 )
 from app.sync.protocol import SyncEventEnvelope as SyncEnvelope
 from app.sync.protocol import SyncErrorCode, SyncRequest
+from app.sync.versioned_scoring import VersionedAnswerKey
 from tests.pg_test_helpers import unique_tenant_id
 
 PACK_VERSION = "0.1.0"
@@ -1329,3 +1331,191 @@ def test_independent_student_row_lock_serializes_same_device_sequence(
         pg.quiet_close(connection_a)
         pg.quiet_close(connection_b)
         pg.quiet_close(connection_c)
+
+
+def test_runtime_sync_builds_episode_and_memory_changes_next_session_action(
+    service: SyncService,
+) -> None:
+    """The public sync path, not a direct orchestrator call, proves the agent loop."""
+    product_packs = Path(__file__).parents[1] / "content" / "packs"
+    service.answer_keys = VersionedAnswerKey(product_packs)
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "phone", device_id=DEVICE_A)
+
+    def answer(
+        event_id: str,
+        sequence: int,
+        session_id: str,
+        question_id: str,
+        selected_choice_id: str,
+        *,
+        device_id: str = DEVICE_A,
+    ) -> dict:
+        payload = {
+            "question_id": question_id,
+            "question_version": 1,
+            "selected_choice_id": selected_choice_id,
+            "hint_level": 0,
+            "minutes_remaining": 15,
+            "attempt_id": event_id,
+        }
+        return _envelope(
+            event_id=event_id,
+            device_id=device_id,
+            device_sequence=sequence,
+            session_id=session_id,
+            payload=payload,
+            question_id=question_id,
+            question_version=1,
+        )
+
+    worked_example_id = "math.linear_equations.worked_example.001"
+    presented = _envelope(
+        event_id="evt_s1_worked_presented",
+        device_sequence=4,
+        session_id="session_memory_1",
+        event_type="WORKED_EXAMPLE_PRESENTED",
+        question_id=worked_example_id,
+        question_version=2,
+        payload={
+            "source_answer_event_id": "evt_s1_sign_2",
+            "content_id": worked_example_id,
+            "content_version": 2,
+            "skill": "linear_equations",
+            "misconception": "sign_error",
+            "intervention": "SHOW_WORKED_EXAMPLE",
+        },
+    )
+    wrong_version_presentation = {
+        **presented,
+        "event_id": "evt_s1_worked_wrong_version",
+        "device_sequence": 3,
+        "question_version": 999,
+        "payload": {**presented["payload"], "content_version": 999},
+    }
+    wrong_version_presentation["integrity_hash"] = _integrity(
+        wrong_version_presentation["event_type"],
+        wrong_version_presentation["payload"],
+    )
+    presented_again = {
+        **presented,
+        "event_id": "evt_s1_worked_presented_again",
+        "device_sequence": 5,
+    }
+    presented_again["integrity_hash"] = _integrity(
+        presented_again["event_type"], presented_again["payload"]
+    )
+    session_1 = _process(
+        service,
+        [
+            # Deliberately reversed: server order is the device sequence, not JSON order.
+            answer("evt_s1_transfer", 7, "session_memory_1", "math.linear_equations.003", "A"),
+            answer("evt_s1_same_item", 6, "session_memory_1", "math.linear_equations.002", "A"),
+            presented_again,
+            presented,
+            wrong_version_presentation,
+            answer("evt_s1_sign_2", 2, "session_memory_1", "math.linear_equations.002", "B"),
+            answer("evt_s1_sign_1", 1, "session_memory_1", "math.linear_equations.001", "B"),
+        ],
+    )
+    assert [event["action"] for event in session_1.server_events[:2]] == [
+        "RETRY_SAME_SKILL",
+        "SHOW_WORKED_EXAMPLE",
+    ]
+    assert session_1.server_events[1]["reason_code"] == "REPEATED_MISCONCEPTION"
+    assert session_1.server_events[1]["action_payload"]["content_id"] == worked_example_id
+    assert session_1.server_events[1]["action_payload"]["content_version"] == 2
+    assert [event.event_id for event in session_1.rejected_events] == [
+        "evt_s1_worked_wrong_version"
+    ]
+    assert session_1.rejected_events[0].code == SyncErrorCode.INVALID_SCHEMA.value
+    assert session_1.server_events[2].get("validated_episode_id") is None
+    validated = session_1.memory_snapshot["validated_episodes"]
+    assert len(validated) == 1
+    assert service.connection.execute(
+        "SELECT COUNT(*) AS total FROM learning_episodes WHERE session_id = %s",
+        ("session_memory_1",),
+    ).fetchone()["total"] == 1
+    assert validated[0]["misconception"] == "sign_error"
+    assert validated[0]["intervention"] == "SHOW_WORKED_EXAMPLE"
+    assert session_1.server_events[3]["validated_episode_id"] == validated[0]["episode_id"]
+    episode_row = service.connection.execute(
+        "SELECT outcome_json FROM learning_episodes WHERE episode_id = %s",
+        (validated[0]["episode_id"],),
+    ).fetchone()
+    assert json.loads(episode_row["outcome_json"])["teaching_content_id"] == worked_example_id
+
+    session_2 = _process(
+        service,
+        [
+            answer("evt_s2_sign_1", 8, "session_memory_2", "math.linear_equations.004", "B")
+        ],
+    )
+    recalled = session_2.server_events[0]
+    assert recalled["action"] == "SHOW_WORKED_EXAMPLE"
+    assert recalled["reason_code"] == "RECALLED_SUCCESSFUL_EPISODE"
+    assert recalled["episode_ids"] == [validated[0]["episode_id"]]
+    assert recalled["policy_version"] == "policy-0.1.0"
+
+    baseline_id = "student_no_memory"
+    baseline_device = "device_no_memory"
+    _seed_student_with_id(service, baseline_id)
+    service.register_device(baseline_id, "phone", device_id=baseline_device)
+    baseline = _process_as(
+        service,
+        baseline_id,
+        baseline_device,
+        [
+            answer(
+                "evt_baseline_sign_1",
+                1,
+                "session_no_memory",
+                "math.linear_equations.004",
+                "B",
+                device_id=baseline_device,
+            )
+        ],
+    )
+    assert baseline.server_events[0]["action"] == "RETRY_SAME_SKILL"
+    assert baseline.server_events[0]["reason_code"] == "MISCONCEPTION_OBSERVED"
+    assert baseline.server_events[0]["episode_ids"] == []
+
+
+def test_worked_example_presentation_requires_matching_server_decision(
+    service: SyncService,
+) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "phone", device_id=DEVICE_A)
+    payload = {
+        "source_answer_event_id": "evt_missing_decision",
+        "content_id": "math.linear_equations.worked_example.001",
+        "content_version": 2,
+        "skill": "linear_equations",
+        "misconception": "sign_error",
+        "intervention": "SHOW_WORKED_EXAMPLE",
+    }
+
+    response = _process(
+        service,
+        [
+            _envelope(
+                event_id="evt_forged_presentation",
+                device_sequence=1,
+                event_type="WORKED_EXAMPLE_PRESENTED",
+                payload=payload,
+                question_id=payload["content_id"],
+                question_version=2,
+            )
+        ],
+    )
+
+    assert response.accepted_event_ids == []
+    assert response.rejected_events[0].code == SyncErrorCode.INVALID_SCHEMA.value
+    assert service.connection.execute(
+        "SELECT COUNT(*) AS total FROM learning_episodes WHERE student_id = %s",
+        (STUDENT_ID,),
+    ).fetchone()["total"] == 0
+    assert service.connection.execute(
+        "SELECT COUNT(*) AS total FROM learning_events WHERE event_id = %s",
+        ("evt_forged_presentation",),
+    ).fetchone()["total"] == 0

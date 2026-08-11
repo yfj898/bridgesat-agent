@@ -95,6 +95,8 @@
     },
     "review_status": { "type": "string", "enum": ["draft", "schema_validated", "educational_review", "license_review", "approved", "published"] },
     "reviewers": { "type": "object" },
+    "reviewed_at": { "type": "string" },
+    "release_batch": { "type": "string" },
     "content_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
     "author_metadata": { "type": "object" }
   }

@@ -23,6 +23,12 @@ header {
   padding: 1rem 0;
 }
 
+.connection-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .eyebrow {
   margin-bottom: 0.25rem;
   font-weight: 700;
@@ -52,6 +58,53 @@ h1 {
   box-shadow: 0 10px 30px rgba(23, 32, 51, 0.06);
 }
 
+.welcome-card h2 {
+  max-width: 18ch;
+  font-size: clamp(1.65rem, 5vw, 2.35rem);
+  line-height: 1.15;
+}
+
+.product-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.55rem;
+  align-items: baseline;
+  margin: 1rem 0;
+  padding: 0.75rem 0;
+  border-top: 1px solid #e1e6ef;
+  border-bottom: 1px solid #e1e6ef;
+}
+
+.skill-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.skill-tile {
+  min-height: 112px;
+  padding: 0.9rem;
+  border: 1px solid #d8deea;
+  border-radius: 0.75rem;
+  background: #f8fafc;
+}
+
+.skill-tile strong,
+.skill-tile span {
+  display: block;
+}
+
+.skill-tile span {
+  margin-top: 0.35rem;
+  color: #44506a;
+  font-size: 0.92rem;
+}
+
+.welcome-note {
+  color: #44506a;
+}
+
 label,
 .question {
   display: block;
@@ -70,6 +123,19 @@ button {
   font: inherit;
 }
 
+button.secondary {
+  background: transparent;
+  color: #172033;
+  border: 1px solid #9aa7bb;
+}
+
+button.choice {
+  background: white;
+  color: #172033;
+  border: 1px solid #9aa7bb;
+  text-align: left;
+}
+
 button {
   border: 0;
   background: #172033;
@@ -80,7 +146,9 @@ button {
 
 button:focus-visible,
 input:focus-visible,
-select:focus-visible {
+select:focus-visible,
+.recommendation-details summary:focus-visible,
+.technical-evidence summary:focus-visible {
   outline: 3px solid #f3b61f;
   outline-offset: 2px;
 }
@@ -105,6 +173,67 @@ select:focus-visible {
   padding: 0.6rem 0;
 }
 
+.focus {
+  font-weight: 700;
+}
+
+.intervention {
+  margin: 1rem 0;
+  padding: 1rem;
+  border-left: 5px solid #3157d5;
+  border-radius: 0.65rem;
+  background: #eef2ff;
+}
+
+.memory-banner {
+  display: inline-block;
+  margin: 0 0 0.75rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 99px;
+  background: #dff7e8;
+  font-weight: 800;
+}
+
+.intervention h3 {
+  margin: 0 0 0.5rem;
+}
+
+.recommendation-details,
+.technical-evidence {
+  margin-top: 0.75rem;
+  border-top: 1px solid #cbd5e1;
+  padding-top: 0.6rem;
+}
+
+.recommendation-details summary,
+.technical-evidence summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.recommendation-detail,
+.intervention-meta {
+  margin-bottom: 0.25rem;
+}
+
+.intervention-meta {
+  color: #44506a;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.question-prompt {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.diagnostic-plan {
+  padding-left: 1.25rem;
+}
+
 @media (max-width: 520px) {
   .shell {
     width: min(100% - 1rem, 760px);
@@ -114,5 +243,9 @@ select:focus-visible {
   .card {
     border-radius: 0.75rem;
     padding: 1rem;
+  }
+
+  .skill-grid {
+    grid-template-columns: 1fr;
   }
 }

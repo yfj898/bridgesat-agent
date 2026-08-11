@@ -2,7 +2,7 @@
 
 ## 1. Scope
 
-This threat model covers the mobile PWA, FastAPI application, SQLite database, optional model providers, content ingestion pipeline, RAG index, Mnemis memory backend, and offline synchronization.
+This threat model covers the mobile PWA, FastAPI application, PostgreSQL database, optional model providers, content ingestion pipeline, RAG index, Mnemis memory backend, and offline synchronization.
 
 The system may be used by minors, so learner privacy and dignity are primary security assets.
 
@@ -33,7 +33,7 @@ untrusted browser input
 untrusted crawled or imported content
 trusted application policy
 trusted reviewed content pack
-authoritative SQLite store
+authoritative PostgreSQL store
 derived RAG and Mnemis indexes
 external LLM and embedding providers
 public network
@@ -283,7 +283,7 @@ Required tests:
 6. HTML content cannot execute script in the PWA;
 7. secrets are absent from repository and built client assets;
 8. LLM timeout triggers deterministic fallback;
-9. deletion removes learner data from SQLite and Mnemis retrieval;
+9. deletion removes learner data from PostgreSQL and Mnemis retrieval;
 10. oversized requests and excessive retrieval loops are rejected.
 
 ---

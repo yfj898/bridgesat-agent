@@ -13,6 +13,10 @@ class Skill(StrEnum):
     SYSTEMS_EQUATIONS = "systems_equations"
     RATIOS_PERCENTAGES = "ratios_percentages"
     FUNCTIONS_MODELS = "functions_models"
+    INEQUALITIES = "inequalities"
+    QUADRATIC_EQUATIONS = "quadratic_equations"
+    EXPONENTS_RADICALS = "exponents_radicals"
+    COORDINATE_GEOMETRY = "coordinate_geometry"
 
 
 class StudentCreate(BaseModel):

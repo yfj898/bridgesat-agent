@@ -2,17 +2,17 @@
 
 ## 1. Core decision
 
-SQLite is the authoritative system of record. Mnemis is a derived, rebuildable long-term-memory index.
+PostgreSQL is the authoritative system of record. Mnemis is a derived, rebuildable long-term-memory index.
 
 ```text
-SQLite facts and events
+PostgreSQL facts and events
   -> validated learning episodes
   -> transactional outbox
   -> Mnemis indexing
   -> memory retrieval
 ```
 
-No request may require a successful synchronous write to both SQLite and Mnemis.
+No request may require a successful synchronous write to both PostgreSQL and Mnemis.
 
 ---
 
@@ -20,10 +20,10 @@ No request may require a successful synchronous write to both SQLite and Mnemis.
 
 | Layer | Authority | Storage | Rebuildable |
 |---|---|---|---|
-| working memory | current event stream | SQLite + IndexedDB | yes |
-| episodic memory | validated learning episodes | SQLite | yes |
-| semantic learner facts | derived evidence records | SQLite | yes |
-| intervention statistics | aggregate outcomes | SQLite | yes |
+| working memory | current event stream | PostgreSQL + IndexedDB | yes |
+| episodic memory | validated learning episodes | PostgreSQL | yes |
+| semantic learner facts | derived evidence records | PostgreSQL | yes |
+| intervention statistics | aggregate outcomes | PostgreSQL | yes |
 | hierarchical recall index | derived graph/index | Mnemis backend | yes |
 
 Mnemis output is retrieval evidence, not an authoritative fact by itself.
@@ -117,7 +117,7 @@ CREATE TABLE memory_outbox (
 
 ## 4. Transactional outbox workflow
 
-Within one SQLite transaction:
+Within one PostgreSQL transaction:
 
 ```text
 1. append immutable learning event;
@@ -276,9 +276,12 @@ Rules:
 
 ## 9. Memory retrieval routing
 
-### 9.1 SQLite-only queries
+### 9.1 PostgreSQL-only queries
 
-Use SQLite for current streaks, recent attempts, current mastery, exact intervention statistics, session recovery, and offline or degraded operation.
+Use PostgreSQL for authoritative current streaks, recent attempts, mastery,
+intervention statistics, and server-side session recovery. During a network
+outage, the PWA uses its last synchronized IndexedDB snapshot and queues new
+events; it does not pretend the browser can query PostgreSQL offline.
 
 ### 9.2 Mnemis System-1
 
@@ -354,7 +357,7 @@ Student deletion is a distributed process.
 1. authenticate deletion request;
 2. mark learner account deletion_pending;
 3. stop new sessions and memory writes;
-4. delete or tombstone SQLite personal records according to policy;
+4. delete or tombstone PostgreSQL personal records according to policy;
 5. create deletion outbox event;
 6. delete Mnemis nodes and edges;
 7. verify no retrievable memory remains;
@@ -377,7 +380,7 @@ The user receives completion only after verification, not after the first local 
 
 ## 12. Rebuild and migration
 
-Mnemis must be fully rebuildable from SQLite.
+Mnemis must be fully rebuildable from PostgreSQL.
 
 Required commands:
 
@@ -386,7 +389,7 @@ rebuild all memory indexes
 rebuild one student
 verify index parity
 replay dead-letter outbox records
-compare SQLite episode count with indexed episode count
+compare PostgreSQL episode count with indexed episode count
 ```
 
 Index versions are immutable identifiers. A new index version is built alongside the old version, validated, and then activated.
@@ -416,4 +419,4 @@ Competition acceptance:
 - restart resumes pending outbox delivery;
 - one-student rebuild reproduces expected retrieval results;
 - deletion verification removes all retrievable indexed memories;
-- SQLite fallback passes all mandatory memory scenarios.
+- PostgreSQL fallback passes all mandatory memory scenarios.

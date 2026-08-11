@@ -27,7 +27,7 @@ test("cards have accessible names via aria-labelledby", () => {
   const labelled = [...html.matchAll(/aria-labelledby="([^"]+)"/g)].map(
     (m) => m[1]
   );
-  assert.ok(labelled.length >= 2, "at least two aria-labelledby cards");
+  assert.ok(labelled.length >= 3, "at least three aria-labelledby cards");
   for (const id of labelled) {
     assert.ok(html.includes(`id="${id}"`), `label target ${id} exists`);
   }

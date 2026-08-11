@@ -79,48 +79,38 @@ def _choices(
 ) -> tuple[list[dict], str, dict[str, str]]:
     """Build four distinct choices plus a value-aligned misconception map.
 
-    Guarantees the answer and all three distractors are pairwise distinct,
-    falling back to shifted values when a distractor collides.
+    Requires the answer and all three distractors to be pairwise distinct.
+    A collision is an authoring error because shifting a value would sever the
+    distractor's semantic link to its misconception.
     """
     answer = str(answer)
     seen = {answer}
-    mapped: list[tuple[str, str]] = []
+    mapped: list[tuple[str, str | None]] = []
     for distractor, label in zip(distractors, labels):
         text = str(distractor)
-        shift = 0
-        while text in seen:
-            shift += 1
-            variant = _shift_value(distractor, shift)
-            if variant is None:
-                text = f"{distractor}?{shift}"
-            else:
-                text = str(variant)
+        if text in seen:
+            raise ValueError(
+                f"choice collision for {distractor!r}; author a distinct misconception value"
+            )
         seen.add(text)
         mapped.append((text, label))
 
-    choice_ids = ["A", "B", "C", "D"]
+    shuffled = [(answer, None), *mapped]
+    rng.shuffle(shuffled)
     choices = [
         {"id": cid, "text": text}
-        for cid, (text, _) in zip(choice_ids, [(answer, "")] + mapped)
+        for cid, (text, _) in zip(["A", "B", "C", "D"], shuffled)
     ]
-    rng.shuffle(choices)
-    correct = next(c["id"] for c in choices if c["text"] == answer)
+    correct = next(
+        choice["id"]
+        for choice, (_, misconception) in zip(choices, shuffled)
+        if misconception is None
+    )
     text_to_label = dict(mapped)
     misconception_map = {
         c["id"]: text_to_label[c["text"]] for c in choices if c["text"] != answer
     }
     return choices, correct, misconception_map
-
-
-def _shift_value(value: object, shift: int) -> object | None:
-    """Return a nearby distinct value for ints or integer-pair tuples."""
-    if isinstance(value, int):
-        return value + shift
-    if isinstance(value, tuple) and len(value) == 2 and all(
-        isinstance(part, int) for part in value
-    ):
-        return (value[0], value[1] + shift)
-    return None
 
 
 def _base_item(
@@ -139,10 +129,14 @@ def _base_item(
     estimated_seconds: int,
     author_metadata: dict,
     license: dict,
+    source_id: str = SOURCE_LINEAGE_ID,
 ) -> dict:
     return {
         "id": content_id,
-        "version": 1,
+        # Version 1 questions remain in the historical 0.1.0 pack. The
+        # expanded catalog was regenerated after answer-label review, so its
+        # reviewed release uses a new immutable version.
+        "version": 3,
         "schema_version": SCHEMA_VERSION,
         "domain": "math",
         "content_type": "question",
@@ -158,7 +152,7 @@ def _base_item(
         "worked_explanation": worked_explanation,
         "estimated_seconds": estimated_seconds,
         "source_lineage": {
-            "source_id": SOURCE_LINEAGE_ID,
+            "source_id": source_id,
             "lineage_id": lineage_id,
             "role": "concept_source_only",
         },
@@ -239,6 +233,8 @@ def generate_systems_item(row: dict) -> dict:
     rng = rng_for(row["lineage_id"])
     x0 = rng.choice([v for v in range(-8, 9) if v != 0])
     y0 = rng.choice([v for v in range(-8, 9) if v != 0])
+    while y0 == x0:
+        y0 = rng.choice([v for v in range(-8, 9) if v != 0])
     a1 = rng.randint(1, 5)
     b1 = rng.randint(1, 5)
     a2 = rng.randint(1, 5)
@@ -314,6 +310,13 @@ def generate_rates_item(row: dict) -> dict:
         rng,
     )
     answer_text = next(c["text"] for c in choices if c["id"] == correct)
+    item_number = int(row["content_id"].rsplit(".", 1)[1])
+    contexts = [
+        ("A machine", "parts", "produce"),
+        ("A school printer", "pages", "print"),
+        ("A volunteer team", "supply kits", "assemble"),
+    ]
+    subject, unit_name, verb = contexts[(item_number - 1) % len(contexts)]
     return _base_item(
         lineage_id=row["lineage_id"],
         content_id=row["content_id"],
@@ -321,20 +324,20 @@ def generate_rates_item(row: dict) -> dict:
         subskill="unit_rates",
         difficulty=rng.randint(1, 2),
         prompt=(
-            f"A machine produces {n} parts in {t} minutes. "
-            f"At the same rate, how many parts will it produce in {T} minutes?"
+            f"{subject} can {verb} {n} {unit_name} in {t} minutes. "
+            f"At the same rate, how many {unit_name} can it {verb} in {T} minutes?"
         ),
         choices=choices,
         answer_choice_id=correct,
         misconception_map=misconception_map,
         hints=_hints([
-            f"Find the unit rate: {n} parts per {t} minutes.",
+            f"Find the unit rate: {n} {unit_name} per {t} minutes.",
             f"Multiply the unit rate by {T} minutes.",
             f"({n} / {t}) * {T} = {answer_text}.",
         ]),
         worked_explanation=(
-            f"The unit rate is {n}/{t} = {rate} parts per minute. "
-            f"In {T} minutes the machine produces {rate} * {T} = {answer_text} parts."
+            f"The unit rate is {n}/{t} = {rate} {unit_name} per minute. "
+            f"In {T} minutes the total is {rate} * {T} = {answer_text} {unit_name}."
         ),
         estimated_seconds=60,
         author_metadata={
@@ -348,13 +351,18 @@ def generate_rates_item(row: dict) -> dict:
 
 def generate_algebraic_models_item(row: dict) -> dict:
     rng = rng_for(row["lineage_id"])
-    m = rng.randint(2, 9)
-    b = rng.randint(3, 25)
-    x = rng.randint(2, 8)
-    answer = m * x + b
-    d1 = b * x + m  # slope_intercept_swap
-    d2 = m + b * x  # input_substitution: input plugged into the wrong role
-    d3 = answer - 1  # arithmetic_error
+    for _ in range(100):
+        m = rng.randint(2, 9)
+        b = rng.randint(3, 25)
+        x = rng.randint(2, 8)
+        answer = m * x + b
+        d1 = b * x + m  # slope_intercept_swap
+        d2 = (m + b) * x  # input_substitution: flat fee incorrectly multiplied by input
+        d3 = answer - 1  # arithmetic_error
+        if len({answer, d1, d2, d3}) == 4:
+            break
+    else:
+        raise ValueError("could not author distinct algebraic-model distractors")
     choices, correct, misconception_map = _choices(
         answer,
         [d1, d2, d3],
@@ -396,13 +404,18 @@ def generate_algebraic_models_item(row: dict) -> dict:
 
 def generate_function_evaluation_item(row: dict) -> dict:
     rng = rng_for(row["lineage_id"])
-    a = rng.randint(2, 9)
-    b = rng.choice([v for v in range(-15, 16) if v != 0])
-    k = rng.choice([v for v in range(-9, 10) if v != 0])
-    answer = a * k + b
-    d1 = a + b * k  # input_substitution
-    d2 = a * k - b  # sign_error
-    d3 = answer + 1  # arithmetic_error
+    for _ in range(100):
+        a = rng.randint(2, 9)
+        b = rng.choice([v for v in range(-15, 16) if v != 0])
+        k = rng.choice([v for v in range(-9, 10) if v not in (0, 1)])
+        answer = a * k + b
+        d1 = a + b * k  # input_substitution
+        d2 = a * k - b  # sign_error
+        d3 = answer + 1  # arithmetic_error
+        if len({answer, d1, d2, d3}) == 4:
+            break
+    else:
+        raise ValueError("could not author distinct function-evaluation distractors")
     choices, correct, misconception_map = _choices(
         answer,
         [d1, d2, d3],
@@ -451,6 +464,14 @@ _GENERATORS = {
 
 def generate_item(manifest_row: dict) -> dict:
     skill = manifest_row["target_skill"]
+    if skill not in _GENERATORS:
+        from .expansion import generate_expansion_item
+
+        item = generate_expansion_item(manifest_row)
+        from .contracts import content_hash
+
+        item["content_hash"] = content_hash(item)
+        return item
     subskill = manifest_row.get("target_subskill") or ""
     if skill == "functions_models":
         generator = (
@@ -609,27 +630,45 @@ def generate_lessons(
 ) -> list[dict]:
     lessons: list[dict] = []
     seen_skills = sorted({row["target_skill"] for row in manifest_rows})
+    lesson_misconceptions = {
+        "linear_equations": ["sign_error", "inverse_operation_error"],
+        "systems_equations": ["sign_error", "inverse_operation_error"],
+        "ratios_percentages": ["ratio_inversion", "unit_conversion"],
+        "functions_models": ["slope_intercept_swap", "input_substitution"],
+    }
     for skill in seen_skills:
         for kind in ["micro_lesson", "worked_example"]:
-            for index in range(1, 3):
-                title, body, subskill = _lesson_content(skill, kind, index)
+            lesson_count = 1 if skill not in _GENERATORS else 2
+            for index in range(1, lesson_count + 1):
+                if skill in _GENERATORS:
+                    title, body, subskill = _lesson_content(skill, kind, index)
+                    target_misconceptions = lesson_misconceptions[skill]
+                else:
+                    from .expansion import expansion_lesson
+
+                    title, body, subskill, target_misconceptions = expansion_lesson(
+                        skill, kind
+                    )
                 content_id = f"math.{skill}.{kind}.{index:03d}"
                 lesson = {
                     "id": content_id,
-                    "version": 2,
+                    # Historical lessons use version 2. Targeted lesson
+                    # metadata/body changes therefore ship as version 3.
+                    "version": 4,
                     "schema_version": SCHEMA_VERSION,
                     "domain": "math",
                     "content_type": kind,
                     "target_skill": skill,
                     "target_subskill": subskill,
+                    "target_misconceptions": target_misconceptions,
                     "required_prerequisites": PREREQUISITES[skill],
                     "difficulty": 1,
                     "title": title,
                     "body": body,
                     "estimated_seconds": 120,
                     "source_lineage": {
-                        "source_id": SOURCE_LINEAGE_ID,
-                        "lineage_id": "bridgesat-original",
+                        "source_id": "bridgesat_original",
+                        "lineage_id": f"bridgesat-original:{content_id}",
                         "role": "concept_source_only",
                     },
                     "license": _source_license(),

@@ -4,7 +4,7 @@
 
 ```text
 BRIDGESAT_MODE=local
-  FastAPI + SQLite + FTS5 + reviewed local content
+  FastAPI + PostgreSQL + PostgreSQL tsvector + registry-approved local content
   no external model, vector service, graph database, or Mnemis required
 
 BRIDGESAT_MODE=enhanced
@@ -17,6 +17,35 @@ BRIDGESAT_MODE=enhanced
 
 The default startup path is `local`.
 
+### 1.1 Runtime decision authority
+
+The competition runtime authority is the real PWA answer path:
+
+```text
+POST /v1/sync/events -> SyncService.process_batch() -> _apply_answer_submitted()
+  -> VersionedAnswerKey.evaluate() exact re-score
+  -> learner mastery projection update
+  -> EpisodeBuilder.complete_runtime_candidate()
+  -> PGMemory.record_intervention_outcome() / recall_episodes()
+  -> decide_next_action() deterministic policy
+  -> EventStore.append_agent_event()
+```
+
+`POST /v1/adapt` and `SessionOrchestrator` are secondary/legacy decision paths:
+the PWA never calls them, they keep their own action vocabulary and prompts, and
+they are NOT the competition authority. They are retained for compatibility
+only and must not be presented as the Hybrid main path (Hybrid Integration
+Plan H0). PostgreSQL remains the only authoritative learner/event/memory/sync
+/content state; optional LLM or memory layers degrade safely.
+
+### 1.2 Intervention-specific fact support invariant
+
+Semantic fact support is scoped by the normalized key
+`skill + misconception + intervention`. `list_episodes_for_fact()` filters
+episodes by the intervention encoded in the key, so a fact can never be
+promoted by successful episodes from a different intervention (regression
+covered in `tests/test_pg_memory.py`).
+
 ---
 
 ## 2. Reproducibility
@@ -27,7 +56,7 @@ Freeze before submission:
 Python 3.12
 locked Python dependencies
 Node-free static PWA build or locked frontend dependencies
-SQLite schema version
+PostgreSQL schema version
 content-pack version
 policy versions
 environment variable reference
@@ -165,7 +194,7 @@ GET /v1/reports/export
 
 - learner projection rows carry a version number;
 - write operations use optimistic concurrency where appropriate;
-- event append and projection update occur in one SQLite transaction;
+- event append and projection update occur in one PostgreSQL transaction;
 - duplicate idempotency keys return the previous result;
 - session completion is idempotent;
 - content reports and memory corrections are append-only events.
@@ -177,18 +206,18 @@ GET /v1/reports/export
 Migration rules:
 
 - every schema change has an ordered migration ID;
-- migrations are transactional when SQLite permits;
+- migrations are transactional when PostgreSQL permits;
 - application refuses startup if schema is newer than supported;
-- backup is created before destructive migration;
+- the deployment operator must take a `pg_dump` backup before a destructive migration;
 - migration tests run from the earliest supported schema;
 - derived indexes can be rebuilt rather than migrated in place.
 
 Required recovery capabilities:
 
 ```text
-restore SQLite backup
+restore PostgreSQL backup
 rebuild learner projections from events
-rebuild FTS5 index from approved content
+rebuild PostgreSQL tsvector index from approved content
 rebuild Mnemis from validated episodes and facts
 verify content-pack checksums
 ```
@@ -199,12 +228,16 @@ verify content-pack checksums
 
 Competition deployment baseline:
 
-- daily SQLite backup;
+- daily PostgreSQL backup;
 - pre-migration backup;
 - retention of seven daily backups during the competition window;
 - backups stored outside the active database path;
 - restore test completed before submission;
 - demo learner data can be reset independently.
+
+The repository does not currently automate `pg_dump`/`pg_restore`; this is a
+deployment runbook requirement, not a claimed in-app capability. Projection,
+`tsvector`, Mnemis, and content-hash rebuilds are repository-supported.
 
 Long-term retention policy must be documented before real deployment. Competition data uses fictional or consented test profiles.
 
@@ -240,7 +273,7 @@ Suggested thresholds:
 | health endpoint | < 100 ms |
 | local question selection | < 100 ms |
 | local policy decision | < 150 ms |
-| FTS5 retrieval | < 200 ms |
+| PostgreSQL tsvector retrieval | < 200 ms |
 | session restore | < 500 ms |
 | Mnemis System-1 | < 800 ms timeout |
 | Mnemis System-2 | < 3 s timeout |
@@ -315,7 +348,7 @@ GET /health
   application process alive
 
 GET /ready
-  SQLite writable
+  PostgreSQL writable
   schema compatible
   reviewed content pack loaded
 ```

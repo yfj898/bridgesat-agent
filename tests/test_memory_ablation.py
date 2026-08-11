@@ -135,8 +135,8 @@ def test_all_routes_evaluated(env: tuple) -> None:
     for result in results:
         assert set(result["routes"]) == {
             "no_memory",
-            "recent_sqlite",
-            "similar_sqlite",
+            "recent_postgres",
+            "similar_postgres",
             "mnemis_system1",
             "mnemis_dual",
         }
@@ -144,7 +144,7 @@ def test_all_routes_evaluated(env: tuple) -> None:
 
 def test_memory_routes_recall_every_probe(env: tuple) -> None:
     aggregate = _aggregate(_run_probes(env))
-    for route in ("similar_sqlite", "mnemis_system1", "mnemis_dual"):
+    for route in ("similar_postgres", "mnemis_system1", "mnemis_dual"):
         assert aggregate[route]["recall_at_3"] == 1.0
         assert aggregate[route]["intervention_accuracy"] == 1.0
         assert aggregate[route]["next_action_accuracy"] == 1.0
@@ -154,7 +154,7 @@ def test_baselines_are_weak(env: tuple) -> None:
     aggregate = _aggregate(_run_probes(env))
     assert aggregate["no_memory"]["recall_at_3"] == 0.0
     assert aggregate["no_memory"]["next_action_accuracy"] == 0.0
-    assert aggregate["recent_sqlite"]["recall_at_3"] < 1.0
+    assert aggregate["recent_postgres"]["recall_at_3"] < 1.0
 
 
 def test_dual_route_falls_back_within_budget(env: tuple) -> None:

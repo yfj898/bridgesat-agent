@@ -101,6 +101,69 @@ def test_recall_episodes(env) -> None:
     assert other == []
 
 
+def test_recall_episodes_filters_by_intervention(env) -> None:
+    memory, builder, student_id = env
+    _validated_episode(builder, student_id=student_id, session_id="ses-1", outcome_content_id="t-1", event_suffix="1")
+    _validated_episode(
+        builder,
+        student_id=student_id,
+        session_id="ses-1",
+        intervention="SHOW_MICRO_LESSON",
+        outcome_content_id="t-2",
+        event_suffix="2",
+    )
+
+    only_worked = memory.recall_episodes(
+        student_id=student_id,
+        skill="linear_equations",
+        misconception="sign_error",
+        intervention="SHOW_WORKED_EXAMPLE",
+    )
+    assert len(only_worked) == 1
+    assert only_worked[0].intervention == "SHOW_WORKED_EXAMPLE"
+
+    only_lesson = memory.recall_episodes(
+        student_id=student_id,
+        skill="linear_equations",
+        misconception="sign_error",
+        intervention="SHOW_MICRO_LESSON",
+    )
+    assert len(only_lesson) == 1
+    assert only_lesson[0].intervention == "SHOW_MICRO_LESSON"
+
+
+def test_fact_supporting_episodes_exclude_other_interventions(env) -> None:
+    """Regression: fact support must be scoped to the intervention encoded in
+    the normalized key, never episodes from a different intervention."""
+    memory, builder, student_id = env
+    for i in range(3):
+        _validated_episode(
+            builder,
+            student_id=student_id,
+            session_id="ses-a",
+            intervention="SHOW_WORKED_EXAMPLE",
+            outcome_content_id=f"t-we-{i}",
+            event_suffix=f"we-{i}",
+        )
+        _validated_episode(
+            builder,
+            student_id=student_id,
+            session_id="ses-a",
+            intervention="SHOW_MICRO_LESSON",
+            outcome_content_id=f"t-ml-{i}",
+            event_suffix=f"ml-{i}",
+        )
+
+    worked = builder.list_validated_episodes(student_id=student_id)[0]
+    assert worked.intervention == "SHOW_MICRO_LESSON"
+
+    fact = memory.upsert_fact_for_episode(worked)
+    assert fact.evidence_count == 3
+    supporting = memory.list_episodes_for_fact(student_id, fact.normalized_key)
+    assert len(supporting) == 3
+    assert all(e.intervention == "SHOW_MICRO_LESSON" for e in supporting)
+
+
 def test_semantic_fact_formation(env) -> None:
     memory, builder, student_id = env
     _validated_episode(builder, student_id=student_id, session_id="ses-1", outcome_content_id="t-1", event_suffix="1")

@@ -63,7 +63,13 @@ class EventStore:
             self.connection.rollback()
             raise
 
-    def append_agent_event(self, event: AgentEvent, *, on_duplicate: str = "ignore") -> bool:
+    def append_agent_event(
+        self,
+        event: AgentEvent,
+        *,
+        on_duplicate: str = "ignore",
+        commit: bool = True,
+    ) -> bool:
         try:
             self.connection.execute(
                 """
@@ -98,15 +104,20 @@ class EventStore:
                     event.created_at,
                 ),
             )
-            self.connection.commit()
+            if commit:
+                self.connection.commit()
             return True
         except UniqueViolation as exc:
-            self.connection.rollback()
+            if not commit:
+                raise
+            if commit:
+                self.connection.rollback()
             if on_duplicate == "raise":
                 raise DuplicateEventError(f"Duplicate agent event {event.event_id}") from exc
             return False
         except Exception:
-            self.connection.rollback()
+            if commit:
+                self.connection.rollback()
             raise
 
     def learning_event_exists(

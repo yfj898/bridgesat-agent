@@ -104,9 +104,9 @@ Baselines:
 
 ```text
 metadata only
-FTS5
-FTS5 + hierarchy
-FTS5 + hierarchy + embedding
+PostgreSQL tsvector
+PostgreSQL tsvector + hierarchy
+PostgreSQL tsvector + hierarchy + embedding
 LightRAG adapter, if enabled
 ```
 
@@ -178,7 +178,7 @@ fallback success rate
 
 Go/No-Go for Mnemis in the live demo:
 
-- SQLite two-session memory loop already passes;
+- PostgreSQL two-session memory loop already passes;
 - Mnemis returns traceable episode IDs;
 - at least one complex scenario improves over similarity-only retrieval;
 - timeout and fallback tests pass;
@@ -263,7 +263,7 @@ PWA shell size
 offline pack size
 local answer latency
 local policy latency
-FTS5 latency
+PostgreSQL tsvector latency
 session restoration latency
 Mnemis latency and timeout rate
 sync throughput

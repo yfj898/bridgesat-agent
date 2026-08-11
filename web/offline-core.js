@@ -125,9 +125,10 @@ function buildEnvelope({
   questionVersion = null,
   dependsOnEventIds = [],
   occurredAt = null,
+  eventId = null,
 }) {
   const envelope = {
-    event_id: "evt_" + uuidHex(),
+    event_id: eventId || "evt_" + uuidHex(),
     student_id: studentId,
     session_id: sessionId,
     session_branch_id: sessionBranchId,
@@ -169,6 +170,48 @@ function evaluateAnswer(item, selectedChoiceId) {
   return { correct: false };
 }
 
+const SKILL_PRESENTATION = {
+  linear_equations: ["Linear equations", "Signs, operations, and solving for variables"],
+  systems_equations: ["Systems of equations", "Substitution, elimination, and paired relationships"],
+  ratios_percentages: ["Ratios & percentages", "Rates, proportions, percent change, and units"],
+  functions_models: ["Functions & models", "Function values, slope, and algebraic models"],
+  inequalities: ["Inequalities", "Solution boundaries, sign direction, and constraints"],
+  quadratic_equations: ["Quadratic equations", "Factoring, roots, and quadratic relationships"],
+  exponents_radicals: ["Exponents & radicals", "Exponent rules, reciprocals, and radical forms"],
+  coordinate_geometry: ["Coordinate geometry", "Slope, distance, midpoint, and line equations"],
+};
+
+function latestPackVersion(versions) {
+  if (!Array.isArray(versions) || versions.length === 0) return null;
+  const parts = (version) => String(version).split(".").map((part) => Number(part) || 0);
+  const sorted = [...versions].sort((left, right) => {
+    const a = parts(left);
+    const b = parts(right);
+    for (let index = 0; index < Math.max(a.length, b.length); index++) {
+      const difference = (a[index] || 0) - (b[index] || 0);
+      if (difference) return difference;
+    }
+    return String(left).localeCompare(String(right));
+  });
+  return sorted[sorted.length - 1];
+}
+
+function summarizePackCatalog(contentPack) {
+  const items = (contentPack?.items || []).filter(
+    (item) => !item.content_type || item.content_type === "question"
+  );
+  const lessons = contentPack?.lessons || [];
+  const skillIds = [...new Set(items.map((item) => item.target_skill).filter(Boolean))].sort();
+  const skills = skillIds.map((id) => {
+    const presentation = SKILL_PRESENTATION[id] || [
+      id.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase()),
+      "Targeted SAT Math practice and adaptive instruction",
+    ];
+    return { id, label: presentation[0], description: presentation[1] };
+  });
+  return { questionCount: items.length, lessonCount: lessons.length, skills };
+}
+
 // ---------------------------------------------------------------------------
 // Temporary mastery: bounded Beta update, mirrors SkillState.record_attempt.
 // ---------------------------------------------------------------------------
@@ -194,7 +237,13 @@ function updateTemporaryMastery(state, { correct, difficulty, hintLevel, repeate
 // installed pack for the weakest skill, preferring unanswered items.
 // ---------------------------------------------------------------------------
 
-function pickNextQuestion(packItems, skillStates, answeredIds, maxDifficulty = 3) {
+function pickNextQuestion(
+  packItems,
+  skillStates,
+  answeredIds,
+  maxDifficulty = 3,
+  constraint = null
+) {
   const eligible = packItems.filter(
     (item) => item.content_type === "question" && !answeredIds.has(item.id)
   );
@@ -215,10 +264,204 @@ function pickNextQuestion(packItems, skillStates, answeredIds, maxDifficulty = 3
       weakest = skill;
     }
   }
-  const pool = bySkill[weakest];
+  let pool = bySkill[constraint?.skill] || bySkill[weakest];
+  if (constraint?.transfer_group) {
+    const transferPool = pool.filter(
+      (item) =>
+        item.author_metadata?.transfer_group === constraint.transfer_group &&
+        item.author_metadata?.instruction_role === (constraint.instruction_role || "transfer")
+    );
+    if (transferPool.length > 0) pool = transferPool;
+  }
+  if (Number.isFinite(constraint?.difficulty)) {
+    return [...pool].sort(
+      (a, b) =>
+        Math.abs((a.difficulty || 2) - constraint.difficulty) -
+          Math.abs((b.difficulty || 2) - constraint.difficulty) ||
+        String(a.id).localeCompare(String(b.id))
+    )[0];
+  }
   const sortable = pool.filter((item) => (item.difficulty || 2) <= maxDifficulty);
   const candidates = sortable.length > 0 ? sortable : pool;
-  return candidates[Math.floor(Math.random() * candidates.length)];
+  return [...candidates].sort(
+    (a, b) =>
+      (a.difficulty || 2) - (b.difficulty || 2) ||
+      String(a.id).localeCompare(String(b.id))
+  )[0];
+}
+
+function pickDiagnosticQuestion(packItems, sampledSkills) {
+  return (
+    packItems.find(
+      (item) =>
+        item.content_type === "question" &&
+        !sampledSkills.has(item.target_skill || "unknown")
+    ) || null
+  );
+}
+
+function weakestSkill(skillStates) {
+  const ranked = Object.entries(skillStates).sort(
+    ([skillA, stateA], [skillB, stateB]) =>
+      (stateA.mastery ?? 0.5) - (stateB.mastery ?? 0.5) ||
+      skillA.localeCompare(skillB)
+  );
+  return ranked.length ? ranked[0][0] : null;
+}
+
+function localAgentDecision({
+  skill,
+  misconception = null,
+  observationCount = 0,
+  validatedEpisodes = [],
+  minutesRemaining = 20,
+}) {
+  if (minutesRemaining <= 2) {
+    return {
+      action: "END_WITH_REVIEW",
+      action_payload: { review: "time_budget" },
+      reason_code: "TIME_BUDGET_EXHAUSTED",
+      reason_text:
+        "Only a few minutes remain, so BridgeSAT closes with a short review instead of starting a new item.",
+      episode_ids: [],
+      policy_version: OFFLINE_POLICY_VERSION,
+    };
+  }
+  const recalled = misconception
+    ? validatedEpisodes.find(
+        (episode) =>
+          episode.skill === skill &&
+          episode.misconception === misconception &&
+          episode.intervention === "SHOW_WORKED_EXAMPLE"
+      )
+    : null;
+  if (recalled) {
+    return {
+      action: "SHOW_WORKED_EXAMPLE",
+      action_payload: { skill, misconception },
+      reason_code: "RECALLED_SUCCESSFUL_EPISODE",
+      reason_text:
+        "A worked example helped this learner recover from the same misconception in an earlier session.",
+      episode_ids: [recalled.episode_id],
+      policy_version: OFFLINE_POLICY_VERSION,
+    };
+  }
+  if (misconception && observationCount >= 2) {
+    return {
+      action: "SHOW_WORKED_EXAMPLE",
+      action_payload: { skill, misconception },
+      reason_code: "REPEATED_MISCONCEPTION",
+      reason_text:
+        "Repeated errors map to the same misconception, so a worked example is shown before more practice.",
+      episode_ids: [],
+      policy_version: OFFLINE_POLICY_VERSION,
+    };
+  }
+  return {
+    action: "RETRY_SAME_SKILL",
+    action_payload: { skill },
+    reason_code: misconception ? "MISCONCEPTION_OBSERVED" : "CONTINUE_PRACTICE",
+    reason_text: misconception
+      ? "The error maps to a known misconception; the next item checks the same skill again."
+      : "More evidence is needed before changing the learning path.",
+    episode_ids: [],
+    policy_version: OFFLINE_POLICY_VERSION,
+  };
+}
+
+function isSessionEndingAction(event) {
+  return ["END_WITH_REVIEW", "END_SESSION"].includes(event?.action);
+}
+
+function agentEventToView(event) {
+  const episodeId = (event.episode_ids || [])[0] || null;
+  const recalled = event.reason_code === "RECALLED_SUCCESSFUL_EPISODE";
+  return {
+    title:
+      event.action === "SHOW_WORKED_EXAMPLE"
+        ? "Worked example"
+        : event.action === "SHOW_MICRO_LESSON"
+          ? "Micro lesson"
+        : "Next teaching move",
+    showWorkedExample: event.action === "SHOW_WORKED_EXAMPLE",
+    showTeachingAsset: ["SHOW_WORKED_EXAMPLE", "SHOW_MICRO_LESSON"].includes(
+      event.action
+    ),
+    memoryBased: recalled,
+    memoryBanner: recalled ? "Based on what helped you before" : "",
+    why: recalled
+      ? "You had a similar misconception before, and a worked example was followed by success on a different item. BridgeSAT is reusing that strategy earlier this time."
+      : event.reason_text,
+    reasonCode: event.reason_code,
+    episodeLabel: episodeId ? `Episode ${episodeId}` : "",
+    policyVersion: event.policy_version || OFFLINE_POLICY_VERSION,
+  };
+}
+
+function minutesRemaining(budgetMinutes, startedAtMs, nowMs = Date.now()) {
+  const elapsedMinutes = Math.max(0, Math.floor((nowMs - startedAtMs) / 60_000));
+  return Math.max(0, budgetMinutes - elapsedMinutes);
+}
+
+function selectRelevantAgentEvent(events, expectedSourceEventId) {
+  if (!expectedSourceEventId) return null;
+  return (
+    events.find((event) => event.source_event_id === expectedSourceEventId) || null
+  );
+}
+
+function createActiveSessionSnapshot({
+  sessionId,
+  branchId,
+  currentQuestionId = null,
+  answeredIds = new Set(),
+  hintLevel = 0,
+  skillStates = {},
+  misconceptionCounts = {},
+  stage = "question_active",
+  phase = "practice",
+  feedbackState = null,
+  diagnosticAnswers = [],
+  nextActionConstraint = null,
+  sessionStartedAtMs = Date.now(),
+}) {
+  return {
+    id: "state",
+    session_id: sessionId,
+    branch_id: branchId,
+    current_question_id: currentQuestionId,
+    answered_ids: [...answeredIds],
+    hint_level: hintLevel,
+    skill_states: skillStates,
+    misconception_counts: misconceptionCounts,
+    stage,
+    phase,
+    feedback_state: feedbackState,
+    diagnostic_answers: diagnosticAnswers,
+    next_action_constraint: nextActionConstraint,
+    session_started_at_ms: sessionStartedAtMs,
+    saved_at: new Date().toISOString(),
+  };
+}
+
+function restoreActiveSessionSnapshot(snapshot) {
+  if (!snapshot || !snapshot.session_id) return null;
+  return {
+    sessionId: snapshot.session_id,
+    branchId: snapshot.branch_id || snapshot.session_id,
+    currentQuestionId: snapshot.current_question_id || null,
+    answeredIds: new Set(snapshot.answered_ids || []),
+    hintLevel: snapshot.hint_level || 0,
+    skillStates: snapshot.skill_states || {},
+    misconceptionCounts: snapshot.misconception_counts || {},
+    stage: snapshot.stage || "question_active",
+    phase: snapshot.phase || "practice",
+    feedbackState: snapshot.feedback_state || null,
+    diagnosticAnswers: snapshot.diagnostic_answers || [],
+    nextActionConstraint: snapshot.next_action_constraint || null,
+    sessionStartedAtMs:
+      snapshot.session_started_at_ms || Date.parse(snapshot.saved_at) || Date.now(),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -260,9 +503,16 @@ class PendingEventQueue {
   async dequeue() {
     const records = await this.all();
     const now = Date.now();
-    const ready = records.filter(
-      (record) => record.status === "pending" && record.next_retry_at <= now
-    );
+    const ready = records
+      .filter(
+        (record) => record.status === "pending" && record.next_retry_at <= now
+      )
+      .sort(
+        (a, b) =>
+          (a.envelope.device_sequence ?? Number.MAX_SAFE_INTEGER) -
+            (b.envelope.device_sequence ?? Number.MAX_SAFE_INTEGER) ||
+          String(a.envelope.event_id).localeCompare(String(b.envelope.event_id))
+      );
     const batched = ready.slice(0, 100);
     for (const record of batched) {
       await this.store.put("pending_events", { ...record, status: "in_flight" });
@@ -316,9 +566,23 @@ class OfflineSyncClient {
     this.deviceId = deviceId;
     this.studentId = studentId;
     this.queue = new PendingEventQueue(store);
+    this._syncInFlight = null;
   }
 
   async sync({ signal } = {}) {
+    while (this._syncInFlight) {
+      await this._syncInFlight.catch(() => undefined);
+    }
+    const run = this._syncOnce({ signal });
+    this._syncInFlight = run;
+    try {
+      return await run;
+    } finally {
+      if (this._syncInFlight === run) this._syncInFlight = null;
+    }
+  }
+
+  async _syncOnce({ signal } = {}) {
     if (signal && signal.aborted) return { synced: false, reason: "aborted" };
     const envelopes = await this.queue.dequeue();
     if (envelopes.length === 0) return { synced: false, reason: "empty" };
@@ -326,14 +590,24 @@ class OfflineSyncClient {
     const batch = {
       device_id: this.deviceId,
       student_id: this.studentId,
-      content_pack_versions: ["0.1.0"],
+      content_pack_versions: [
+        ...new Set(envelopes.map((event) => event.content_pack_version).filter(Boolean)),
+      ],
       events: envelopes,
     };
-    const response = await this.transport("/v1/sync/events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(batch),
-    });
+    let response;
+    try {
+      response = await this.transport("/v1/sync/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(batch),
+      });
+    } catch (_error) {
+      for (const envelope of envelopes) {
+        await this.queue.markRejected(envelope.event_id, "NETWORK_UNAVAILABLE", true);
+      }
+      return { synced: false, reason: "network" };
+    }
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       const retryable = !(body.detail && body.detail.includes("not registered"));
@@ -343,10 +617,14 @@ class OfflineSyncClient {
       return { synced: false, reason: "http", status: response.status };
     }
     const body = await response.json();
-    for (const id of body.accepted_event_ids) {
+    const acknowledgedIds = new Set([
+      ...(body.accepted_event_ids || []),
+      ...(body.duplicate_event_ids || []),
+    ]);
+    for (const id of acknowledgedIds) {
       await this.queue.markAcknowledged(id);
     }
-    for (const rejected of body.rejected_events) {
+    for (const rejected of body.rejected_events || []) {
       await this.queue.markRejected(rejected.event_id, rejected.code, rejected.retryable);
     }
     return { synced: true, body };
@@ -392,8 +670,19 @@ if (typeof module !== "undefined" && module.exports) {
     evaluateAnswer,
     updateTemporaryMastery,
     pickNextQuestion,
+    pickDiagnosticQuestion,
+    weakestSkill,
+    localAgentDecision,
+    isSessionEndingAction,
+    agentEventToView,
+    minutesRemaining,
+    selectRelevantAgentEvent,
+    createActiveSessionSnapshot,
+    restoreActiveSessionSnapshot,
     RETRY_SCHEDULE_MS,
     nextRetryDelayMs,
+    latestPackVersion,
+    summarizePackCatalog,
     PendingEventQueue,
     OfflineSyncClient,
     resumeOrSync,

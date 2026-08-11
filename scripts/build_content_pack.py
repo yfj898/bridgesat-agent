@@ -26,9 +26,11 @@ from app.content_pipeline.contracts import (
     VALIDATED_DIR,
 )
 from app.content_pipeline.packaging import (
+    ApprovalBlockedError,
     approve_items,
     build_pack,
     read_reviews,
+    review_provenance,
     review_row_complete_for_item,
     verify_pack_hashes,
     write_approved,
@@ -42,6 +44,14 @@ def main() -> int:
         "--write-template",
         action="store_true",
         help="write an empty review CSV template and exit",
+    )
+    parser.add_argument(
+        "--allow-simulated-review",
+        action="store_true",
+        help=(
+            "build a competition-demo pack from sim.* review fixtures; this is "
+            "explicitly not human approval"
+        ),
     )
     args = parser.parse_args()
 
@@ -88,8 +98,21 @@ def main() -> int:
         )
         return 1
 
+    try:
+        review_provenance(
+            approved + approved_lessons,
+            allow_simulated_review=args.allow_simulated_review,
+        )
+    except ApprovalBlockedError as exc:
+        print(f"Publication blocked before artifact write: {exc}", file=sys.stderr)
+        return 1
     write_approved(approved + approved_lessons, APPROVED_DIR / "math-v1.jsonl")
-    manifest = build_pack(approved, approved_lessons, out_dir=PACKS_DIR)
+    manifest = build_pack(
+        approved,
+        approved_lessons,
+        out_dir=PACKS_DIR,
+        allow_simulated_review=args.allow_simulated_review,
+    )
     mismatches = verify_pack_hashes(PACKS_DIR / f"{manifest['pack_id']}-{manifest['pack_version']}")
     if mismatches:
         print(f"Hash verification failed: {mismatches}", file=sys.stderr)

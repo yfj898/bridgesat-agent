@@ -114,7 +114,13 @@ def score_diagnostic(
         else:
             mastery[skill] = previous
 
-    weakest = sorted(Skill, key=lambda skill: mastery[skill])[:2]
+    observed = set(deltas)
+    ranked_observed = sorted(observed, key=lambda skill: (mastery[skill], skill.value))
+    ranked_unobserved = sorted(
+        (skill for skill in Skill if skill not in observed),
+        key=lambda skill: (mastery[skill], skill.value),
+    )
+    weakest = (ranked_observed + ranked_unobserved)[:2]
     plan = build_plan(weakest, student.daily_minutes)
     explanation = (
         f"I prioritized {weakest[0].value.replace('_', ' ')} because it has the "

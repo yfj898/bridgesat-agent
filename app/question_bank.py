@@ -76,17 +76,46 @@ def _load_all(root: Path) -> list[Question]:
     return questions
 
 
+def _version_key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) if part.isdigit() else 0 for part in str(version).split("."))
+
+
+@lru_cache(maxsize=4)
+def _load_current(root: Path) -> list[Question]:
+    """Load only the latest published version of each logical pack."""
+    current: dict[str, tuple[tuple[int, ...], Path]] = {}
+    if not root.is_dir():
+        return []
+    for pack_dir in sorted(root.iterdir()):
+        manifest_path = pack_dir / "manifest.json"
+        if not pack_dir.is_dir() or not manifest_path.exists():
+            continue
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("status") != "published":
+            continue
+        pack_id = manifest.get("pack_id") or manifest.get("id") or pack_dir.name
+        version = manifest.get("pack_version") or manifest.get("version") or "0"
+        candidate = (_version_key(version), pack_dir)
+        if pack_id not in current or candidate[0] > current[pack_id][0]:
+            current[pack_id] = candidate
+    questions: list[Question] = []
+    for _, pack_dir in sorted(current.values(), key=lambda value: value[1].name):
+        questions.extend(_read_pack_directory(pack_dir))
+    return questions
+
+
 def load_questions() -> list[Question]:
     """Load questions only from published content packs.
 
     This is the production path. Quarantined starter content, drafts, and
     unpublished packs are never returned.
     """
-    return _load_all(packs_root())
+    return _load_current(packs_root())
 
 
 def clear_cache() -> None:
     _load_all.cache_clear()
+    _load_current.cache_clear()
     _read_pack_directory.cache_clear()
 
 

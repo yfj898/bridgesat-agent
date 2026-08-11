@@ -352,6 +352,19 @@ def test_dependency_satisfied_in_same_batch(service: SyncService) -> None:
     assert "evt_2" in response.accepted_event_ids
 
 
+def test_same_batch_device_sequence_must_strictly_increase(service: SyncService) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "d", device_id=DEVICE_A)
+    first = _envelope(event_id="evt_seq_first", device_sequence=1)
+    second = _envelope(event_id="evt_seq_second", device_sequence=1)
+
+    response = _process(service, [second, first])
+
+    assert response.accepted_event_ids == ["evt_seq_first"]
+    assert [event.event_id for event in response.rejected_events] == ["evt_seq_second"]
+    assert response.rejected_events[0].code == "INVALID_SCHEMA"
+
+
 # ----------------------------------------------------------------------
 # Repeated attempts and parallel branches
 # ----------------------------------------------------------------------
@@ -558,15 +571,17 @@ def test_rebuild_projection_from_events_restores_state(service: SyncService) -> 
     events = [
         _envelope(
             event_id="evt_c_1", event_type="CONTENT_PRESENTED",
-            payload={"question_id": Q_LINEAR},
+            payload={"question_id": Q_LINEAR}, device_sequence=1,
         ),
-        _envelope(event_id="evt_a_1", depends_on=["evt_c_1"]),
+        _envelope(event_id="evt_a_1", device_sequence=2, depends_on=["evt_c_1"]),
         _envelope(
             event_id="evt_c_2", event_type="CONTENT_PRESENTED",
-            payload={"question_id": Q_LINEAR}, depends_on=["evt_a_1"],
+            payload={"question_id": Q_LINEAR}, device_sequence=3,
+            depends_on=["evt_a_1"],
         ),
         _envelope(
             event_id="evt_a_2",
+            device_sequence=4,
             payload={
                 "question_id": Q_LINEAR,
                 "question_version": 1,
@@ -578,7 +593,8 @@ def test_rebuild_projection_from_events_restores_state(service: SyncService) -> 
         ),
         _envelope(
             event_id="evt_s_1", event_type="SESSION_COMPLETED",
-            payload={"summary": "s"}, depends_on=["evt_a_2"],
+            payload={"summary": "s"}, device_sequence=5,
+            depends_on=["evt_a_2"],
         ),
     ]
     response = _process(service, events)

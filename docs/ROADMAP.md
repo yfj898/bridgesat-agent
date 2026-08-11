@@ -1,111 +1,44 @@
 # BridgeSAT Competition Roadmap
 
-Detailed contracts and acceptance gates are in `IMPLEMENTATION_PLAN.md`,
-`COMPETITION_MVP_EXECUTION_PLAN.md`, and the six normative specifications in
-`docs/`. This file is the execution checklist. A gate is complete only when its
-implementation and corresponding acceptance tests pass.
+Current runtime: PostgreSQL authority, migrations `0001`–`0015`, PostgreSQL
+`tsvector` retrieval, and optional rebuildable Mnemis. Historical SQLite/FTS5
+milestones are superseded.
 
-**Competition scope: math closed-loop first.** The submitted MVP delivers 55
-human-approved original math items across four math skills (and supporting
-micro-lessons/worked examples); the reading domain and the full eight-skill
-taxonomy are extension scope and are not claimed as delivered in the demo.
+## Engineering gates
 
-## Gate 0 — frozen design
+- [x] FastAPI modular monolith and learner-scoped bearer authentication
+- [x] immutable learning/agent events and versioned projections
+- [x] session state machine and bounded teaching actions
+- [x] weighted-Beta mastery and misconception evidence
+- [x] PostgreSQL episodic memory, facts, intervention aggregates, outbox
+- [x] public sync path builds a validated Episode from real transfer evidence
+- [x] later-session recall changes action timing and retains trace metadata
+- [x] IndexedDB active-session recovery, local scoring/policy, pending queue
+- [x] idempotent, out-of-order, conflict, and version-bound synchronization
+- [x] governed math pack and PostgreSQL full-text/citation/license retrieval
+- [x] Mnemis timeout and PostgreSQL fallback
+- [x] deterministic evaluation runner prepares its own retrieval index
+- [x] one-page write-up and submission-readiness matrix
 
-- [x] Independent project skeleton
-- [x] Complete architecture baseline
-- [x] Separate educational knowledge from learner memory
-- [x] Select SQLite/FTS5 as reliable baseline
-- [x] Select Mnemis as advanced long-term-memory retrieval
-- [x] Define LightRAG, A-RAG, and RAG-Anything as conditional adapters
-- [x] Freeze eight-skill taxonomy and prerequisite graph contract
-- [x] Freeze mastery and confidence policy draft
-- [x] Freeze memory consistency and Mnemis fallback contract
-- [x] Freeze offline synchronization conflict semantics
-- [x] Freeze threat model, API, operations, and evaluation contracts
+## Submission gates
 
-## Gate 1 — event-driven learning loop
+- [ ] real human educational/answer/license/accessibility review of 103 questions
+  and 24 lessons; current `sim.*` ledger is not a human approval
+- [ ] manual keyboard, screen-reader status, small-screen, offline/refresh, and
+  reconnect walkthrough
+- [ ] clean public deployment and working-demo URL
+- [ ] screenshots and ≤3-minute video following `docs/DEMO_SCRIPT.md`
+- [ ] public GitHub URL and link verification
+- [ ] final metric freeze from the exact README command order
 
-- [ ] Database migration system
-- [ ] Student, session, attempt, and immutable event tables
-- [ ] Versioned learner projections
-- [ ] Session state machine
-- [ ] Bounded agent action schema
-- [ ] Difficulty-aware question selection
-- [ ] Three-level hint interaction
-- [ ] Misconception taxonomy and distractor mapping
-- [ ] Session summary and next-session recommendation
-- [ ] Weighted Beta mastery implementation
-- [ ] Golden policy trajectory tests
+## Post-competition, not MVP
 
-## Gate 2 — cross-session memory proof
+- reading/writing curriculum and broader skill taxonomy;
+- real student usability and educational-outcome studies;
+- teacher-facing tools or analytics;
+- optional retrieval enhancements only if they beat the PostgreSQL baseline on
+  Recall@3, latency, citation coverage, and license coverage.
 
-- [ ] Learning episode builder
-- [ ] Episode validation rules
-- [ ] SQLite episodic memory backend
-- [ ] Transactional memory outbox
-- [ ] Semantic learner facts with confidence and contradiction
-- [ ] Intervention-effectiveness aggregates
-- [ ] Memory-aware policy decision
-- [ ] Two-session demonstration fixture
-- [ ] Learner memory correction and deletion
-- [ ] Memory/no-memory ablation
-- [ ] Mnemis adapter with strict timeout
-- [ ] Mnemis Global Selection complex case
-- [ ] Mnemis rebuild and parity verification
-- [ ] Verified SQLite fallback
-
-## Gate 3 — governed educational retrieval
-
-- [ ] Content registry and source records
-- [ ] License gate
-- [ ] Content review lifecycle and immutable versions
-- [ ] Skill hierarchy and prerequisite expansion
-- [ ] FTS5 retrieval backend
-- [ ] Citation and license validator
-- [ ] Retrieval golden set
-- [ ] Optional embedding/reranker evaluation
-- [ ] Optional LightRAG adapter only after baseline passes
-- [ ] Optional RAG-Anything importer for approved multimodal content
-
-## Gate 4 — offline-first proof
-
-- [x] Versioned content pack (published packs served via GET /v1/content-packs/{version})
-- [x] IndexedDB schema (web/offline.js: 7 stores per SYNC_PROTOCOL)
-- [x] Offline objective-answer evaluation (web/offline-core.js evaluateAnswer, version-bound)
-- [x] Offline bounded adaptation policy (pickNextQuestion + updateTemporaryMastery, offline-policy-v1)
-- [x] Pending-event queue (IndexedDB pending_events, retry schedule per SYNC_PROTOCOL)
-- [x] Idempotent event synchronization (event_id dedup + integrity hash, verified E2E)
-- [x] Parallel branch and late-event handling (session_branches, SYNC_PROTOCOL conflicts)
-- [x] Version-bound answer scoring (QUESTION_VERSION_UNKNOWN, never newer key)
-- [x] Refresh/restart recovery (in_flight restore, snapshot rebuild, second sync empty)
-- [x] Throttled-network and fully offline tests (23 Python sync tests, 15 Node offline-core tests, live E2E)
-
-## Gate 5 — content, quality, and evidence
-
-- [ ] 8–10 skills and reviewed prerequisite graph
-- [ ] 80–120 original or clearly licensed questions
-- [ ] 15–25 reviewed micro-lessons/worked examples
-- [ ] Three hints per question
-- [ ] Misconception mappings
-- [ ] 20+ policy scenarios
-- [ ] Educational transfer and retention tests
-- [ ] Memory retrieval evaluation
-- [ ] RAG retrieval evaluation
-- [ ] Prompt-injection and memory-poisoning tests
-- [ ] Cross-learner isolation tests
-- [ ] Accessibility audit
-- [ ] Low-end mobile and page-weight measurements
-- [ ] Backup and restore test
-- [ ] Honest result report
-
-## Gate 6 — submission
-
-- [ ] Clean-install verification
-- [ ] Public demo deployment
-- [ ] README and data provenance
-- [ ] Architecture diagram
-- [ ] Screenshots
-- [ ] One-page project description
-- [ ] Sub-three-minute demo video
-- [ ] Final Devpost submission with time buffer
+No microservices, multi-agent framework, large vector database, unreviewed
+automatic publishing, restricted-source crawling, or external-model dependency
+is planned for the competition submission.

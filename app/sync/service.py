@@ -22,21 +22,48 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import threading
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
+from typing import Callable
 
 import psycopg
 from psycopg.errors import UniqueViolation
 
+from app.agent.hybrid import (
+    AuthoritativeEvidence,
+    ContentRecord,
+    HybridTask,
+    MIN_INTERVENTION_STAT_ATTEMPTS,
+    ShadowMaterial,
+    run_shadow_decision,
+    task_enabled,
+)
+from app.agent.hybrid_contracts import (
+    ContentCandidate,
+    HybridDecisionContext,
+    HybridShadowObservation,
+    InterventionEvidence,
+    RecalledEpisodeEvidence,
+)
+from app.agent.policy import (
+    POLICY_VERSION,
+    PolicyInput,
+    decide_next_action,
+    derive_policy_constraints,
+)
+from app.domain.events import AgentEvent
 from app.domain.learner import SkillState
+from app.domain.memory import BoundedAction, Episode, InterventionStat
 from app.domain.sessions import SessionState
 from app.infrastructure.event_store import EventStore
 from app.infrastructure.learner_store import LearnerStore
 from app.infrastructure.pg import transaction
+from app.memory.episode_builder import EpisodeBuilder
 from app.memory.outbox import student_advisory_lock
 from app.memory.pg_memory import PGMemory
 
@@ -55,6 +82,8 @@ from .protocol import (
     SnapshotResponse,
 )
 from .versioned_scoring import QuestionVersionError, VersionedAnswerKey
+
+logger = logging.getLogger(__name__)
 
 
 _GLOBAL_ID_CONSTRAINTS = frozenset(
@@ -134,12 +163,29 @@ class EventValidationError(ValueError):
 
 
 class SyncService:
-    def __init__(self, connection: psycopg.Connection) -> None:
+    def __init__(
+        self,
+        connection: psycopg.Connection,
+        *,
+        llm_client: "LLMClient | None" = None,
+    ) -> None:
         self.connection = connection
         self.events = EventStore(connection)
         self.learner = LearnerStore(connection)
         self.memory = PGMemory(connection)
+        self.episodes = EpisodeBuilder(connection)
         self.answer_keys = VersionedAnswerKey()
+        self._llm_client = llm_client
+        self.on_shadow_observation: Callable[[HybridShadowObservation], None] | None = None
+
+    def _shadow_client(self) -> "LLMClient":
+        """Lazy injectable transport; default constructed from env on first use
+        so tests without a key never construct an HTTP transport."""
+        if self._llm_client is None:
+            from app.agent.llm_client import LLMClient
+
+            self._llm_client = LLMClient()
+        return self._llm_client
 
     @staticmethod
     @lru_cache(maxsize=1024)
@@ -298,12 +344,25 @@ class SyncService:
                     )
                 ],
             )
+        shadow_sink: list[ShadowMaterial] | None = (
+            [] if task_enabled(HybridTask.DECISION_REASONING) else None
+        )
         with student_advisory_lock(self.connection, request.student_id):
             try:
                 with transaction(self.connection):
-                    return self._process_batch_locked(request, in_transaction=True)
+                    response = self._process_batch_locked(
+                        request,
+                        in_transaction=True,
+                        shadow_sink=shadow_sink,
+                    )
             except StudentInactiveError:
                 return self._unauthorized_student_response()
+        # H4: the deterministic answer/AgentEvent committed; the advisory lock
+        # and transaction are released. Shadow work is response-only and may
+        # never affect the returned response or any persisted state.
+        if shadow_sink:
+            self._run_shadow_observations(shadow_sink)
+        return response
 
     @staticmethod
     def _unauthorized_student_response() -> SyncResponse:
@@ -324,6 +383,7 @@ class SyncService:
         request: SyncRequest,
         *,
         in_transaction: bool = False,
+        shadow_sink: list[ShadowMaterial] | None = None,
     ) -> SyncResponse:
         if not self._student_exists(request.student_id, in_transaction=in_transaction):
             return self._unauthorized_student_response()
@@ -340,7 +400,11 @@ class SyncService:
         server_agent_events: list[dict] = []
         accepted_max_sequence = 0
 
-        for event_index, envelope in enumerate(request.events):
+        ordered_events = sorted(
+            request.events,
+            key=lambda event: (event.device_sequence, event.event_id),
+        )
+        for event_index, envelope in enumerate(ordered_events):
             envelope = envelope.model_copy(
                 update={
                     "student_id": request.student_id,
@@ -371,6 +435,15 @@ class SyncService:
                 student_id=request.student_id,
             ):
                 duplicates.append(envelope.event_id)
+                continue
+            if accepted_max_sequence and envelope.device_sequence <= accepted_max_sequence:
+                rejected.append(
+                    SyncRejectedEvent(
+                        event_id=envelope.event_id,
+                        code=SyncErrorCode.INVALID_SCHEMA.value,
+                        retryable=False,
+                    )
+                )
                 continue
             if not self._sequence_increases(
                 request, envelope, in_transaction=in_transaction
@@ -412,6 +485,7 @@ class SyncService:
                             rejected,
                             conflicts,
                             server_agent_events,
+                            shadow_sink=shadow_sink,
                             in_transaction=True,
                         )
                 else:
@@ -421,6 +495,7 @@ class SyncService:
                         rejected,
                         conflicts,
                         server_agent_events,
+                        shadow_sink=shadow_sink,
                     )
             except (DeviceNotFoundError, DeviceRevokedError):
                 raise
@@ -585,6 +660,7 @@ class SyncService:
         *,
         insert_event_row: bool = True,
         in_transaction: bool = False,
+        shadow_sink: list[ShadowMaterial] | None = None,
     ) -> None:
         """Projection-only application; `insert_event_row=False` replays
         already-stored events (used by scripts/rebuild_learner_projections.py)."""
@@ -593,7 +669,8 @@ class SyncService:
             self._apply_answer_submitted(envelope, accepted, rejected, conflicts,
                                          server_agent_events,
                                          insert_event_row=insert_event_row,
-                                         in_transaction=in_transaction)
+                                         in_transaction=in_transaction,
+                                         shadow_sink=shadow_sink)
             return
         if event_type == "SESSION_COMPLETED":
             self._apply_session_completed(envelope, accepted, rejected, conflicts,
@@ -662,7 +739,92 @@ class SyncService:
             if insert_event_row:
                 self._insert_learning_event_row(self.connection, envelope, received_at)
             self._ensure_session(self.connection, envelope, SessionState.NEW.value)
+            if insert_event_row and event_type_value(envelope) == "WORKED_EXAMPLE_PRESENTED":
+                self._start_presented_intervention(envelope)
         accepted.append(envelope.event_id)
+
+    def _start_presented_intervention(self, envelope: SyncEventEnvelope) -> Episode:
+        payload = envelope.payload
+        required = (
+            "source_answer_event_id",
+            "content_id",
+            "content_version",
+            "skill",
+            "misconception",
+            "intervention",
+        )
+        if any(not payload.get(field) for field in required):
+            raise EventValidationError(
+                "worked-example presentation is missing required evidence",
+                code=SyncErrorCode.INVALID_SCHEMA,
+                retryable=False,
+            )
+        row = self.connection.execute(
+            """
+            SELECT ae.action, ae.action_payload_json,
+                   le.payload_json AS source_payload_json
+            FROM agent_events AS ae
+            JOIN learning_events AS le
+              ON le.event_id = ae.source_event_id
+             AND le.student_id = ae.student_id
+             AND le.tenant_id = ae.tenant_id
+            WHERE ae.student_id = %s
+              AND ae.tenant_id = current_setting('app.tenant_id', true)
+              AND ae.session_id = %s
+              AND ae.source_event_id = %s
+            """,
+            (
+                envelope.student_id,
+                envelope.session_id,
+                payload["source_answer_event_id"],
+            ),
+        ).fetchone()
+        if row is None or row["action"] != BoundedAction.SHOW_WORKED_EXAMPLE.value:
+            raise EventValidationError(
+                "worked-example presentation has no matching server decision",
+                code=SyncErrorCode.INVALID_SCHEMA,
+                retryable=False,
+            )
+        expected = json.loads(row["action_payload_json"] or "{}")
+        source_payload = json.loads(row["source_payload_json"] or "{}")
+        source_question_id = source_payload.get("question_id")
+        if (
+            expected.get("content_id") != payload["content_id"]
+            or expected.get("content_version") != payload["content_version"]
+            or expected.get("skill") != payload["skill"]
+            or expected.get("misconception") != payload["misconception"]
+            or payload["intervention"] != BoundedAction.SHOW_WORKED_EXAMPLE.value
+            or envelope.question_id != payload["content_id"]
+            or envelope.question_version != payload["content_version"]
+            or not source_question_id
+        ):
+            raise EventValidationError(
+                "worked-example presentation does not match the server decision",
+                code=SyncErrorCode.INVALID_SCHEMA,
+                retryable=False,
+            )
+        episode_id = "ep_" + hashlib.sha256(
+            (
+                payload["source_answer_event_id"]
+                + ":"
+                + payload["content_id"]
+            ).encode("utf-8")
+        ).hexdigest()[:12]
+        existing = self.episodes.get_episode(episode_id)
+        if existing is not None:
+            return existing
+        return self.episodes.start_runtime_candidate(
+            student_id=envelope.student_id,
+            session_id=envelope.session_id,
+            skill=payload["skill"],
+            misconception=payload["misconception"],
+            intervention=payload["intervention"],
+            teaching_content_id=payload["content_id"],
+            trigger_content_id=source_question_id,
+            evidence_event_id=envelope.event_id,
+            episode_id=episode_id,
+            commit=False,
+        )
 
     def _apply_session_completed(
         self,
@@ -721,6 +883,7 @@ class SyncService:
         *,
         insert_event_row: bool = True,
         in_transaction: bool = False,
+        shadow_sink: list[ShadowMaterial] | None = None,
     ) -> None:
         question_id = envelope.question_id or envelope.payload.get("question_id")
         question_version = envelope.question_version or envelope.payload.get("question_version")
@@ -757,6 +920,8 @@ class SyncService:
 
         received_at = _utc_now_iso()
         connection = self.connection
+        agent_event: AgentEvent | None = None
+        completed_episode: Episode | None = None
         with _transaction_scope(
             connection,
             in_transaction=in_transaction,
@@ -873,8 +1038,9 @@ class SyncService:
                 )
 
                 if validity == "valid":
+                    skill_state = None
                     if meta["skill"]:
-                        self._update_skill_state(
+                        skill_state = self._update_skill_state(
                             connection, envelope.student_id, meta["skill"],
                             correct, weight, received_at,
                         )
@@ -916,16 +1082,462 @@ class SyncService:
                             SessionState.ANSWER_EVALUATED, received_at,
                         )
 
+                    if (
+                        insert_event_row
+                        and not late_event
+                        and meta["skill"]
+                        and skill_state is not None
+                    ):
+                        completed_episode = self.episodes.complete_runtime_candidate(
+                            student_id=envelope.student_id,
+                            session_id=envelope.session_id,
+                            skill=meta["skill"],
+                            outcome_event_id=envelope.event_id,
+                            outcome_content_id=question_id,
+                            outcome_correct=correct,
+                            outcome_hint_level=int(envelope.payload.get("hint_level", 0)),
+                            commit=False,
+                        )
+                        if completed_episode is not None:
+                            self.memory.record_intervention_outcome(
+                                student_id=envelope.student_id,
+                                skill=completed_episode.skill,
+                                misconception=completed_episode.misconception,
+                                intervention=completed_episode.intervention,
+                                difficulty_band=f"d{meta.get('difficulty') or 2}",
+                                window="immediate",
+                                component_score=completed_episode.effectiveness,
+                                weight=1.0,
+                                commit=False,
+                            )
+                            if completed_episode.status == "validated":
+                                self.memory.upsert_fact_for_episode(
+                                    completed_episode,
+                                    commit=False,
+                                )
+
+                        agent_event = self._decide_and_record_agent_event(
+                            envelope=envelope,
+                            meta=meta,
+                            question_id=question_id,
+                            question_version=int(question_version),
+                            misconception=misconception,
+                            skill_state=skill_state,
+                            now=received_at,
+                            shadow_sink=shadow_sink,
+                        )
         accepted.append(envelope.event_id)
-        server_agent_events.append(
-            {
-                "source_event_id": envelope.event_id,
-                "action": "answer_evaluated_offline",
-                "action_payload": {"question_id": question_id, "correct": correct},
-                "reason_code": "offline-version-bound-scoring",
-                "reason_text": "Re-scored offline answer against referenced question version",
-            }
+        if agent_event is not None:
+            server_agent_events.append(
+                {
+                    "source_event_id": envelope.event_id,
+                    "action": agent_event.action,
+                    "action_payload": agent_event.action_payload,
+                    "reason_code": agent_event.reason_code,
+                    "reason_text": agent_event.reason_text,
+                    "policy_version": agent_event.policy_version,
+                    "episode_ids": agent_event.episode_ids,
+                    "state_after": agent_event.state_after,
+                    "question_id": question_id,
+                    "correct": correct,
+                    "misconception": misconception,
+                    "validated_episode_id": (
+                        completed_episode.episode_id
+                        if completed_episode is not None
+                        and completed_episode.status == "validated"
+                        else None
+                    ),
+                }
+            )
+
+    def _decide_and_record_agent_event(
+        self,
+        *,
+        envelope: SyncEventEnvelope,
+        meta: dict,
+        question_id: str,
+        question_version: int,
+        misconception: str | None,
+        skill_state: SkillState,
+        now: str,
+        shadow_sink: list[ShadowMaterial] | None = None,
+    ) -> AgentEvent:
+        observations = 0
+        distinct_items = 0
+        recalled: list[Episode] = []
+        if misconception:
+            row = self.connection.execute(
+                """
+                SELECT COUNT(*) AS observations,
+                       COUNT(DISTINCT item_id) AS distinct_items
+                FROM misconception_evidence
+                WHERE student_id = %s
+                  AND tenant_id = current_setting('app.tenant_id', true)
+                  AND session_id = %s
+                  AND skill = %s
+                  AND misconception = %s
+                """,
+                (
+                    envelope.student_id,
+                    envelope.session_id,
+                    meta["skill"],
+                    misconception,
+                ),
+            ).fetchone()
+            observations = row["observations"]
+            distinct_items = row["distinct_items"]
+            recalled = self.memory.recall_episodes(
+                student_id=envelope.student_id,
+                skill=meta["skill"],
+                misconception=misconception,
+                limit=3,
+            )
+
+        recent = self.connection.execute(
+            """
+            SELECT content_id, version, correct, hint_level
+            FROM answer_attempts
+            WHERE student_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+              AND session_id = %s
+            ORDER BY occurred_at DESC
+            LIMIT 20
+            """,
+            (envelope.student_id, envelope.session_id),
+        ).fetchall()
+        skill_recent = []
+        pack_key = self.answer_keys.pack(envelope.content_pack_version)
+        for attempt in recent:
+            try:
+                attempt_meta = pack_key.item_meta(
+                    attempt["content_id"],
+                    int(attempt["version"]),
+                )
+            except QuestionVersionError:
+                continue
+            if attempt_meta.get("skill") == meta["skill"]:
+                skill_recent.append(attempt)
+        consecutive_errors = 0
+        for attempt in skill_recent:
+            if attempt["correct"]:
+                break
+            consecutive_errors += 1
+        correct_streak = 0
+        for attempt in skill_recent:
+            if not attempt["correct"]:
+                break
+            correct_streak += 1
+        inputs = PolicyInput(
+            student_id=envelope.student_id,
+            session_id=envelope.session_id,
+            skill=meta["skill"],
+            subskill=meta.get("subskill"),
+            difficulty=meta.get("difficulty") or 2,
+            mastery=skill_state.mastery,
+            confidence=skill_state.confidence,
+            consecutive_errors=consecutive_errors,
+            correct_streak=correct_streak,
+            repeated_misconception=observations >= 2 and distinct_items >= 2,
+            active_misconception=misconception,
+            misconception_observation_count=observations,
+            misconception_distinct_items=distinct_items,
+            minutes_remaining=int(envelope.payload.get("minutes_remaining", 20)),
+            hints_used_this_item=int(envelope.payload.get("hint_level", 0)),
+            recalled_successful_episode=bool(recalled),
+            recalled_episode_ids=[episode.episode_id for episode in recalled],
+            recent_correct_without_high_hint=sum(
+                1
+                for row in skill_recent[:3]
+                if row["correct"] and row["hint_level"] <= 1
+            ),
+            recent_total=min(3, len(skill_recent)),
         )
+        result = decide_next_action(inputs)
+        decision = result.decision
+        referenced_content = [question_id]
+        lesson_type = {
+            BoundedAction.SHOW_WORKED_EXAMPLE.value: "worked_example",
+            BoundedAction.SHOW_MICRO_LESSON.value: "micro_lesson",
+        }.get(decision.action)
+        if lesson_type:
+            lesson = pack_key.teaching_asset_meta(
+                meta["skill"], lesson_type, misconception
+            )
+            if lesson is not None:
+                decision = decision.model_copy(
+                    update={
+                        "action_payload": {
+                            **decision.action_payload,
+                            "content_id": lesson["id"],
+                            "content_version": lesson["version"],
+                            "review_status": lesson["review_status"],
+                            "license": lesson["license"],
+                            "source_lineage": lesson["source_lineage"],
+                        },
+                        "content_id": lesson["id"],
+                    }
+                )
+                referenced_content.append(lesson["id"])
+        event_id = "agt_" + hashlib.sha256(envelope.event_id.encode("utf-8")).hexdigest()[:16]
+        agent_event = AgentEvent(
+            event_id=event_id,
+            student_id=envelope.student_id,
+            session_id=envelope.session_id,
+            source_event_id=envelope.event_id,
+            state_before=SessionState.ANSWER_EVALUATED.value,
+            state_after=result.next_state.value,
+            action=decision.action,
+            action_payload=decision.action_payload,
+            reason_code=decision.reason_code,
+            reason_text=decision.reason_text,
+            policy_version=decision.policy_version,
+            content_version=f"{question_id}.v{question_version}",
+            referenced_content=referenced_content,
+            episode_ids=decision.episode_ids,
+            source="offline",
+            created_at=now,
+        )
+        self.events.append_agent_event(
+            agent_event,
+            on_duplicate="raise",
+            commit=False,
+        )
+        self._transition_session(
+            self.connection,
+            envelope.student_id,
+            envelope.session_id,
+            result.next_state,
+            now,
+        )
+        if shadow_sink is not None:
+            shadow_sink.append(
+                self._build_shadow_material(
+                    envelope=envelope,
+                    meta=meta,
+                    inputs=inputs,
+                    constraints=derive_policy_constraints(inputs),
+                    decision=decision,
+                    recalled=recalled,
+                    skill_state=skill_state,
+                    pack_key=pack_key,
+                    now=now,
+                )
+            )
+        return agent_event
+
+    # ------------------------------------------------------------------
+    # Hybrid shadow material (H4): sanitized, scoped context captured while
+    # the authoritative transaction is active, consumed post-commit.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _recency_bucket(created_at: str, now: str) -> str:
+        try:
+            created = datetime.fromisoformat(created_at)
+            reference = datetime.fromisoformat(now)
+        except ValueError:
+            return "older"
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=UTC)
+        if reference.tzinfo is None:
+            reference = reference.replace(tzinfo=UTC)
+        if reference - created <= timedelta(days=7):
+            return "recent"
+        if reference - created <= timedelta(days=30):
+            return "medium"
+        return "older"
+
+    def _shadow_episode_evidence(
+        self, episode: Episode, now: str
+    ) -> RecalledEpisodeEvidence:
+        outcome = episode.outcome or {}
+        intervention = BoundedAction(episode.intervention)
+        return RecalledEpisodeEvidence(
+            episode_id=episode.episode_id,
+            skill=episode.skill,
+            misconception=episode.misconception,
+            intervention=intervention,
+            outcome_correct=bool(outcome.get("correct")),
+            different_item=bool(outcome.get("different_item")),
+            effectiveness=episode.effectiveness,
+            confidence=episode.confidence,
+            status="validated",
+            recency_bucket=self._recency_bucket(episode.created_at, now),
+            teaching_content_id=outcome.get("teaching_content_id"),
+            difficulty_band=None,
+        )
+
+    def _shadow_content_candidates(
+        self, pack_key, skill: str, misconception: str | None
+    ) -> tuple[list[ContentCandidate], dict[str, ContentRecord]]:
+        candidates: list[ContentCandidate] = []
+        records: dict[str, ContentRecord] = {}
+        for content_type in ("worked_example", "micro_lesson"):
+            lesson = pack_key.teaching_asset_meta(skill, content_type, misconception)
+            if lesson is None or not lesson.get("content_hash"):
+                continue
+            candidates.append(
+                ContentCandidate(
+                    content_id=lesson["id"],
+                    content_type=lesson["content_type"],
+                    skill=skill,
+                    misconceptions=tuple(lesson["target_misconceptions"]),
+                    pack_version=lesson["pack_version"],
+                    content_hash=lesson["content_hash"],
+                    review_status="approved",
+                    human_approved=False,
+                )
+            )
+            records[lesson["id"]] = ContentRecord(
+                content_id=lesson["id"],
+                content_hash=lesson["content_hash"],
+                review_status=lesson["review_status"],
+                content_type=lesson["content_type"],
+                target_skill=lesson["target_skill"] or skill,
+                misconceptions=tuple(lesson["target_misconceptions"]),
+                license_id=lesson.get("license_id") or "",
+                license_name=lesson.get("license_name") or "",
+                source_id=lesson.get("source_id") or "",
+                pack_version=lesson["pack_version"],
+                human_approved=False,
+                body="",
+            )
+        return candidates, records
+
+    def _shadow_intervention_evidence(
+        self, student_id: str, skill: str
+    ) -> list[InterventionEvidence]:
+        entries: list[InterventionEvidence] = []
+        for row in self._intervention_stats(student_id, in_transaction=True):
+            if row["skill"] != skill:
+                continue
+            try:
+                intervention = BoundedAction(row["intervention"])
+            except ValueError:
+                continue
+            stat = InterventionStat(
+                stat_id=f"shadow_{row['intervention']}_{row['difficulty_band']}",
+                student_id="",
+                skill=row["skill"],
+                misconception=row["misconception"],
+                intervention=row["intervention"],
+                difficulty_band=row["difficulty_band"],
+                immediate_correct=row["immediate_correct"],
+                immediate_attempts=row["immediate_attempts"],
+                immediate_weight=row["immediate_weight"],
+                short_term_correct=row["short_term_correct"],
+                short_term_attempts=row["short_term_attempts"],
+                short_term_weight=row["short_term_weight"],
+                delayed_correct=row["delayed_correct"],
+                delayed_attempts=row["delayed_attempts"],
+                delayed_weight=row["delayed_weight"],
+            )
+            entries.append(
+                InterventionEvidence(
+                    intervention=intervention,
+                    difficulty_band=row["difficulty_band"],
+                    immediate_attempts=row["immediate_attempts"],
+                    short_term_attempts=row["short_term_attempts"],
+                    delayed_attempts=row["delayed_attempts"],
+                    blended_effectiveness=stat.blended_effectiveness(),
+                    support=(
+                        "supported"
+                        if row["immediate_attempts"] >= MIN_INTERVENTION_STAT_ATTEMPTS
+                        else "insufficient"
+                    ),
+                )
+            )
+            if len(entries) == 8:
+                break
+        return entries
+
+    def _build_shadow_material(
+        self,
+        *,
+        envelope: SyncEventEnvelope,
+        meta: dict,
+        inputs: PolicyInput,
+        constraints,
+        decision,
+        recalled: list[Episode],
+        skill_state: SkillState,
+        pack_key,
+        now: str,
+    ) -> ShadowMaterial:
+        """Bounded shadow context and scoped evidence for post-commit work."""
+        episodes = [self._shadow_episode_evidence(episode, now) for episode in recalled]
+        candidates, records = self._shadow_content_candidates(
+            pack_key, meta["skill"], inputs.active_misconception
+        )
+        evidence_counts = inputs.misconception_observation_count
+        confidence_label = (
+            "high" if evidence_counts >= 2 else "medium" if evidence_counts >= 1 else "low"
+        )
+        context = HybridDecisionContext.model_validate(
+            dict(
+                task="intervention_ranking",
+                skill=meta["skill"],
+                subskill=meta.get("subskill"),
+                difficulty=meta.get("difficulty") or 2,
+                mastery=skill_state.mastery,
+                mastery_confidence=skill_state.confidence,
+                consecutive_errors=inputs.consecutive_errors,
+                correct_streak=inputs.correct_streak,
+                active_misconception=inputs.active_misconception,
+                misconception_evidence_count=evidence_counts,
+                misconception_confidence=confidence_label,
+                hints_used=inputs.hints_used_this_item,
+                minutes_remaining=inputs.minutes_remaining,
+                current_state=SessionState.ANSWER_EVALUATED,
+                allowed_actions=constraints.allowed_actions,
+                deterministic_fallback=decision,
+                recalled_episodes=episodes,
+                intervention_stats=self._shadow_intervention_evidence(
+                    envelope.student_id, meta["skill"]
+                ),
+                content_candidates=candidates,
+            )
+        )
+        evidence = AuthoritativeEvidence(
+            episodes={episode.episode_id: episode for episode in recalled},
+            content=records,
+            expected_student_id=envelope.student_id,
+        )
+        return ShadowMaterial(
+            source_event_id=envelope.event_id,
+            context=context,
+            constraints=constraints,
+            evidence=evidence,
+            fallback=decision,
+        )
+
+    def _run_shadow_observations(self, materials: list[ShadowMaterial]) -> None:
+        for material in materials:
+            try:
+                observation = run_shadow_decision(material, self._shadow_client())
+            except Exception:
+                logger.exception(
+                    "hybrid shadow failed for source_event_id=%s",
+                    material.source_event_id,
+                )
+                continue
+            if observation is None:
+                continue
+            if self.on_shadow_observation is not None:
+                self.on_shadow_observation(observation)
+            logger.info(
+                "hybrid_shadow_observation source_event_id=%s fallback=%s "
+                "proposal=%s accepted=%s would_change=%s rejection=%s latency_ms=%d",
+                observation.source_event_id,
+                observation.fallback_action.value,
+                observation.model_proposal_action.value
+                if observation.model_proposal_action is not None
+                else "none",
+                observation.accepted,
+                observation.would_change,
+                observation.rejection_reason or "ok",
+                observation.latency_ms,
+            )
 
     def _evidence_weight(self, meta: dict, envelope: SyncEventEnvelope, repeated: bool) -> float:
         difficulty = meta.get("difficulty") or 2
@@ -943,7 +1555,7 @@ class SyncService:
         correct: bool,
         weight: float,
         now: str,
-    ) -> None:
+    ) -> SkillState:
         connection.execute(
             """
             INSERT INTO student_skill_states (
@@ -996,6 +1608,7 @@ class SyncService:
                 state.last_practiced_at, now, student_id, skill,
             ),
         )
+        return state
 
     def _record_misconception_evidence(
         self,
@@ -1357,6 +1970,8 @@ class SyncService:
                     in_transaction=True,
                 ),
                 "facts": self._facts_summary(student_id),
+                "validated_episodes": self._validated_episode_summary(student_id),
+                "recent_agent_events": self._recent_agent_events(student_id),
             }
 
         skill_states = [
@@ -1439,6 +2054,53 @@ class SyncService:
                 "version": fact.version,
             }
             for fact in facts[:20]
+        ]
+
+    def _validated_episode_summary(self, student_id: str) -> list[dict]:
+        rows = self.connection.execute(
+            """
+            SELECT episode_id, session_id, skill, misconception, intervention,
+                   effectiveness, summary, created_at
+            FROM learning_episodes
+            WHERE student_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+              AND status = 'validated'
+              AND effectiveness >= 0.6
+            ORDER BY created_at DESC
+            LIMIT 20
+            """,
+            (student_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def _recent_agent_events(self, student_id: str) -> list[dict]:
+        rows = self.connection.execute(
+            """
+            SELECT source_event_id, session_id, action, action_payload_json,
+                   reason_code, reason_text, policy_version, episode_ids_json,
+                   state_after, created_at
+            FROM agent_events
+            WHERE student_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+            ORDER BY created_at DESC
+            LIMIT 10
+            """,
+            (student_id,),
+        ).fetchall()
+        return [
+            {
+                "source_event_id": row["source_event_id"],
+                "session_id": row["session_id"],
+                "action": row["action"],
+                "action_payload": json.loads(row["action_payload_json"] or "{}"),
+                "reason_code": row["reason_code"],
+                "reason_text": row["reason_text"],
+                "policy_version": row["policy_version"],
+                "episode_ids": json.loads(row["episode_ids_json"] or "[]"),
+                "state_after": row["state_after"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
         ]
 
 

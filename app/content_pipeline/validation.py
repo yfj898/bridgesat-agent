@@ -13,11 +13,10 @@ import re
 from pathlib import Path
 from typing import Iterable
 
-from sympy import Eq, Rational, solve, sympify
+from sympy import Eq, Rational, ceiling, solve, sqrt, sympify
 from sympy.core.sympify import SympifyError
 
 from .contracts import (
-    HASH_FIELDS,
     ITEM_SCHEMA_FILE,
     LESSON_SCHEMA_FILE,
     MISCONCEPTIONS,
@@ -121,11 +120,60 @@ def _verify_exact_math(author_metadata: dict, choices: list[dict], answer_choice
                 errors.append("author_metadata expected does not match exact evaluation")
             if not _expected_ok(answer, str(exact)):
                 errors.append("correct choice text is not the exact evaluation")
+        elif kind == "expansion_formula":
+            exact = _verify_expansion_formula(author_metadata)
+            if not _expected_ok(author_metadata["expected"], str(exact)):
+                errors.append("author_metadata expected does not match expansion formula")
+            if not _expected_ok(answer, str(exact)):
+                errors.append("correct choice text does not match expansion formula")
         else:
             errors.append(f"unknown author_metadata kind {kind!r}")
     except (SympifyError, ValueError, TypeError, ZeroDivisionError) as exc:
         errors.append(f"exact math verification failed: {exc}")
     return errors
+
+
+def _verify_expansion_formula(author_metadata: dict) -> Rational:
+    """Independently recompute a first-party expansion answer from source parameters."""
+    verifier = author_metadata["verifier"]
+    p = {key: Rational(value) for key, value in author_metadata["params"].items()}
+    if verifier == "least_integer_strict_inequality":
+        return Rational(int((p["rhs"] - p["b"]) // p["a"]) + 1)
+    if verifier == "least_integer_negative_inequality":
+        return Rational(ceiling((p["b"] - p["rhs"]) / p["a"]))
+    if verifier == "integer_count_open_closed":
+        return p["upper"] - p["lower"]
+    if verifier == "maximum_whole_budget":
+        return Rational(int((p["budget"] - p["fee"]) // p["price"]))
+    if verifier == "greater_quadratic_root":
+        return max(p["root_a"], p["root_b"])
+    if verifier == "quadratic_root_sum":
+        return -p["coefficient_b"] / p["coefficient_a"]
+    if verifier == "positive_rectangle_root":
+        roots = solve(Eq(sympify("x") * (sympify("x") + p["extra"]), p["area"]), sympify("x"))
+        positive = [Rational(root) for root in roots if root > 0]
+        if len(positive) != 1:
+            raise ValueError("rectangle formula must have one positive root")
+        return positive[0]
+    if verifier == "factored_root_product":
+        return p["positive"] * -p["magnitude"]
+    if verifier == "exponent_product":
+        return p["first"] + p["second"]
+    if verifier == "exponent_quotient":
+        return p["numerator"] - p["denominator"]
+    if verifier == "radical_coefficient":
+        return Rational(sqrt(p["radicand"] / p["remainder"]))
+    if verifier == "negative_exponent":
+        return -p["exponent"]
+    if verifier == "slope":
+        return (p["y2"] - p["y1"]) / (p["x2"] - p["x1"])
+    if verifier == "distance":
+        return Rational(sqrt((p["x2"] - p["x1"]) ** 2 + (p["y2"] - p["y1"]) ** 2))
+    if verifier == "midpoint_x":
+        return (p["x1"] + p["x2"]) / 2
+    if verifier == "line_intercept":
+        return p["y"] - p["slope"] * p["x"]
+    raise ValueError(f"unknown expansion verifier {verifier!r}")
 
 
 def validate_item(
@@ -159,6 +207,8 @@ def validate_item(
     choice_texts = [str(c.get("text")) for c in item.get("choices", [])]
     if len(set(choice_texts)) != 4:
         errors.append("choice texts must all be distinct")
+    if any("?" in text for text in choice_texts):
+        errors.append("choice texts must not contain generator placeholders")
 
     answer_choice_id = item.get("answer_choice_id")
     if answer_choice_id not in choice_ids:
@@ -232,6 +282,12 @@ def validate_lesson(
         errors.append("title and body must be non-empty")
     if lesson.get("content_hash") != _compute_hash(lesson):
         errors.append("content_hash does not match canonical body")
+    targets = lesson.get("target_misconceptions") or []
+    if int(lesson.get("version", 1)) >= 3 and not targets:
+        errors.append("lesson version 3+ requires target_misconceptions")
+    for misconception in targets:
+        if misconception not in MISCONCEPTIONS:
+            errors.append(f"unmapped misconception {misconception!r}")
     return errors
 
 

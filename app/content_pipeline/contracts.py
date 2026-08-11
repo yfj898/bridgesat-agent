@@ -34,6 +34,10 @@ SKILLS = [
     "systems_equations",
     "ratios_percentages",
     "functions_models",
+    "inequalities",
+    "quadratic_equations",
+    "exponents_radicals",
+    "coordinate_geometry",
 ]
 
 SKILL_COUNTS = {
@@ -49,6 +53,10 @@ SUBSKILLS = {
     "systems_equations": ["solve_systems"],
     "ratios_percentages": ["unit_rates"],
     "functions_models": ["algebraic_models", "function_evaluation"],
+    "inequalities": ["solve_inequalities", "interpret_solution_sets"],
+    "quadratic_equations": ["factor_quadratics", "analyze_roots"],
+    "exponents_radicals": ["apply_exponent_rules", "simplify_radicals"],
+    "coordinate_geometry": ["slope_distance", "midpoint_lines"],
 }
 
 PREREQUISITES = {
@@ -56,6 +64,10 @@ PREREQUISITES = {
     "systems_equations": ["linear_equations", "integer_operations"],
     "ratios_percentages": ["integer_operations"],
     "functions_models": ["linear_equations", "integer_operations"],
+    "inequalities": ["linear_equations", "integer_operations"],
+    "quadratic_equations": ["linear_equations", "integer_operations"],
+    "exponents_radicals": ["integer_operations"],
+    "coordinate_geometry": ["linear_equations", "integer_operations"],
 }
 
 MISCONCEPTIONS = [
@@ -67,6 +79,16 @@ MISCONCEPTIONS = [
     "input_substitution",
     "arithmetic_error",
     "slope_intercept_swap",
+    "inequality_sign_flip",
+    "boundary_inclusion_error",
+    "factoring_sign_error",
+    "missing_second_root",
+    "exponent_rule_confusion",
+    "negative_exponent_error",
+    "radical_simplification_error",
+    "slope_sign_error",
+    "distance_formula_error",
+    "midpoint_formula_error",
 ]
 
 SOURCE_LINEAGE_ID = "deepmind_mathematics_dataset"
@@ -75,6 +97,7 @@ LICENSE_ID = "bridgesat_original"
 REVIEW_REQUIRED_COLUMNS = [
     "content_id",
     "version",
+    "content_hash",
     "educational_reviewer",
     "answer_reviewer",
     "license_reviewer",
@@ -104,7 +127,7 @@ REVIEW_STATUSES = [
 
 # Fields included in the canonical content hash. Review fields are mutable
 # and are deliberately excluded.
-HASH_FIELDS = [
+ITEM_HASH_FIELDS = [
     "id",
     "version",
     "schema_version",
@@ -126,13 +149,40 @@ HASH_FIELDS = [
     "author_metadata",
 ]
 
+LESSON_HASH_FIELDS = [
+    "id",
+    "version",
+    "schema_version",
+    "domain",
+    "content_type",
+    "target_skill",
+    "target_subskill",
+    "target_misconceptions",
+    "required_prerequisites",
+    "difficulty",
+    "title",
+    "body",
+    "estimated_seconds",
+    "source_lineage",
+    "license",
+]
+
+# Backward-compatible public name used by older validation callers.
+HASH_FIELDS = ITEM_HASH_FIELDS
+
 
 def canonical_json(value: object) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 
 
 def content_hash(item: dict) -> str:
-    body = {field: item.get(field) for field in HASH_FIELDS}
+    fields = (
+        LESSON_HASH_FIELDS
+        if item.get("content_type") in {"micro_lesson", "worked_example"}
+        and int(item.get("version", 1)) >= 3
+        else ITEM_HASH_FIELDS
+    )
+    body = {field: item.get(field) for field in fields}
     return "sha256:" + hashlib.sha256(
         canonical_json(body).encode("utf-8")
     ).hexdigest()

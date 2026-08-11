@@ -265,6 +265,11 @@ def create_app(
         request: Request,
         student_id: str = Depends(require_student),
     ) -> AdaptResponse:
+        # Secondary/legacy path (Hybrid Integration Plan H0): the competition
+        # PWA authority is /v1/sync/events -> SyncService. The web app never
+        # calls /v1/adapt; it is retained for compatibility until usage is
+        # characterized, then routed through the shared policy/gateway. It is
+        # not the authoritative learner-state writer.
         try:
             result = _run_mastery_update(
                 request_connection(request),

@@ -32,11 +32,11 @@ Synthetic simulation is never presented as real student improvement.
 ## Long-term memory (controlled internal test)
 
 - probes: 10
-- similarity recall@3: 100%
-- similarity next-action accuracy: 100%
+- PostgreSQL similarity recall@3: 100%
+- PostgreSQL similarity next-action accuracy: 100%
 - Mnemis dual-route recall@3: 100%
 - Mnemis dual-route next-action accuracy: 100%
-- fallback success: SQLite two-session loop and timeout fallback tested in the test suite
+- fallback success: PostgreSQL two-session loop and timeout fallback tested in the test suite
 - report: reports/memory_eval.json
 
 ## Offline and synchronization (controlled internal test)
@@ -46,26 +46,27 @@ Synthetic simulation is never presented as real student improvement.
 
 ## Security (controlled internal test)
 
-- pytest security + sync suites: 77 passed
+- pytest security + sync suites: 84 passed
 - report: reports/security_eval.json
 
 ## Web core-flow tests (controlled internal test)
 
-- node --test web/tests: 21 passed, 0 failed (offline flow, refresh, weak network, accessibility core paths)
+- node --test web/tests: 44 passed, 0 failed (offline flow, refresh, weak network, accessibility core paths)
 - report: reports/web_tests.json
 
 ## Content audit (controlled internal test)
 
-- checks: 889, pass rate: 100%
-- pack: /media/bili-guo/1235578e-e896-4ce5-9fdc-6318e4960f4c2/any/bridgesat-agent/content/packs/bridgesat-math-0.1.0
+- checks: 1799, pass rate: 100%
+- pack: /media/bili-guo/1235578e-e896-4ce5-9fdc-6318e4960f4c2/any/bridgesat-agent/content/packs/bridgesat-math-0.3.0
+- limitation: reviewer IDs are simulated (`sim.*`); this is not a real human approval
 - report: reports/content_audit_eval.json
 
 ## Performance gates (controlled internal test, this machine)
 
-- local policy p95: 0.0 ms (target < 150 ms)
-- FTS5 p95: 1.77 ms (target < 200 ms)
-- session restore p95: 3.34 ms (target < 500 ms)
-- sync throughput: 662.0 events/s, max RSS 81.3 MB
+- local policy p95: 0.01 ms (target < 150 ms)
+- PostgreSQL tsvector p95: 1.22 ms (target < 200 ms)
+- session restore p95: 2.38 ms (target < 500 ms)
+- sync throughput: 312.6 events/s, max RSS 80.0 MB
 - report: reports/performance_eval.json
 
 ## Accessibility
@@ -85,27 +86,28 @@ Synthetic simulation is never presented as real student improvement.
 | known-version scoring consistency = 100% | design target | PASS |
 | unacknowledged-event loss = 0 | design target | PASS |
 | content audit 100% | controlled internal test | 100% |
-| local policy p95 < 150 ms | controlled internal test | 0.0 ms |
-| FTS5 p95 < 200 ms | controlled internal test | 1.77 ms |
-| session restore p95 < 500 ms | controlled internal test | 3.34 ms |
+| local policy p95 < 150 ms | controlled internal test | 0.01 ms |
+| PostgreSQL tsvector p95 < 200 ms | controlled internal test | 1.22 ms |
+| session restore p95 < 500 ms | controlled internal test | 2.38 ms |
 | educational improvement over control | synthetic simulation | +5.7% correctness |
 
 ## Reproduction
 
 ```bash
-python -m evals.run_all   # regenerates every report above
-python scripts/seed_demo.py   # seeds the offline demo data
-pytest                    # full test suite
+.venv/bin/python scripts/import_content_pack.py
+.venv/bin/python -m pytest
+node --test web/tests/*.test.js
+.venv/bin/python -m evals.run_all
+.venv/bin/python scripts/seed_demo.py
 ```
 
 ## Recovery capabilities (API_AND_OPERATIONS sections 7-8)
 
 | Capability | Implementation | Evidence |
 |---|---|---|
-| Pre-migration backup | `app/infrastructure/migration_runner.py` copies the DB to `data/backups/` before pending migrations | `tests/test_migrations.py` (backup created, no backup for fresh DB, no second backup on idempotent rerun) |
-| Restore SQLite backup | `scripts/restore_sqlite_backup.py` (refuses same-path, missing, non-SQLite) | `tests/test_migrations.py::test_restore_backup_round_trip` |
+| PostgreSQL schema migration | `app/infrastructure/migration_runner.py` applies versioned `migrations_pg` transactions under an advisory lock | `tests/test_pg_migration_runner.py` |
 | Rebuild learner projections from events | `scripts/rebuild_learner_projections.py` replays `learning_events` through the sync apply path | `tests/test_sync_protocol.py::test_rebuild_projection_from_events_restores_state` (golden equality) |
-| Rebuild FTS5 index from approved content | `app/knowledge/local_backend.index_pack` via `scripts/import_content_pack.py` | `tests/test_retrieval.py`, `tests/test_content_loader.py` |
+| Rebuild PostgreSQL tsvector index from approved content | `app/knowledge/local_backend.index_pack` via `scripts/import_content_pack.py` | `tests/test_pg_retrieval.py`, `tests/test_retrieval.py` |
 | Rebuild Mnemis from validated episodes/facts | `scripts/rebuild_memory_index.py` (idempotency keys, dead-letter replay) | `tests/test_scripts.py` |
 | Verify content-pack checksums | `verify_pack_hashes` in `app/content_pipeline/packaging.py` | `scripts/build_content_pack.py` + `scripts/run_content_audit.py` |
 

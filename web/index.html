@@ -11,15 +11,77 @@
   <body>
     <main class="shell">
       <header>
-        <p class="eyebrow">Offline-first learning agent</p>
+        <p class="eyebrow">Your adaptive SAT coach</p>
         <h1>BridgeSAT</h1>
-        <p>Adaptive SAT practice that keeps working without a connection.</p>
-        <div id="network-status" class="status" role="status">Checking connection…</div>
-        <div id="sync-status" class="status" role="status"></div>
+        <p>Practice that remembers what helped you and keeps working offline.</p>
+        <div class="connection-status" aria-label="Connection and progress status">
+          <div id="network-status" class="status" role="status">Checking connection…</div>
+          <div id="sync-status" class="status" role="status"></div>
+        </div>
       </header>
 
-      <section id="profile-card" class="card" aria-labelledby="profile-title">
-        <h2 id="profile-title">Create a learner profile</h2>
+      <section id="welcome-card" class="card welcome-card" aria-labelledby="welcome-title">
+        <p class="eyebrow">SAT Math practice</p>
+        <h2 id="welcome-title">Start with the right skill, not a random question</h2>
+        <p>
+          BridgeSAT uses a short diagnostic to choose where you should begin, then adapts
+          practice from your mistakes and what has helped you before.
+        </p>
+
+        <div class="product-stats" aria-label="Available learning content">
+          <strong id="catalog-question-count">103</strong> practice items
+          <span aria-hidden="true">·</span>
+          <strong id="catalog-lesson-count">24</strong> adaptive lessons
+          <span aria-hidden="true">·</span>
+          <span><strong id="catalog-skill-count">8</strong> skill areas</span>
+        </div>
+
+        <div id="catalog-skill-grid" class="skill-grid" aria-label="SAT Math skill areas">
+          <article class="skill-tile">
+            <strong>Linear equations</strong>
+            <span>Signs, operations, and solving for variables</span>
+          </article>
+          <article class="skill-tile">
+            <strong>Systems of equations</strong>
+            <span>Substitution, elimination, and paired relationships</span>
+          </article>
+          <article class="skill-tile">
+            <strong>Ratios &amp; percentages</strong>
+            <span>Rates, proportions, percent change, and units</span>
+          </article>
+          <article class="skill-tile">
+            <strong>Functions &amp; models</strong>
+            <span>Function values, slope, and algebraic models</span>
+          </article>
+          <article class="skill-tile">
+            <strong>Inequalities</strong>
+            <span>Solution boundaries, sign direction, and constraints</span>
+          </article>
+          <article class="skill-tile">
+            <strong>Quadratic equations</strong>
+            <span>Factoring, roots, and quadratic relationships</span>
+          </article>
+          <article class="skill-tile">
+            <strong>Exponents &amp; radicals</strong>
+            <span>Exponent rules, reciprocals, and radical forms</span>
+          </article>
+          <article class="skill-tile">
+            <strong>Coordinate geometry</strong>
+            <span>Slope, distance, midpoint, and line equations</span>
+          </article>
+        </div>
+
+        <p class="welcome-note">
+          You do not need to choose a subject first. The Quick Diagnostic chooses your
+          starting point. After setup, cached practice continues offline.
+        </p>
+        <button type="button" id="start-diagnostic-button">Start Quick Diagnostic</button>
+      </section>
+
+      <section id="profile-card" class="card hidden" aria-labelledby="profile-title">
+        <p class="eyebrow">Welcome</p>
+        <h2 id="profile-title">Set up today’s practice</h2>
+        <p>Start with a short diagnostic so BridgeSAT can choose where your time will help most.</p>
         <form id="profile-form">
           <label>
             Name
@@ -29,12 +91,14 @@
             Minutes available today
             <input id="minutes" type="number" min="5" max="120" value="20" />
           </label>
-          <button type="submit">Start practicing</button>
+          <button type="submit">Start quick diagnostic</button>
         </form>
       </section>
 
       <section id="session-card" class="card hidden" aria-labelledby="session-title">
         <h2 id="session-title">Practice session</h2>
+        <p id="learning-phase" class="eyebrow">Quick diagnostic</p>
+        <p id="learning-focus" class="focus" role="status"></p>
         <div id="mastery-list" class="mastery-list"></div>
         <div class="status" role="status">
           Pending sync: <strong id="pending-count">0</strong>
@@ -46,7 +110,32 @@
           <button id="hint-button" type="button">Show hint</button>
           <p id="hint-label" class="hint"></p>
           <p class="feedback"></p>
+          <section id="agent-intervention" class="intervention hidden" aria-live="polite">
+            <p class="memory-banner hidden">Based on what helped you before</p>
+            <p class="eyebrow">BridgeSAT recommendation</p>
+            <h3 class="intervention-title"></h3>
+            <p class="intervention-why"></p>
+            <div class="intervention-content"></div>
+            <details class="recommendation-details">
+              <summary>Why this recommendation?</summary>
+              <p class="recommendation-detail"></p>
+            </details>
+            <details class="technical-evidence">
+              <summary>Technical evidence</summary>
+              <p class="intervention-meta"></p>
+            </details>
+          </section>
           <button type="button" class="next-button hidden">Next question</button>
+          <button type="button" id="end-session-button" class="secondary hidden">End this session</button>
+        </div>
+
+        <div id="diagnostic-summary" class="hidden" aria-live="polite">
+          <p class="eyebrow">Diagnosis result</p>
+          <h3>Your focus for today</h3>
+          <p class="diagnostic-explanation"></p>
+          <h4>Today’s plan</h4>
+          <ol class="diagnostic-plan"></ol>
+          <button type="button" id="start-plan-button">Start personalized practice</button>
         </div>
 
         <div id="session-summary" class="hidden">

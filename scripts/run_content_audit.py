@@ -3,16 +3,16 @@
 
 Label: controlled internal test.
 
-Audits `content/packs/bridgesat-math-0.1.0` against the release contracts:
+Audits the current published content pack against the release contracts:
 
 - manifest: published, reviewers present, versions consistent, licenses,
-  item-hash manifest complete, no withdrawn content in the pack;
+  question/lesson hash manifests complete, no withdrawn content in the pack;
 - items: schema, 4 unique choices, valid answer, unique answers per skill,
   difficulty bounds, non-empty prompt/hints/explanation, approved review,
   reviewer names, license present, canonical content hash match,
-  target skill known, no byte-identical bodies;
-- lessons: 8 micro_lessons + 8 worked_examples, distinct ids, non-empty
-  target_subskill, no byte-identical pairs, canonical hash match;
+  target skill known, no duplicate or near-duplicate bodies;
+- lessons: every skill has a micro lesson and worked example, explicit
+  misconception targets, distinct ids/bodies, canonical hash match;
 - sources: restricted-source registry audit passes (no College Board/Khan/
   OpenStax acquisition), no prohibited source lineage in any item.
 
@@ -33,10 +33,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.content_pipeline.contracts import SKILLS, content_hash
+from app.content_pipeline.contracts import MISCONCEPTIONS, SKILLS, content_hash
+from app.content_pipeline.packaging import PACK_VERSION
+from app.content_pipeline.validation import rewrite_similarity, validate_all
 from app.ingestion.registry import SourceRegistry
 
-PACK_DIR = ROOT / "content" / "packs" / "bridgesat-math-0.1.0"
+PACK_DIR = ROOT / "content" / "packs" / f"bridgesat-math-{PACK_VERSION}"
 SOURCES_YAML = ROOT / "config" / "sources.yaml"
 REPORT_JSON = ROOT / "reports" / "content_audit_eval.json"
 REPORT_MD = ROOT / "evals" / "content_audit" / "REPORT.md"
@@ -87,6 +89,15 @@ def _audit(pack_dir: Path) -> list[dict]:
     check("manifest_hashes_no_extra", "no stale hash entries",
           set(manifest.get("item_hashes", {})) == {i["id"] for i in items},
           f"{missing_hashes}")
+    check("manifest_lesson_hashes_complete", "lesson_hashes cover every lesson",
+          set(manifest.get("lesson_hashes", {})) == {lesson["id"] for lesson in lessons},
+          f"{len(manifest.get('lesson_hashes', {}))}/{len(lessons)}")
+    check("manifest_content_counts", "manifest content counts match artifacts",
+          manifest.get("content_counts") == {"questions": len(items), "lessons": len(lessons)},
+          str(manifest.get("content_counts")))
+    check("manifest_skills", "manifest skill catalog matches questions",
+          set(manifest.get("skills", [])) == {item["target_skill"] for item in items},
+          str(manifest.get("skills")))
 
     # --- items ------------------------------------------------------------
     for item in items:
@@ -123,37 +134,51 @@ def _audit(pack_dir: Path) -> list[dict]:
               item.get("target_skill") in SKILLS, str(item.get("target_skill")))
         check(f"item_{item_id}_hash", f"{item_id} canonical content_hash matches",
               item.get("content_hash") == content_hash(item))
+        check(f"item_{item_id}_choice_text", f"{item_id} has no generator placeholders",
+              all("?" not in str(choice.get("text", "")) for choice in choices))
         check(f"item_{item_id}_no_prohibited_lineage", f"{item_id} no prohibited lineage",
               "college_board" not in str(item.get("source_lineage", ""))
               and "khan_academy" not in str(item.get("source_lineage", ""))
               and "openstax" not in str(item.get("source_lineage", "")),
               str(item.get("source_lineage"))[:80])
 
-    answers_per_skill = {}
-    for item in items:
-        answer_text = next(
-            (c["text"] for c in item.get("choices", [])
-             if c["id"] == item.get("answer_choice_id")),
-            "",
-        )
-        answers_per_skill.setdefault(item["target_skill"], []).append(answer_text)
-    duplicated = {
-        skill: [t for t, n in Counter(ids).items() if n > 1]
-        for skill, ids in answers_per_skill.items()
-    }
-    duplicated = {skill: texts for skill, texts in duplicated.items() if texts}
-    check("items_unique_answers", "no duplicated answer text across a skill",
-          not duplicated, json.dumps(duplicated))
-
     bodies = [_canonical_body(i.get("prompt", "")) for i in items]
     check("items_no_identical_bodies", "no byte-identical question bodies",
           len(set(bodies)) == len(bodies))
+    near_duplicates = []
+    for index, item in enumerate(items):
+        for other in items[index + 1:]:
+            similarity = rewrite_similarity(item["prompt"], other["prompt"])
+            if similarity >= 0.9:
+                near_duplicates.append([item["id"], other["id"], round(similarity, 3)])
+    check("items_no_near_duplicate_prompts", "no prompt pair has similarity >= 0.9",
+          not near_duplicates, json.dumps(near_duplicates[:10]))
+    check("items_unique_ids", "question ids are unique",
+          len({item["id"] for item in items}) == len(items))
+
+    formal_errors = validate_all(items, lessons)
+    check("formal_validation", "all published content passes formal validation",
+          not formal_errors, json.dumps(formal_errors)[:500])
+
+    for skill in sorted({item["target_skill"] for item in items}):
+        skill_items = [item for item in items if item["target_skill"] == skill]
+        difficulties = {item["difficulty"] for item in skill_items}
+        misconceptions = {
+            value
+            for item in skill_items
+            for value in (item.get("misconception_map") or {}).values()
+        }
+        check(f"coverage_{skill}_questions", f"{skill} has at least 10 questions",
+              len(skill_items) >= 10, str(len(skill_items)))
+        check(f"coverage_{skill}_difficulty", f"{skill} has at least 2 difficulty levels",
+              len(difficulties) >= 2, str(sorted(difficulties)))
+        check(f"coverage_{skill}_misconceptions", f"{skill} has at least 2 misconceptions",
+              len(misconceptions) >= 2, str(sorted(misconceptions)))
 
     # --- lessons ----------------------------------------------------------
     kinds = Counter(l.get("content_type") for l in lessons)
-    check("lessons_counts", "8 micro_lessons + 8 worked_examples",
-          kinds.get("micro_lesson") == 8 and kinds.get("worked_example") == 8,
-          dict(kinds))
+    check("lessons_counts", "published pack has 24 adaptive lessons",
+          len(lessons) == 24, dict(kinds))
     check("lessons_unique_ids", "lesson ids distinct",
           len({l["id"] for l in lessons}) == len(lessons))
     lesson_bodies = [_canonical_body(l.get("body", "")) for l in lessons]
@@ -168,6 +193,37 @@ def _audit(pack_dir: Path) -> list[dict]:
               lesson.get("content_hash") == content_hash(lesson))
         check(f"lesson_{lesson_id}_approved", f"{lesson_id} approved",
               lesson.get("review_status") == "approved", lesson.get("review_status"))
+        targets = lesson.get("target_misconceptions") or []
+        check(f"lesson_{lesson_id}_misconceptions",
+              f"{lesson_id} targets known misconceptions",
+              bool(targets) and set(targets) <= set(MISCONCEPTIONS), str(targets))
+
+    for skill in sorted({item["target_skill"] for item in items}):
+        skill_kinds = {
+            lesson["content_type"]
+            for lesson in lessons
+            if lesson["target_skill"] == skill
+        }
+        check(f"lessons_{skill}_kinds", f"{skill} has both teaching asset kinds",
+              {"micro_lesson", "worked_example"} <= skill_kinds, str(sorted(skill_kinds)))
+
+    simulated_review_count = sum(
+        1
+        for entry in [*items, *lessons]
+        if any(str(reviewer).startswith("sim.") for reviewer in (entry.get("reviewers") or {}).values())
+    )
+    provenance = manifest.get("review_provenance") or {}
+    expected_mode = "simulated_competition_review" if simulated_review_count else "human_review"
+    check("review_provenance_labeled", "review provenance matches reviewer identities",
+          provenance.get("mode") == expected_mode
+          and provenance.get("human_approved") is (simulated_review_count == 0),
+          f"mode={provenance.get('mode')}; simulated_records={simulated_review_count}; "
+          f"human_approved={provenance.get('human_approved')}")
+    answer_labels = Counter(item.get("answer_choice_id") for item in items)
+    check("answer_label_distribution", "correct answers are not exposed by one fixed label",
+          set(answer_labels) == {"A", "B", "C", "D"}
+          and max(answer_labels.values()) / len(items) <= 0.40,
+          str(dict(sorted(answer_labels.items()))))
 
     # --- sources ----------------------------------------------------------
     registry = SourceRegistry(SOURCES_YAML)

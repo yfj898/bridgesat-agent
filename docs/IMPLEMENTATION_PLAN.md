@@ -438,11 +438,13 @@ The UI shows the recalled episode and the reason the action changed.
 
 ### 10.1 Content target
 
-- **Competition MVP scope (math closed-loop first):** 55 human-approved original
+- **Initial competition content baseline (superseded by the 0.2.0 expansion):** 55 original
   four-choice math items across four skills (`linear_equations` 12,
   `systems_equations` 12, `ratios_percentages` 13, `functions_models` 18), at
   least 2 micro-lessons and 2 worked examples per delivered skill, three hints
-  per question, and explicit distractor-to-misconception mapping. See
+  per question, and explicit distractor-to-misconception mapping. The current
+  `sim.*` reviewer ledger is a controlled artifact, not human approval; real
+  educational/answer/license/accessibility review remains a deployment blocker. See
   `COMPETITION_MVP_EXECUTION_PLAN.md` for the frozen content contract.
 - Extension target (not delivered in MVP): 8–10 skills, 2–4 subskills per
   skill, 80–120 reviewed questions, 15–25 micro-lessons and worked examples.

@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from app.content_pipeline.contracts import SCHEMA_VERSION, content_hash
-from app.content_pipeline.packaging import build_pack
+from app.content_pipeline.packaging import PACK_VERSION, build_pack
 from app.infrastructure import pg
 from app.infrastructure.migration_runner import migrate_database
 from app.knowledge.local_backend import (
@@ -128,11 +128,11 @@ def pack_dir(tmp_path: Path) -> Path:
     ]
     root = tmp_path / "packs"
     build_pack(items, lessons, out_dir=root)
-    return root / "bridgesat-math-0.1.0"
+    return root / f"bridgesat-math-{PACK_VERSION}"
 
 
 @pytest.fixture()
-def backend(pack_dir: Path) -> KnowledgeBackend:
+def backend(pack_dir: Path, pg_tenant: str) -> KnowledgeBackend:
     admin = pg.connect_admin()
     try:
         migrate_database(admin)
@@ -148,12 +148,6 @@ def backend(pack_dir: Path) -> KnowledgeBackend:
     finally:
         conn.rollback()
         conn.close()
-    cleanup = pg.connect_admin()
-    try:
-        cleanup.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
-        cleanup.commit()
-    finally:
-        cleanup.close()
 
 
 # --- indexing ------------------------------------------------------------
@@ -172,9 +166,9 @@ def test_index_pack_counts(backend: KnowledgeBackend) -> None:
 
 def test_index_pack_rejects_unpublished(backend: KnowledgeBackend, tmp_path: Path) -> None:
     item = _item("math.linear_equations.001", "linear_equations")
-    root = tmp_path / "packs"
+    root = tmp_path / "unpublished-packs"
     build_pack([item], [], out_dir=root)
-    built = root / "bridgesat-math-0.1.0"
+    built = root / f"bridgesat-math-{PACK_VERSION}"
     manifest = json.loads((built / "manifest.json").read_text(encoding="utf-8"))
     manifest["status"] = "draft"
     (built / "manifest.json").write_text(

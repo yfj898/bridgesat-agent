@@ -6,7 +6,15 @@ import pytest
 from app import question_bank
 
 
-def _write_pack(root: Path, pack_id: str, *, status: str, items: list[dict]) -> Path:
+def _write_pack(
+    root: Path,
+    pack_id: str,
+    *,
+    status: str,
+    items: list[dict],
+    version: str = "0.1.0",
+    catalog_id: str | None = None,
+) -> Path:
     pack_dir = root / pack_id
     pack_dir.mkdir(parents=True, exist_ok=True)
     (pack_dir / "manifest.json").write_text(
@@ -14,7 +22,9 @@ def _write_pack(root: Path, pack_id: str, *, status: str, items: list[dict]) -> 
             {
                 "id": pack_id,
                 "name": pack_id,
-                "version": "0.1.0",
+                "version": version,
+                "pack_version": version,
+                "pack_id": catalog_id or pack_id,
                 "status": status,
                 "allowed_item_schema_versions": ["v1"],
                 "item_count": len(items),
@@ -71,3 +81,24 @@ def test_loader_accepts_only_published_packs(tmp_path: Path) -> None:
     question_bank.clear_cache()
     questions = question_bank._load_all(tmp_path)
     assert {item.id for item in questions} == {"pub-001"}
+
+
+def test_student_loader_uses_latest_version_per_pack_id(tmp_path: Path) -> None:
+    _write_pack(
+        tmp_path,
+        "math-0.1.0",
+        catalog_id="math",
+        version="0.1.0",
+        status="published",
+        items=[_item("old-001")],
+    )
+    _write_pack(
+        tmp_path,
+        "math-0.2.0",
+        catalog_id="math",
+        version="0.2.0",
+        status="published",
+        items=[_item("new-001")],
+    )
+
+    assert {item.id for item in question_bank._load_current(tmp_path)} == {"new-001"}
