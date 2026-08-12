@@ -50,11 +50,13 @@ Rules:
 - question scoring is bound to the specified question version;
 - event payloads are validated against an event-type schema.
 
-`WORKED_EXAMPLE_PRESENTED` is the client confirmation that a server-selected
-intervention was actually shown. Its payload binds the source answer event,
-worked-example content ID/version, skill, misconception, and intervention. The
-server accepts it only when all fields match the same-session
-`SHOW_WORKED_EXAMPLE` decision. A runtime Episode then remains a candidate until
+`WORKED_EXAMPLE_PRESENTED` and `MICRO_LESSON_PRESENTED` are client confirmations
+that a server-selected intervention was actually shown. Their payloads bind the
+source answer event, content ID/version, skill, and intervention; misconception
+is included when the policy identified one and may be absent for a generic
+skill-gap micro lesson. The server accepts either event only when all supplied
+fields match the same-session approved `SHOW_WORKED_EXAMPLE` or
+`SHOW_MICRO_LESSON` decision. A runtime Episode then remains a candidate until
 a correct, low-hint answer arrives on a question different from the triggering
 question.
 

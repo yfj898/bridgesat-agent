@@ -39,6 +39,37 @@ Synthetic simulation is never presented as real student improvement.
 - fallback success: PostgreSQL two-session loop and timeout fallback tested in the test suite
 - report: reports/memory_eval.json
 
+## Hybrid shadow ablation (controlled internal test)
+
+- cases: 15 golden, 22 scripted model variants (no live provider)
+- accepted allowed-action violations: 0 (target 0)
+- accepted hallucinated episode/content: 0 (target 0)
+- deterministic fallback success: 100% (target 100%)
+- decisive cases with zero model calls: 100%
+- adversarial rejection: 100%
+- verified beneficial differences: ['h6-01']
+- report: reports/hybrid_eval.json
+
+## Hybrid final gate (controlled internal test)
+
+- final competition mode: `deterministic`
+- frozen feature flags: BRIDGESAT_HYBRID_ENABLED=0, BRIDGESAT_HYBRID_SHADOW_ENABLED=0, BRIDGESAT_HYBRID_EXPLANATION_ENABLED=0, BRIDGESAT_HYBRID_ACTION_RANKING_ENABLED=0, BRIDGESAT_HYBRID_SUMMARY_ENABLED=0
+- H7 action-ranking final decision: **No-Go** (No-Go is a legal evidence outcome, not a gate failure)
+- gate status: PASS (report shape and safety checks)
+- evidence split: legacy H6/H7 10 cases/17 variants; H8 summary 5 cases/5 variants (excluded from legacy metrics)
+- safety checks: allowed-action violations 0, hallucinated acceptance 0, fallback 100%, decisive zero calls 100%, explanation grounding 100%, H8 summary grounding 100%, unavailable H8 fallback 100%
+- beneficial difference cases: ['h6-01'] (controlled synthetic/scripted evidence only)
+- rationale: Default competition mode remains deterministic. H7 action-ranking evidence is limited to a controlled synthetic evaluation with scripted provider responses. Scripted p50/p95 values of 0 ms are not real-provider latency evidence. No repeated real-provider latency and lock-duration run was supplied.
+- latency disclaimer: The hybrid report latency values are scripted-transport harness timings from a controlled internal test; a scripted p50/p95 of 0 ms is not real-provider latency evidence, a lock-duration measurement, or an SLA.
+- missing evidence: repeated real-provider latency runs, real-provider lock-duration measurements under the sync path, real student outcome measurements
+- rollback profile: deterministic-default; Keep deterministic policy authoritative, leave all five Hybrid flags at 0, and disable any action-changing path.
+- report: reports/hybrid_final_gate.json
+
+## Python test suite (controlled internal test)
+
+- pytest: 850 passed, 0 failed
+- report: reports/python_tests.json
+
 ## Offline and synchronization (controlled internal test)
 
 - scenarios: 10, pass rate: 100%
@@ -51,7 +82,7 @@ Synthetic simulation is never presented as real student improvement.
 
 ## Web core-flow tests (controlled internal test)
 
-- node --test web/tests: 44 passed, 0 failed (offline flow, refresh, weak network, accessibility core paths)
+- node --test web/tests: 55 passed, 0 failed (offline flow, refresh, weak network, accessibility core paths)
 - report: reports/web_tests.json
 
 ## Content audit (controlled internal test)
@@ -64,9 +95,9 @@ Synthetic simulation is never presented as real student improvement.
 ## Performance gates (controlled internal test, this machine)
 
 - local policy p95: 0.01 ms (target < 150 ms)
-- PostgreSQL tsvector p95: 1.22 ms (target < 200 ms)
-- session restore p95: 2.38 ms (target < 500 ms)
-- sync throughput: 312.6 events/s, max RSS 80.0 MB
+- PostgreSQL tsvector p95: 1.15 ms (target < 200 ms)
+- session restore p95: 2.67 ms (target < 500 ms)
+- sync throughput: 316.9 events/s, max RSS 80.7 MB
 - report: reports/performance_eval.json
 
 ## Accessibility
@@ -87,8 +118,8 @@ Synthetic simulation is never presented as real student improvement.
 | unacknowledged-event loss = 0 | design target | PASS |
 | content audit 100% | controlled internal test | 100% |
 | local policy p95 < 150 ms | controlled internal test | 0.01 ms |
-| PostgreSQL tsvector p95 < 200 ms | controlled internal test | 1.22 ms |
-| session restore p95 < 500 ms | controlled internal test | 2.38 ms |
+| PostgreSQL tsvector p95 < 200 ms | controlled internal test | 1.15 ms |
+| session restore p95 < 500 ms | controlled internal test | 2.67 ms |
 | educational improvement over control | synthetic simulation | +5.7% correctness |
 
 ## Reproduction

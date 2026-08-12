@@ -11,7 +11,7 @@
     "restricted_source_hits": 0,
     "explicit_no_result": 0.0,
     "all_expected_found": 1.0,
-    "latency_avg_ms": 1.1666666666666667,
+    "latency_avg_ms": 1.0,
     "latency_p95_ms": 1
   },
   "golden": {

@@ -8,7 +8,7 @@
 
 | Dependency order | Current output | Acceptance evidence |
 |---|---|---|
-| 1. schema | PostgreSQL migrations `0001`–`0015` | migration and clean-start tests |
+| 1. schema | PostgreSQL migrations `0001`–`0016` (H7 trace; inert by default) | migration and clean-start tests |
 | 2. immutable events | learner-scoped learning/agent events | sync, isolation, replay tests |
 | 3. session projections | state machine, attempts, mastery, misconception evidence | state/policy tests |
 | 4. bounded policy | deterministic actions and versioned reasons | 24 golden trajectories |

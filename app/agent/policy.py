@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from pydantic import BaseModel
 
@@ -45,8 +45,16 @@ class PolicyInput:
     minutes_remaining: int = 20
     hints_used_this_item: int = 0
     state: SessionState = SessionState.ANSWER_EVALUATED
+    # Backward-compatible H6 contract. Older golden/eval fixtures encoded a
+    # successful recalled intervention as a boolean and implicitly meant the
+    # historical SHOW_WORKED_EXAMPLE path. Newer runtime callers should use
+    # ``recalled_successful_interventions`` so the policy can distinguish
+    # multiple successful teaching strategies. Keep this alias until the
+    # frozen competition evidence set is migrated atomically.
     recalled_successful_episode: bool = False
     recalled_episode_ids: list[str] = field(default_factory=list)
+    recalled_successful_interventions: list[str] = field(default_factory=list)
+    recalled_episode_ids_by_intervention: dict[str, list[str]] = field(default_factory=dict)
     recent_correct_without_high_hint: int = 0
     recent_total: int = 0
 
@@ -69,6 +77,7 @@ class PolicyEvidence(BaseModel):
 
     supported_interventions: tuple[BoundedAction, ...] = ()
     conflicting_episodes: bool = False
+    multiple_relevant_episodes: bool = False
 
     @staticmethod
     def empty() -> "PolicyEvidence":
@@ -133,8 +142,8 @@ def derive_policy_constraints(
     Order of checks (identical to the pre-H1 trajectory):
     1. time budget closure (END_WITH_REVIEW)
     2. memory-aware early reuse: validated successful episode for the same
-       skill+misconception -> SHOW_WORKED_EXAMPLE before the second error
-       (RECALLED_SUCCESSFUL_EPISODE)
+       skill+misconception -> deterministically reuse the intervention that
+       actually succeeded before the second error (RECALLED_SUCCESSFUL_EPISODE)
     3. support conditions (consecutive errors, repeated misconception, low
        mastery, prerequisite) -> SHOW_WORKED_EXAMPLE / SHOW_MICRO_LESSON /
        SWITCH_TO_PREREQUISITE
@@ -143,6 +152,25 @@ def derive_policy_constraints(
     """
     evidence = evidence or PolicyEvidence.empty()
     skill = inputs.skill
+
+    reusable_memory_actions = (
+        BoundedAction.SHOW_WORKED_EXAMPLE,
+        BoundedAction.SHOW_MICRO_LESSON,
+    )
+    recalled_actions: list[BoundedAction] = []
+    for raw_action in inputs.recalled_successful_interventions:
+        try:
+            action = BoundedAction(raw_action)
+        except ValueError:
+            continue
+        if action in reusable_memory_actions and action not in recalled_actions:
+            recalled_actions.append(action)
+
+    # Legacy fixtures only carried a boolean and episode IDs. Preserve their
+    # historical meaning without overriding the richer intervention-aware
+    # contract when it is present.
+    if inputs.recalled_successful_episode and not recalled_actions:
+        recalled_actions.append(BoundedAction.SHOW_WORKED_EXAMPLE)
 
     if inputs.minutes_remaining <= 2:
         decision = _decision(
@@ -164,29 +192,74 @@ def derive_policy_constraints(
             policy_version=POLICY_VERSION,
         )
 
-    if inputs.recalled_successful_episode:
+    if len(recalled_actions) == 1:
+        recalled_action = recalled_actions[0]
+        intervention_label = (
+            "worked example"
+            if recalled_action == BoundedAction.SHOW_WORKED_EXAMPLE
+            else "micro-lesson"
+        )
+        recalled_ids = inputs.recalled_episode_ids_by_intervention.get(
+            recalled_action.value,
+            inputs.recalled_episode_ids,
+        )
         decision = _decision(
             inputs=inputs,
-            action=BoundedAction.SHOW_WORKED_EXAMPLE,
+            action=recalled_action,
             reason_code="RECALLED_SUCCESSFUL_EPISODE",
             reason_text=(
-                "A validated episode from earlier practice shows that a worked "
-                "example succeeded for this same error; reusing it before more "
-                "practice."
+                "A validated episode from earlier practice shows that a "
+                f"{intervention_label} succeeded for this same error; reusing "
+                "that teaching strategy before more practice."
             ),
             payload={
                 "skill": skill,
                 "subskill": inputs.subskill,
                 "misconception": inputs.active_misconception,
             },
-            episode_ids=list(inputs.recalled_episode_ids),
+            episode_ids=list(recalled_ids),
         )
         return PolicyConstraints(
-            hard_action=BoundedAction.SHOW_WORKED_EXAMPLE,
-            allowed_actions=(BoundedAction.SHOW_WORKED_EXAMPLE,),
+            hard_action=recalled_action,
+            allowed_actions=(recalled_action,),
             preferred_fallback=decision,
-            next_states={BoundedAction.SHOW_WORKED_EXAMPLE: SessionState.WORKED_EXAMPLE_ACTIVE},
+            next_states={recalled_action: NEXT_STATE_BY_ACTION[recalled_action]},
             reasons=("RECALLED_SUCCESSFUL_EPISODE",),
+            policy_version=POLICY_VERSION,
+        )
+
+    if len(recalled_actions) > 1:
+        # Multiple successful teaching strategies are real semantic ambiguity,
+        # not evidence that either one should be hard-coded. Preserve the
+        # normal deterministic policy as the fallback, but expose the recalled
+        # strategies as bounded alternatives for an explicitly enabled Hybrid
+        # reasoning run. Hard guards produced by the normal policy still win.
+        without_recall = replace(
+            inputs,
+            recalled_successful_episode=False,
+            recalled_episode_ids=[],
+            recalled_successful_interventions=[],
+            recalled_episode_ids_by_intervention={},
+        )
+        base = derive_policy_constraints(without_recall, evidence)
+        if base.hard_action is not None:
+            return base
+        allowed_actions = tuple(
+            dict.fromkeys((*base.allowed_actions, *recalled_actions))
+        )
+        next_states = dict(base.next_states)
+        for action in recalled_actions:
+            next_states[action] = NEXT_STATE_BY_ACTION[action]
+        return PolicyConstraints(
+            hard_action=None,
+            allowed_actions=allowed_actions,
+            preferred_fallback=base.preferred_fallback,
+            next_states=next_states,
+            reasons=tuple(
+                dict.fromkeys(
+                    (*base.reasons, "RECALLED_SUCCESSFUL_INTERVENTION_CONFLICT")
+                )
+            ),
             policy_version=POLICY_VERSION,
         )
 

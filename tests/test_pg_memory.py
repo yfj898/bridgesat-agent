@@ -55,7 +55,7 @@ def _validated_episode(
     *,
     student_id: str,
     session_id: str,
-    misconception: str = "sign_error",
+    misconception: str | None = "sign_error",
     intervention: str = "SHOW_WORKED_EXAMPLE",
     outcome_content_id: str,
     event_suffix: str,
@@ -76,6 +76,42 @@ def _validated_episode(
         summary=f"episode {event_suffix}",
     )
     builder.validate(episode)
+
+
+def test_recall_episodes_can_scope_to_null_misconception(env) -> None:
+    memory, builder, student_id = env
+    _validated_episode(
+        builder,
+        student_id=student_id,
+        session_id="ses-generic",
+        misconception=None,
+        outcome_content_id="t-generic",
+        event_suffix="generic",
+    )
+    _validated_episode(
+        builder,
+        student_id=student_id,
+        session_id="ses-specific",
+        misconception="sign_error",
+        outcome_content_id="t-specific",
+        event_suffix="specific",
+    )
+
+    generic = memory.recall_episodes(
+        student_id=student_id,
+        skill="linear_equations",
+        misconception=None,
+    )
+    all_episodes = memory.recall_episodes(
+        student_id=student_id,
+        skill="linear_equations",
+    )
+
+    assert [episode.misconception for episode in generic] == [None]
+    assert {episode.misconception for episode in all_episodes} == {
+        None,
+        "sign_error",
+    }
 
 
 def test_recall_episodes_empty_before_data(env) -> None:

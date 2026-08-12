@@ -1,19 +1,47 @@
 # BridgeSAT Hybrid Reasoning Integration Plan
 
-Status: implementation-ready plan; no production Hybrid runtime is claimed by this document.
-Audit date: 2026-08-11
-Scope: current working tree, including uncommitted Content Expansion changes.
+Status: H9 final configuration frozen; gated Hybrid runtime paths are
+implemented, but no Hybrid feature is enabled in the competition default. This
+document remains an integration plan and historical audit record; it is not the
+source of the frozen enablement decision.
+Audit snapshot: 2026-08-11; pre-H9 findings below are historical unless the
+current-state notes or linked reports supersede them.
+Scope: current working tree, including the H9/H10 closeout changes.
 Authority: PostgreSQL remains the only authoritative learner, event, memory, sync, and content state.
+
+Current H9/H10 closeout facts:
+
+- runtime schema is PostgreSQL migrations `0001` through `0016`;
+- the current pack has 8 math skills, 103 questions, and 24 lessons;
+- fresh full-suite verification is 850 Python tests passed and 55 Node tests passed;
+- H9 `final_mode` is `deterministic`, all five `BRIDGESAT_HYBRID_*` flags are `0`,
+  and H7 action ranking is **No-Go** for default enablement;
+- authoritative evidence is in `reports/hybrid_eval.json`,
+  `reports/hybrid_final_gate.json`, `reports/final_summary.md`, and
+  `docs/EVIDENCE_PACK.md`; the H10 narrative/configuration is in
+  `docs/HYBRID_FINAL_CONFIGURATION.md`.
 
 ## 1. Executive Summary
 
-BridgeSAT already has model transport, model-backed decision experiments, and an optional NVIDIA-backed derived memory index, but those capabilities do **not** currently participate in the Student PWA competition path. The real PWA path is deterministic: the browser scores locally, queues `ANSWER_SUBMITTED`, the server re-scores from the versioned approved content pack, updates PostgreSQL projections and memory, calls `decide_next_action()`, persists an `AgentEvent`, and returns it through sync.
+BridgeSAT has model transport, model-backed decision experiments, an optional
+NVIDIA-backed derived memory index, and verified flag-gated Hybrid paths. H9
+keeps every Hybrid flag off for the Student PWA competition default, so the
+default experience remains deterministic: the browser scores locally, queues
+`ANSWER_SUBMITTED`, the server re-scores from the versioned approved content
+pack, updates PostgreSQL projections and memory, calls
+`decide_next_action()`, persists an `AgentEvent`, and returns it through sync.
 
 The immediate problem is therefore not “add an LLM.” It is to establish one verified decision boundary around the real `SyncService` path. The recommended target is:
 
 > Deterministic truth and policy guards define what happened and which actions are safe. A model is called only when semantic reasoning can distinguish multiple safe choices. Its structured proposal is grounded against current PostgreSQL episodes and approved content, then accepted or replaced by the existing deterministic fallback.
 
-The first implementation work should be `PolicyConstraints + ReasoningGate + ProposalVerifier`, initially dark-launched with no behavior change. The first student-visible model feature should be a grounded, optional “Why this recommendation?” explanation. Multi-evidence memory/intervention ranking comes next and is enabled only if a controlled ablation beats deterministic policy without degrading latency or fallback reliability. The existing single-episode Session 2 competition proof remains deterministic and must not depend on model availability.
+The verified Hybrid foundation now supports a grounded, optional “Why this
+recommendation?” explanation and a grounded summary path without changing
+authoritative truth. Multi-evidence memory/intervention ranking remains
+conditional and is not default-enabled: H9 records a legal H7 **No-Go** because
+the evidence lacks repeated real-provider latency and lock-duration runs. The
+existing single-episode Session 2 competition proof remains deterministic and
+does not depend on model availability.
 
 ### Student experience principle
 
@@ -35,6 +63,11 @@ Optional learner-authored reflection may remain a future research feature, but i
 
 ### 2.1 Verified repository state
 
+> **Historical audit snapshot.** The architecture and gap analysis below was
+> written as an implementation-planning review. Current H9 mode, flags, and
+> evidence take precedence over recommendations that describe an earlier phase;
+> see the closeout facts above and `docs/HYBRID_FINAL_CONFIGURATION.md`.
+
 The current `bridgesat-math-0.3.0` manifest reports:
 
 - 8 skills;
@@ -44,14 +77,20 @@ The current `bridgesat-math-0.3.0` manifest reports:
 - `review_provenance.mode = simulated_competition_review`;
 - `review_provenance.human_approved = false`.
 
-There are 15 PostgreSQL migrations, `0001` through `0015`. The pack, event store, learner state, episodic memory, sync, and `tsvector` retrieval are PostgreSQL-backed. Nothing in this plan changes that boundary.
+There are 16 PostgreSQL migrations, `0001` through `0016`. Migration `0016`
+adds the H7 decision-trace contract and is inert while action ranking is off.
+The pack, event store, learner state, episodic memory, sync, and `tsvector`
+retrieval are PostgreSQL-backed. Nothing in this plan changes that authority
+boundary.
 
-Audit verification performed in this review:
+Fresh closeout verification:
 
-- model-focused Python tests: 38 passed, 0 failed;
-- all Web tests: 43 passed, 0 failed;
-- the existing current evidence report records 567 Python tests, but this review did not rerun the full PostgreSQL suite;
-- no production files were modified by the audit.
+- full Python suite: 850 passed;
+- all Node tests: 55 passed;
+- content audit: 1799/1799 checks (100%);
+- offline/sync evaluation: 10/10 scenarios;
+- Hybrid final gate: `final_mode=deterministic`, all five flags `0`, H7 action
+  ranking **No-Go**.
 
 ### 2.2 Student PWA real path
 
@@ -211,14 +250,21 @@ The browser subset is intentional. The three server paths are not. Server policy
 - `SyncService._transition_session()` updates the state without calling `can_transition()`. Current deterministic policy makes the target predictable, but a future model path must validate transition legality before persistence.
 - `PGMemory.list_episodes_for_fact()` parses `skill + misconception + intervention` from the fact key but calls `recall_episodes()` without filtering the intervention. Consequently, fact promotion/support IDs can include successful episodes for a different intervention. This must receive a regression fix before any fact/stat signal is exposed to a model as intervention-specific evidence.
 
-### 4.5 Documentation drift found during audit
+### 4.5 Documentation drift found during pre-H10 audit (historical snapshot)
 
-- `docs/PEDAGOGY_SPEC.md` still describes the older four-skill/55-item pack;
-- `docs/ONE_PAGE_WRITEUP.md` and `docs/SUBMISSION_READINESS.md` retain an older `889/889` content-audit number while current evidence reports `1799/1799`;
-- `docs/MEMORY_CONSISTENCY.md` contains stale SQLite deletion/metric names;
-- late sections of `docs/ARCHITECTURE.md` mix historical planned state with current PostgreSQL implementation.
+- The target H10 docs contained older curriculum, test, migration, and content
+  counts; the closeout updates them to current pack and report facts.
+- `docs/MEMORY_CONSISTENCY.md` retains older SQLite terminology outside the H10
+  whitelist and must be read as historical rather than current runtime truth.
+- Late sections of `docs/ARCHITECTURE.md` mix historical planned state with
+  current PostgreSQL implementation; those sections now carry an explicit
+  historical/planning-snapshot label.
 
-These are documentation tasks for H10. Historical material may remain only if labeled `Historical / superseded`.
+These were documentation tasks for H10. Current H9/H10 artifacts are
+`reports/hybrid_final_gate.json`, `reports/final_summary.md`,
+`docs/EVIDENCE_PACK.md`, and `docs/HYBRID_FINAL_CONFIGURATION.md`. Historical
+material may remain only if it is labeled as a historical or superseded
+snapshot.
 
 ## 5. Recommended LLM Use Cases
 
@@ -519,7 +565,7 @@ class EvidenceClaim(BaseModel):
         "SAME_MISCONCEPTION",
         "SUCCESSFUL_TRANSFER",
         "SUPPORTED_INTERVENTION_EFFECT",
-        "STUDENT_REASONING_SIGNAL",
+        "BEHAVIORAL_LEARNING_SIGNAL",
     ]
     evidence_refs: tuple[str, ...]
 
@@ -1231,7 +1277,8 @@ Do not modify the content pack to enable runtime-generated lessons or hints. Aut
 
 ## 24. Migration / Compatibility Plan
 
-1. Never edit `0001–0015`; add a migration only when persistent action-changing Hybrid trace is actually enabled.
+1. Never edit an applied migration; add a new migration only when persistent
+   action-changing Hybrid trace is actually enabled.
 2. Shadow/explanation mode should prefer response-only or existing extensible payload fields and does not require `0016` by default. If H7 requires persistent trace, `0016` must be additive with deterministic defaults so old AgentEvents and clients remain valid.
 3. `SyncResponse.server_events` gains only optional sanitized fields; PWA ignores unknown fields and old servers still render.
 4. Feature flags default off: `BRIDGESAT_HYBRID_ENABLED`, plus task-level flags for shadow decision, explanation, action ranking, and summary.

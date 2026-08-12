@@ -24,9 +24,11 @@ import pytest
 
 from app.agent.hybrid_contracts import HybridShadowObservation
 from app.agent.llm_client import LLMClient
+from app.domain.memory import BoundedAction, Episode
 from app.infrastructure import pg
 from app.sync.protocol import SyncRequest
 from app.sync.service import SyncService
+from tests.pg_test_helpers import import_fixture_pack
 
 PACK_VERSION = "0.1.0"
 Q_LINEAR = "sync.linear.001"
@@ -188,6 +190,125 @@ def _fake_client(transport: ChatTransport) -> LLMClient:
     return LLMClient(api_key="nvapi-test", model="test/model", transport=transport)
 
 
+def _stat_row(
+    intervention: BoundedAction,
+    *,
+    immediate_correct: float,
+    immediate_attempts: int = 3,
+) -> dict:
+    return {
+        "skill": "linear_equations",
+        "misconception": "sign_error",
+        "intervention": intervention.value,
+        "difficulty_band": "d2",
+        "immediate_correct": immediate_correct,
+        "immediate_attempts": immediate_attempts,
+        "immediate_weight": float(immediate_attempts),
+        "short_term_correct": 0.0,
+        "short_term_attempts": 0,
+        "short_term_weight": 0.0,
+        "delayed_correct": 0.0,
+        "delayed_attempts": 0,
+        "delayed_weight": 0.0,
+    }
+
+
+def _failed_recent_episode(intervention: BoundedAction) -> Episode:
+    return Episode(
+        episode_id="episode_failed_recent",
+        student_id=STUDENT_ID,
+        session_id=SESSION_ID,
+        skill="linear_equations",
+        misconception="sign_error",
+        intervention=intervention.value,
+        outcome={"correct": False},
+        effectiveness=0.0,
+        evidence_event_ids=["event_failed_recent"],
+        summary="Recent attempt did not transfer.",
+        confidence=0.8,
+        status="validated",
+    )
+
+
+def test_shadow_stat_support_requires_effective_outcome(monkeypatch) -> None:
+    service = object.__new__(SyncService)
+    rows = [
+        _stat_row(BoundedAction.SHOW_MICRO_LESSON, immediate_correct=1.0),
+    ]
+    monkeypatch.setattr(
+        service,
+        "_intervention_stats",
+        lambda _student_id, in_transaction: rows,
+    )
+
+    evidence = service._shadow_intervention_evidence(
+        STUDENT_ID, "linear_equations", "sign_error"
+    )
+
+    assert evidence[0].support == "insufficient"
+
+
+def test_shadow_stat_support_requires_material_effect_gap(monkeypatch) -> None:
+    service = object.__new__(SyncService)
+    rows = [
+        _stat_row(BoundedAction.SHOW_MICRO_LESSON, immediate_correct=2.4),
+        _stat_row(BoundedAction.SHOW_WORKED_EXAMPLE, immediate_correct=2.1),
+    ]
+    monkeypatch.setattr(
+        service,
+        "_intervention_stats",
+        lambda _student_id, in_transaction: rows,
+    )
+
+    evidence = service._shadow_intervention_evidence(
+        STUDENT_ID, "linear_equations", "sign_error"
+    )
+
+    assert all(entry.support == "insufficient" for entry in evidence)
+
+
+def test_shadow_stat_support_rejects_recent_contradiction(monkeypatch) -> None:
+    service = object.__new__(SyncService)
+    rows = [
+        _stat_row(BoundedAction.SHOW_MICRO_LESSON, immediate_correct=2.7),
+    ]
+    monkeypatch.setattr(
+        service,
+        "_intervention_stats",
+        lambda _student_id, in_transaction: rows,
+    )
+
+    evidence = service._shadow_intervention_evidence(
+        STUDENT_ID,
+        "linear_equations",
+        "sign_error",
+        recalled=[_failed_recent_episode(BoundedAction.SHOW_MICRO_LESSON)],
+    )
+
+    assert evidence[0].support == "insufficient"
+
+
+def test_shadow_stat_support_is_difficulty_scoped(monkeypatch) -> None:
+    service = object.__new__(SyncService)
+    rows = [
+        {
+            **_stat_row(BoundedAction.SHOW_MICRO_LESSON, immediate_correct=3.0),
+            "difficulty_band": "d3",
+        },
+    ]
+    monkeypatch.setattr(
+        service,
+        "_intervention_stats",
+        lambda _student_id, in_transaction: rows,
+    )
+
+    evidence = service._shadow_intervention_evidence(
+        STUDENT_ID, "linear_equations", "sign_error", difficulty_band="d2"
+    )
+
+    assert evidence == []
+
+
 def _shadow_flags_on(monkeypatch) -> None:
     monkeypatch.setenv("BRIDGESAT_HYBRID_ENABLED", "1")
     monkeypatch.setenv("BRIDGESAT_HYBRID_SHADOW_ENABLED", "1")
@@ -197,6 +318,7 @@ def _make_service(
     isolated_pg_database,
     client: LLMClient | None = None,
 ) -> SyncService:
+    import_fixture_pack(isolated_pg_database.admin_dsn)
     connection = isolated_pg_database.connect_app()
     connection.execute(
         "SELECT set_config('app.tenant_id', %s, false)",

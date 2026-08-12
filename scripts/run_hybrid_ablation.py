@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Hybrid shadow ablation eval (HYBRID_REASONING_INTEGRATION_PLAN sections
-21/22, phase H6).
+21/22, phases H6-H8).
 
 Compares the deterministic policy against the shadow Hybrid gate on a
 versioned golden set of ambiguous and decisive cases. Model responses are
 scripted (beneficial, adversarial, unavailable), so the report is fully
 reproducible offline while exercising the production code paths:
 ``derive_policy_constraints`` -> ``choose_mode`` -> prompt -> parse ->
-``verify_proposal`` / ``verify_explanation``.
+``verify_proposal`` / ``verify_explanation`` / ``verify_summary``.
 
 No live provider is called, and no observation ever changes the executed
 deterministic action: this eval measures whether the verified shadow would
@@ -19,7 +19,9 @@ allowed-action violations (must be 0), accepted hallucinated episode or
 content (must be 0), adversarial rejection rate, deterministic fallback
 success (must be 100%), decisive-case model calls (must be 0), action
 difference rate, verified beneficial difference rate, explanation
-grounding accuracy, shadow latency p50/p95.
+grounding accuracy, H8 summary grounding/fallback accuracy, shadow latency
+p50/p95. H8 metrics are reported separately and are excluded from the
+pre-existing decision/explanation metrics.
 
 Usage:
     python scripts/run_hybrid_ablation.py
@@ -32,11 +34,13 @@ Writes JSON to stdout and a Markdown report to the report path.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 from dataclasses import dataclass, field
 import statistics
 import sys
+import time
 from pathlib import Path
 
 # The gates read the environment per call; every Hybrid layer is enabled only
@@ -48,13 +52,21 @@ from app.agent.hybrid import (  # noqa: E402
     AuthoritativeEvidence,
     ContentRecord,
     HybridDecisionContext,
+    HybridTask,
     RecalledEpisodeEvidence,
+    SessionSummaryContext,
     ShadowMaterial,
+    build_summary_prompt,
     evidence_for_shadow,
     parse_explanation_proposal,
+    parse_summary_proposal,
     run_shadow_decision,
     run_shadow_explanation,
+    shadow_availability,
+    summary_gate,
+    task_settings,
     verify_explanation,
+    verify_summary,
 )
 from app.agent.llm_client import LLMClient, LLMUnavailableError  # noqa: E402
 from app.agent.policy import PolicyInput, derive_policy_constraints  # noqa: E402
@@ -72,6 +84,12 @@ ADVERSARIAL_REASONS = (
     "protected_span_rewritten",
     "ungrounded_number",
     "ungrounded_explanation_ref",
+)
+
+SUMMARY_ADVERSARIAL_REASONS = (
+    "ungrounded_number",
+    "ungrounded_summary_ref",
+    "prohibited_claim",
 )
 
 
@@ -189,6 +207,19 @@ def _content_records(case: dict) -> dict[str, ContentRecord]:
 def _decision_material(case: dict) -> tuple[ShadowMaterial, list[str], str]:
     inputs = _policy_input(case["input"])
     recalled, evidence_objs = _episode_objects(case)
+    intervention_stats = [
+        {
+            **stat,
+            "skill": stat.get("skill", inputs.skill),
+            "misconception": stat.get(
+                "misconception", inputs.active_misconception
+            ),
+            "difficulty_band": stat.get(
+                "difficulty_band", f"d{inputs.difficulty}"
+            ),
+        }
+        for stat in case.get("intervention_stats", [])
+    ]
     constraints = derive_policy_constraints(
         inputs, evidence_for_shadow(list(evidence_objs.values()))
     )
@@ -221,7 +252,7 @@ def _decision_material(case: dict) -> tuple[ShadowMaterial, list[str], str]:
             allowed_actions=constraints.allowed_actions,
             deterministic_fallback=fallback,
             recalled_episodes=recalled,
-            intervention_stats=case.get("intervention_stats", []),
+            intervention_stats=intervention_stats,
             content_candidates=case.get("content_candidates", []),
         )
     )
@@ -336,6 +367,82 @@ def _explanation_reason(context, variant: dict) -> str | None:
     return outcome.rejected_reason
 
 
+def _run_summary_case(case: dict) -> dict:
+    """Run additive H8 variants through the production summary contracts.
+
+    ``run_shadow_summary`` intentionally returns only a verified proposal (or
+    ``None``), which is the right application boundary but hides the reason
+    needed by a golden report. The eval keeps the same gate, transport,
+    prompt, parser, and verifier path while recording that sanitized reason.
+    """
+
+    context = SessionSummaryContext.model_validate(case["context"])
+    result = {
+        "case_id": case["case_id"],
+        "category": case["category"],
+        "task": "summary",
+        "baseline_action": "DETERMINISTIC_SUMMARY",
+        "allowed_actions": ["DETERMINISTIC_SUMMARY"],
+        "baseline_matches": True,
+        "adjudicated_in_allowed": True,
+        "variants": [],
+    }
+    settings = task_settings(HybridTask.SUMMARY)
+    for variant in case["variants"]:
+        transport = _transport_for(variant)
+        client = LLMClient(api_key="nvapi-eval", model="test/model", transport=transport)
+        gate = summary_gate(shadow_availability(client), settings=settings)
+        entry = {
+            "variant": variant["variant"],
+            "calls": 0,
+            "gate": gate.mode,
+            "accepted": False,
+            "would_change": False,
+            "proposed_action": None,
+            "rejection_reason": None,
+            "latency_ms": None,
+            "checks": [],
+        }
+        if gate.is_hybrid:
+            started = time.monotonic()
+            try:
+                prompt = build_summary_prompt(context)
+                text = asyncio.run(
+                    client.complete(
+                        prompt,
+                        max_tokens=settings.max_tokens,
+                        timeout_ms=settings.timeout_ms,
+                    )
+                )
+                entry["latency_ms"] = max(
+                    0, int((time.monotonic() - started) * 1000)
+                )
+            except LLMUnavailableError:
+                entry["latency_ms"] = max(
+                    0, int((time.monotonic() - started) * 1000)
+                )
+                entry["rejection_reason"] = "model_unavailable"
+            except Exception:
+                entry["latency_ms"] = max(
+                    0, int((time.monotonic() - started) * 1000)
+                )
+                entry["rejection_reason"] = "summary_internal_error"
+            else:
+                try:
+                    proposal = parse_summary_proposal(text)
+                except (ValueError, json.JSONDecodeError):
+                    entry["rejection_reason"] = "model_output_unparsable"
+                else:
+                    outcome = verify_summary(context, proposal)
+                    entry["accepted"] = outcome.accepted
+                    entry["rejection_reason"] = outcome.rejected_reason
+                    entry["checks"] = list(outcome.checks)
+        entry["calls"] = len(transport.calls)
+        entry["pass"] = _variant_pass(variant, entry, case)
+        result["variants"].append(entry)
+    return result
+
+
 def _variant_pass(variant: dict, entry: dict, case: dict) -> bool:
     if entry["gate"] != variant["expected_gate"]:
         return False
@@ -353,41 +460,57 @@ def _variant_pass(variant: dict, entry: dict, case: dict) -> bool:
 
 
 def _aggregate(results: list[dict], cases: list[dict]) -> dict:
+    summary_results = [r for r in results if r["task"] == "summary"]
+    non_summary_results = [r for r in results if r["task"] != "summary"]
+    decision_results = [r for r in non_summary_results if r["task"] == "decision"]
     metrics = {
         "cases": len(results),
-        "decision_cases": sum(1 for r in results if r["task"] == "decision"),
-        "explanation_cases": sum(1 for r in results if r["task"] == "explanation"),
-        "ambiguous_cases": sum(1 for r in results if r["category"] == "ambiguous"),
-        "decisive_cases": sum(1 for r in results if r["category"] == "decisive"),
         "variants": sum(len(r["variants"]) for r in results),
+        "non_summary_cases": len(non_summary_results),
+        "non_summary_variants": sum(len(r["variants"]) for r in non_summary_results),
+        "summary_cases": len(summary_results),
+        "summary_variants": sum(len(r["variants"]) for r in summary_results),
+        "decision_cases": len(decision_results),
+        "explanation_cases": sum(
+            1 for r in non_summary_results if r["task"] == "explanation"
+        ),
+        "ambiguous_cases": sum(
+            1 for r in non_summary_results if r["category"] == "ambiguous"
+        ),
+        "decisive_cases": sum(
+            1 for r in non_summary_results if r["category"] == "decisive"
+        ),
     }
-    metrics["baseline_accuracy"] = _rate(r["baseline_matches"] for r in results)
-    metrics["adjudicated_within_allowed"] = _rate(r["adjudicated_in_allowed"] for r in results)
-    decision_results = [r for r in results if r["task"] == "decision"]
+    metrics["baseline_accuracy"] = _rate(
+        r["baseline_matches"] for r in non_summary_results
+    )
+    metrics["adjudicated_within_allowed"] = _rate(
+        r["adjudicated_in_allowed"] for r in non_summary_results
+    )
     ambiguous_decision = [r for r in decision_results if r["category"] == "ambiguous"]
 
     accepted_violations = [
-        e for r in results for e in r["variants"]
+        e for r in non_summary_results for e in r["variants"]
         if e["accepted"] and e["proposed_action"] not in r["allowed_actions"]
     ]
     metrics["accepted_allowed_action_violations"] = len(accepted_violations)
     metrics["allowed_action_violation_rate"] = 1.0 - _rate(
         not e["accepted"] or e["proposed_action"] in r["allowed_actions"]
-        for r in results for e in r["variants"]
+        for r in non_summary_results for e in r["variants"]
     ) if accepted_violations else 0.0
 
     hallucinated = [
-        e for r in results for e in r["variants"]
+        e for r in non_summary_results for e in r["variants"]
         if e["accepted"] and e.get("rejection_reason") and e["rejection_reason"] in ADVERSARIAL_REASONS
     ]
     metrics["accepted_hallucinated_proposals"] = len(hallucinated)
     metrics["hallucination_acceptance_rate"] = 1.0 - _rate(
         not (e["accepted"] and e.get("rejection_reason") in ADVERSARIAL_REASONS)
-        for r in results for e in r["variants"]
+        for r in non_summary_results for e in r["variants"]
     ) if hallucinated else 0.0
 
     adversarial = [
-        e for r in results for e in r["variants"]
+        e for r in non_summary_results for e in r["variants"]
         if e.get("rejection_reason") and e["rejection_reason"] in ADVERSARIAL_REASONS
     ]
     metrics["adversarial_attempts"] = len(adversarial)
@@ -395,16 +518,17 @@ def _aggregate(results: list[dict], cases: list[dict]) -> dict:
 
     metrics["fallback_success_rate"] = _rate(
         r["baseline_action"] == _expected_action(cases, r["case_id"])
-        for r in results
+        for r in non_summary_results
     )
     metrics["decisive_zero_model_calls"] = _rate(
         all(e["calls"] == 0 for e in r["variants"])
-        for r in results if r["category"] == "decisive"
+        for r in decision_results if r["category"] == "decisive"
     )
 
     beneficial_variants = [
         (case, variant)
         for case in cases
+        if case["task"] != "summary"
         for variant in case["variants"]
         if variant.get("beneficial")
     ]
@@ -460,7 +584,60 @@ def _aggregate(results: list[dict], cases: list[dict]) -> dict:
     ]
     metrics["decision_latency_p50_ms"] = _percentile(latencies, 50)
     metrics["decision_latency_p95_ms"] = _percentile(latencies, 95)
-    metrics["model_calls_total"] = sum(e["calls"] for r in results for e in r["variants"])
+    metrics["model_calls_total"] = sum(
+        e["calls"] for r in non_summary_results for e in r["variants"]
+    )
+
+    summary_entries = [e for r in summary_results for e in r["variants"]]
+    summary_adversarial = [
+        e
+        for e in summary_entries
+        if e.get("rejection_reason") in SUMMARY_ADVERSARIAL_REASONS
+    ]
+    unavailable_variants = {
+        c["case_id"]: {
+            v["variant"]
+            for v in c["variants"]
+            if v["transport"] == "unavailable"
+        }
+        for c in cases
+        if c["task"] == "summary"
+    }
+    summary_unavailable = [
+        e
+        for r in summary_results
+        for e in r["variants"]
+        if e["variant"] in unavailable_variants.get(r["case_id"], set())
+    ]
+    metrics["summary_accepted"] = sum(1 for e in summary_entries if e["accepted"])
+    metrics["summary_rejected"] = sum(1 for e in summary_entries if not e["accepted"])
+    metrics["summary_grounding_accuracy"] = _rate(
+        e["accepted"] == _expected_accepted(cases, r["case_id"], e["variant"])
+        for r in summary_results
+        for e in r["variants"]
+    )
+    metrics["summary_adversarial_attempts"] = len(summary_adversarial)
+    metrics["summary_adversarial_rejection_rate"] = _rate(
+        not e["accepted"] for e in summary_adversarial
+    )
+    metrics["summary_unavailable_fallback_rate"] = _rate(
+        not e["accepted"] and e["rejection_reason"] == "model_unavailable"
+        for e in summary_unavailable
+    )
+    metrics["summary_model_calls_total"] = sum(e["calls"] for e in summary_entries)
+    metrics["all_model_calls_total"] = (
+        metrics["model_calls_total"] + metrics["summary_model_calls_total"]
+    )
+    metrics["summary_rejection_reasons"] = {
+        reason: sum(1 for e in summary_entries if e["rejection_reason"] == reason)
+        for reason in sorted(
+            {
+                e["rejection_reason"]
+                for e in summary_entries
+                if e["rejection_reason"]
+            }
+        )
+    }
     return metrics
 
 
@@ -495,11 +672,13 @@ def _markdown_report(metrics: dict, results: list[dict]) -> str:
     lines = [
         "# Hybrid Shadow Ablation",
         "",
-        "Phase H6 behavioral-value proof for the verified shadow Hybrid layer "
-        "(plan sections 21/22). Deterministic baseline and shadow gate run on a "
+        "H6/H7 behavioral-value proof plus H5/H8 grounded wording checks for the "
+        "verified shadow Hybrid layer (plan sections 21/22). Deterministic "
+        "baseline and shadow gate run on a "
         "versioned golden set with scripted model responses; no live provider is "
         "called. **This is a controlled internal test with synthetic learners — "
-        "not real student outcomes.**",
+        "not real student outcomes. H8 summary results are aggregated separately "
+        "from the decision/explanation metrics.**",
         "",
         f"Golden set: `evals/hybrid/golden.jsonl` (`{GOLDEN_VERSION}`), "
         f"{metrics['cases']} cases, {metrics['variants']} variants.",
@@ -512,6 +691,9 @@ def _markdown_report(metrics: dict, results: list[dict]) -> str:
     ordered = [
         ("cases", "Cases"),
         ("variants", "Variants"),
+        ("non_summary_cases", "Pre-H8 cases included in legacy metrics"),
+        ("summary_cases", "H8 summary cases (reported separately)"),
+        ("summary_variants", "H8 summary variants (reported separately)"),
         ("ambiguous_cases", "Ambiguous cases"),
         ("decisive_cases", "Decisive cases"),
         ("baseline_accuracy", "Baseline accuracy (deterministic == expected)"),
@@ -542,6 +724,8 @@ def _markdown_report(metrics: dict, results: list[dict]) -> str:
     lines.append("## Cases")
     lines.append("")
     for r in results:
+        if r["task"] == "summary":
+            continue
         marks = "".join("P" if e["pass"] else "F" for e in r["variants"])
         lines.append(
             f"- `{r['case_id']}` ({r['category']}, {r['task']}) — "
@@ -556,6 +740,40 @@ def _markdown_report(metrics: dict, results: list[dict]) -> str:
                 f"accepted={e['accepted']} would_change={e['would_change']} "
                 f"reason={reason}"
             )
+    lines.append("")
+    lines.append("## H8 session summary grounding")
+    lines.append("")
+    lines.append(
+        "The five additive H8 cases use the real summary prompt, parser, "
+        "and fail-closed verifier. Their outcomes do not contribute to the "
+        "H6/H7 decision or H5 explanation metrics above."
+    )
+    lines.append("")
+    for r in results:
+        if r["task"] != "summary":
+            continue
+        marks = "".join("P" if e["pass"] else "F" for e in r["variants"])
+        lines.append(f"- `{r['case_id']}` (summary) — variant results `{marks}`")
+        for e in r["variants"]:
+            status = "pass" if e["pass"] else "FAIL"
+            reason = e["rejection_reason"] or ""
+            lines.append(
+                f"  - [{status}] `{e['variant']}` gate={e['gate']} calls={e['calls']} "
+                f"accepted={e['accepted']} reason={reason}"
+            )
+    lines.append("")
+    lines.append("| H8 metric | Value |")
+    lines.append("| --- | --- |")
+    for key, label in (
+        ("summary_accepted", "Accepted summaries"),
+        ("summary_rejected", "Rejected summaries"),
+        ("summary_grounding_accuracy", "Summary grounding accuracy"),
+        ("summary_adversarial_attempts", "Summary adversarial attempts"),
+        ("summary_adversarial_rejection_rate", "Summary adversarial rejection rate"),
+        ("summary_unavailable_fallback_rate", "Unavailable fallback rate"),
+        ("summary_model_calls_total", "H8 scripted model calls"),
+    ):
+        lines.append(f"| {label} | {metrics[key]} |")
     lines.append("")
     lines.append("## Conclusion vs H6 acceptance criteria")
     lines.append("")
@@ -586,6 +804,7 @@ class _ShadowFlags:
         "BRIDGESAT_HYBRID_ENABLED",
         "BRIDGESAT_HYBRID_SHADOW_ENABLED",
         "BRIDGESAT_HYBRID_EXPLANATION_ENABLED",
+        "BRIDGESAT_HYBRID_SUMMARY_ENABLED",
     )
 
     def __enter__(self) -> "_ShadowFlags":
@@ -609,9 +828,14 @@ def build_report(golden_path: Path, report_path: Path) -> dict:
         for case in cases:
             if case["task"] == "explanation":
                 results.append(_run_explanation_case(case))
+            elif case["task"] == "summary":
+                results.append(_run_summary_case(case))
             else:
                 results.append(_run_decision_case(case))
     metrics = _aggregate(results, cases)
+    all_variants_passed = all(
+        entry["pass"] for result in results for entry in result["variants"]
+    )
     payload = {
         "schema_version": SCHEMA_VERSION,
         "label": LABEL,
@@ -619,6 +843,7 @@ def build_report(golden_path: Path, report_path: Path) -> dict:
         "golden_version": GOLDEN_VERSION,
         "summary": metrics,
         "results": results,
+        "all_variants_passed": all_variants_passed,
     }
     report_path.write_text(_markdown_report(metrics, results) + "\n", encoding="utf-8")
     return payload
@@ -631,7 +856,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     payload = build_report(args.golden, args.report)
     print(json.dumps(payload, indent=2))
-    return 0
+    return 0 if payload["all_variants_passed"] else 1
 
 
 if __name__ == "__main__":

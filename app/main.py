@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from .agent.hybrid import validate_hybrid_runtime_configuration
 from .auth import require_student
 from .engine import adapt, score_diagnostic
 from .infrastructure import pg
@@ -65,6 +66,7 @@ def _get_llm_client():
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     """Run privileged migrations at startup, not while importing the module."""
+    validate_hybrid_runtime_configuration()
     mode = memory_mode()
     admin_connection = None
     dispatcher = None

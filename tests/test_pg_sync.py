@@ -10,6 +10,7 @@ import threading
 import psycopg
 import pytest
 
+from app.content_pipeline.importing import import_pack
 from app.infrastructure import pg
 from app.infrastructure.migration_runner import migrate_database
 from app.infrastructure.pg import transaction
@@ -83,6 +84,7 @@ def _envelope(
 def service():
     admin = pg.connect_admin()
     migrate_database(admin)
+    import_pack(admin, Path(__file__).parent / "fixtures" / "packs" / "syncmath-0.1.0")
     admin.close()
     conn = pg.connect()
     conn.execute("SELECT set_config('app.tenant_id', 'tenant_test', false)")
@@ -1338,6 +1340,9 @@ def test_runtime_sync_builds_episode_and_memory_changes_next_session_action(
 ) -> None:
     """The public sync path, not a direct orchestrator call, proves the agent loop."""
     product_packs = Path(__file__).parents[1] / "content" / "packs"
+    admin = pg.connect_admin()
+    import_pack(admin, product_packs / "bridgesat-math-0.1.0")
+    admin.close()
     service.answer_keys = VersionedAnswerKey(product_packs)
     _seed_student(service)
     service.register_device(STUDENT_ID, "phone", device_id=DEVICE_A)
@@ -1519,3 +1524,344 @@ def test_worked_example_presentation_requires_matching_server_decision(
         "SELECT COUNT(*) AS total FROM learning_events WHERE event_id = %s",
         ("evt_forged_presentation",),
     ).fetchone()["total"] == 0
+
+
+def test_micro_lesson_presentation_requires_matching_server_decision(
+    service: SyncService,
+) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "phone", device_id=DEVICE_A)
+    payload = {
+        "source_answer_event_id": "evt_missing_micro_decision",
+        "content_id": "ml_linear_001",
+        "content_version": 1,
+        "skill": "linear_equations",
+        "misconception": "sign_error",
+        "intervention": "SHOW_MICRO_LESSON",
+    }
+
+    response = _process(
+        service,
+        [
+            _envelope(
+                event_id="evt_forged_micro_presentation",
+                device_sequence=1,
+                event_type="MICRO_LESSON_PRESENTED",
+                payload=payload,
+                question_id=payload["content_id"],
+                question_version=1,
+            )
+        ],
+    )
+
+    assert response.accepted_event_ids == []
+    assert response.rejected_events[0].code == SyncErrorCode.INVALID_SCHEMA.value
+    assert service.connection.execute(
+        "SELECT COUNT(*) AS total FROM learning_episodes WHERE student_id = %s",
+        (STUDENT_ID,),
+    ).fetchone()["total"] == 0
+    assert service.connection.execute(
+        "SELECT COUNT(*) AS total FROM learning_events WHERE event_id = %s",
+        ("evt_forged_micro_presentation",),
+    ).fetchone()["total"] == 0
+
+
+def test_micro_lesson_presentation_starts_and_completes_runtime_episode(
+    service: SyncService,
+) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "phone", device_id=DEVICE_A)
+    session_id = "session_micro"
+    source_event_id = "evt_micro_source"
+    now = "2026-08-07T16:00:00+00:00"
+    decision_payload = {
+        "content_id": "ml_linear_001",
+        "content_version": 1,
+        "skill": "linear_equations",
+        "review_status": "approved",
+    }
+    presentation_payload = {
+        "source_answer_event_id": source_event_id,
+        **decision_payload,
+        "intervention": "SHOW_MICRO_LESSON",
+    }
+    with transaction(service.connection):
+        service.connection.execute(
+            """
+            INSERT INTO learning_events (
+                tenant_id, event_id, student_id, session_id, event_type,
+                payload_json, policy_version, content_version, occurred_at,
+                received_at, device_id, device_sequence, origin, integrity_hash
+            ) VALUES (
+                current_setting('app.tenant_id'), %s, %s, %s, 'ANSWER_SUBMITTED',
+                %s, 'offline-policy-v1', '0.1.0', %s, %s, %s, 0, 'offline', %s
+            )
+            """,
+            (
+                source_event_id,
+                STUDENT_ID,
+                session_id,
+                json.dumps({"question_id": "sync.linear.trigger", "question_version": 1}),
+                now,
+                now,
+                DEVICE_A,
+                _integrity(
+                    "ANSWER_SUBMITTED",
+                    {"question_id": "sync.linear.trigger", "question_version": 1},
+                ),
+            ),
+        )
+        service.connection.execute(
+            """
+            INSERT INTO agent_events (
+                tenant_id, event_id, student_id, session_id, source_event_id,
+                state_before, state_after, action, action_payload_json,
+                reason_code, reason_text, policy_version, content_version,
+                referenced_content_json, episode_ids_json, source, created_at
+            ) VALUES (
+                current_setting('app.tenant_id'), %s, %s, %s, %s,
+                'ANSWER_EVALUATED', 'MICRO_LESSON_ACTIVE', 'SHOW_MICRO_LESSON',
+                %s, 'PREREQUISITE_GAP', 'A micro lesson was shown',
+                'offline-policy-v1', 'sync.linear.trigger.v1', %s, '[]',
+                'offline', %s
+            )
+            """,
+            (
+                "agt_micro_source",
+                STUDENT_ID,
+                session_id,
+                source_event_id,
+                json.dumps(decision_payload),
+                json.dumps(["ml_linear_001"]),
+                now,
+            ),
+        )
+
+    presentation = _process(
+        service,
+        [
+            _envelope(
+                event_id="evt_micro_presented",
+                device_sequence=1,
+                session_id=session_id,
+                event_type="MICRO_LESSON_PRESENTED",
+                payload=presentation_payload,
+                question_id="ml_linear_001",
+                question_version=1,
+            )
+        ],
+    )
+
+    assert presentation.accepted_event_ids == ["evt_micro_presented"]
+    candidate = service.connection.execute(
+        """
+        SELECT intervention, status, outcome_json
+        FROM learning_episodes
+        WHERE student_id = %s AND session_id = %s
+        """,
+        (STUDENT_ID, session_id),
+    ).fetchone()
+    assert candidate["intervention"] == "SHOW_MICRO_LESSON"
+    assert candidate["outcome_json"] is not None
+    assert json.loads(candidate["outcome_json"])["trigger_content_id"] == "sync.linear.trigger"
+    assert candidate["status"] == "candidate"
+    assert json.loads(candidate["outcome_json"])["teaching_content_id"] == "ml_linear_001"
+
+    follow_up = _process(
+        service,
+        [
+            _envelope(
+                event_id="evt_micro_transfer",
+                device_sequence=2,
+                session_id=session_id,
+                question_id=Q_LINEAR,
+                question_version=1,
+            )
+        ],
+    )
+
+    assert follow_up.accepted_event_ids == ["evt_micro_transfer"]
+    completed = service.connection.execute(
+        """
+        SELECT status, outcome_json
+        FROM learning_episodes
+        WHERE student_id = %s AND session_id = %s
+        """,
+        (STUDENT_ID, session_id),
+    ).fetchone()
+    assert completed["status"] == "validated"
+    assert json.loads(completed["outcome_json"])["different_item"] is True
+
+    replay = _process(
+        service,
+        [
+            _envelope(
+                event_id="evt_micro_presented",
+                device_sequence=3,
+                session_id=session_id,
+                event_type="MICRO_LESSON_PRESENTED",
+                payload=presentation_payload,
+                question_id="ml_linear_001",
+                question_version=1,
+            )
+        ],
+    )
+
+    assert replay.accepted_event_ids == []
+    assert replay.duplicate_event_ids == ["evt_micro_presented"]
+    assert service.connection.execute(
+        "SELECT COUNT(*) AS total FROM learning_episodes WHERE session_id = %s",
+        (session_id,),
+    ).fetchone()["total"] == 1
+
+
+def test_ranked_micro_lesson_presentation_uses_verified_trace(
+    service: SyncService,
+) -> None:
+    _seed_student(service)
+    service.register_device(STUDENT_ID, "phone", device_id=DEVICE_A)
+    session_id = "session_ranked_micro"
+    source_event_id = "evt_ranked_micro_source"
+    now = "2026-08-07T16:00:00+00:00"
+    fallback_payload = {
+        "content_id": "we_linear_001",
+        "content_version": 1,
+        "skill": "linear_equations",
+        "misconception": "sign_error",
+        "review_status": "approved",
+    }
+    presentation_payload = {
+        "source_answer_event_id": source_event_id,
+        "content_id": "ml_linear_001",
+        "content_version": 1,
+        "skill": "linear_equations",
+        "intervention": "SHOW_MICRO_LESSON",
+    }
+    with transaction(service.connection):
+        service.connection.execute(
+            """
+            INSERT INTO learning_events (
+                tenant_id, event_id, student_id, session_id, event_type,
+                payload_json, policy_version, content_version, occurred_at,
+                received_at, device_id, device_sequence, origin, integrity_hash
+            ) VALUES (
+                current_setting('app.tenant_id'), %s, %s, %s, 'ANSWER_SUBMITTED',
+                %s, 'offline-policy-v1', '0.1.0', %s, %s, %s, 0, 'offline', %s
+            )
+            """,
+            (
+                source_event_id,
+                STUDENT_ID,
+                session_id,
+                json.dumps({"question_id": "sync.linear.trigger", "question_version": 1}),
+                now,
+                now,
+                DEVICE_A,
+                _integrity(
+                    "ANSWER_SUBMITTED",
+                    {"question_id": "sync.linear.trigger", "question_version": 1},
+                ),
+            ),
+        )
+        service.connection.execute(
+            """
+            INSERT INTO agent_events (
+                tenant_id, event_id, student_id, session_id, source_event_id,
+                state_before, state_after, action, action_payload_json,
+                reason_code, reason_text, policy_version, content_version,
+                referenced_content_json, episode_ids_json, source, created_at
+            ) VALUES (
+                current_setting('app.tenant_id'), %s, %s, %s, %s,
+                'ANSWER_EVALUATED', 'WORKED_EXAMPLE_ACTIVE', 'SHOW_WORKED_EXAMPLE',
+                %s, 'REPEATED_MISCONCEPTION', 'A worked example was selected',
+                'offline-policy-v1', 'sync.linear.trigger.v1', %s, '[]',
+                'offline', %s
+            )
+            """,
+            (
+                "agt_ranked_micro_source",
+                STUDENT_ID,
+                session_id,
+                source_event_id,
+                json.dumps(fallback_payload),
+                json.dumps(["we_linear_001"]),
+                now,
+            ),
+        )
+        service.connection.execute(
+            """
+            INSERT INTO hybrid_decision_trace (
+                trace_id, tenant_id, student_id, source_event_id,
+                decision_token, fallback_action, verified_action,
+                accepted_checks, created_at
+            ) VALUES (
+                %s, current_setting('app.tenant_id'), %s, %s, %s, %s, %s, %s, %s
+            )
+            """,
+            (
+                "h7b_" + source_event_id,
+                STUDENT_ID,
+                source_event_id,
+                json.dumps(
+                    {
+                        "verified_action_payload": {
+                            "content_id": "ml_linear_001",
+                            "content_version": 1,
+                            "content_hash": "sha256:ml_linear_001",
+                            "pack_version": "0.1.0",
+                            "skill": "linear_equations",
+                            "misconception": None,
+                            "review_status": "approved",
+                            "source_lineage": {
+                                "source_id": "sync-fixtures",
+                                "pack_version": "0.1.0",
+                            },
+                        }
+                    }
+                ),
+                "SHOW_WORKED_EXAMPLE",
+                "SHOW_MICRO_LESSON",
+                "[]",
+                now,
+            ),
+        )
+
+    response = _process(
+        service,
+        [
+            _envelope(
+                event_id="evt_ranked_micro_presented",
+                device_sequence=1,
+                session_id=session_id,
+                event_type="MICRO_LESSON_PRESENTED",
+                payload=presentation_payload,
+                question_id="ml_linear_001",
+                question_version=1,
+            )
+        ],
+    )
+
+    assert response.accepted_event_ids == ["evt_ranked_micro_presented"]
+    row = service.connection.execute(
+        "SELECT intervention FROM learning_episodes WHERE session_id = %s",
+        (session_id,),
+    ).fetchone()
+    assert row["intervention"] == "SHOW_MICRO_LESSON"
+
+    forged_presentation = {**presentation_payload, "content_id": "we_linear_001"}
+    rejected = _process(
+        service,
+        [
+            _envelope(
+                event_id="evt_ranked_micro_forged_content",
+                device_sequence=2,
+                session_id=session_id,
+                event_type="MICRO_LESSON_PRESENTED",
+                payload=forged_presentation,
+                question_id="we_linear_001",
+                question_version=1,
+            )
+        ],
+    )
+
+    assert rejected.rejected_events[0].code == SyncErrorCode.INVALID_SCHEMA.value

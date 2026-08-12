@@ -13,33 +13,42 @@ The purpose of this specification is to prevent the system from becoming a techn
 
 ## 2. Frozen MVP curriculum scope
 
-The MVP supports eight skill groups. The scope is intentionally narrow enough to review completely before submission.
+The current MVP pack supports eight math skill groups. The scope is intentionally
+narrow enough to review completely before submission.
 
 ### 2.0 Competition delivery scope (math closed-loop first)
 
-Per `COMPETITION_MVP_EXECUTION_PLAN.md`, the competition MVP delivers **four math
-skills only**: `linear_equations`, `systems_equations`, `ratios_percentages`,
-`functions_models`, with 55 original items (12/12/13/18),
-at least 2 micro-lessons and 2 worked examples per delivered skill. Reading and
-writing skills and the remaining taxonomy entries below are **extension scope
-for future releases** and are not claimed as delivered capabilities in the
-competition demo. The full taxonomy is retained here as the reviewed extension
-target.
+The current competition pack `bridgesat-math-0.3.0` delivers **eight math
+skills**: `coordinate_geometry`, `exponents_radicals`, `functions_models`,
+`inequalities`, `linear_equations`, `quadratic_equations`,
+`ratios_percentages`, and `systems_equations`. It contains 103 original
+questions and 24 lessons: 12 micro lessons and 12 worked examples. Reading and
+writing skills remain **future scope** and are not claimed as delivered
+capabilities in the competition demo. The reading/writing taxonomy below is
+retained as a future extension target.
 
-The automated content gate passes, but the current reviewer IDs are simulated
-(`sim.*`). Real human educational, answer, license, and accessibility review is
-required before student deployment and is not claimed as complete.
+The automated content gate passes 1799/1799 checks, but the current reviewer IDs
+are simulated (`sim.*`) and `review_provenance.human_approved` is false. Real
+human educational, answer, license, and accessibility review is required before
+student deployment and is not claimed as complete.
 
 ### 2.1 Mathematics
 
 | Skill ID | Display name | Subskills | Prerequisites |
 |---|---|---|---|
-| `linear_equations` | Linear equations | isolate variables, distribute, combine like terms, sign handling | integer operations |
-| `systems_equations` | Systems of equations | substitution, elimination, interpreting intersections | linear equations |
-| `ratios_percentages` | Ratios and percentages | ratios, proportions, percent change, unit rates | arithmetic operations |
+| `coordinate_geometry` | Coordinate geometry | slope, distance, midpoint, line equations | linear equations, integer operations |
+| `exponents_radicals` | Exponents and radicals | exponent rules, negative exponents, simplifying radicals | integer operations |
 | `functions_models` | Functions and models | function notation, tables, linear models, slope interpretation | linear equations, ratios |
+| `inequalities` | Inequalities | solve inequalities, interpret solution sets | linear equations, integer operations |
+| `linear_equations` | Linear equations | isolate variables, distribute, combine like terms, sign handling | integer operations |
+| `quadratic_equations` | Quadratic equations | factor quadratics, analyze roots | linear equations, integer operations |
+| `ratios_percentages` | Ratios and percentages | ratios, proportions, percent change, unit rates | arithmetic operations |
+| `systems_equations` | Systems of equations | substitution, elimination, interpreting intersections | linear equations |
 
 ### 2.2 Reading and writing
+
+Reading and writing remain future scope; the current published competition pack
+and current closed-loop evidence cover math only.
 
 | Skill ID | Display name | Subskills | Prerequisites |
 |---|---|---|---|

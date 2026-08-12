@@ -61,6 +61,10 @@ from app.sync.service import SyncService
 REPORT_JSON = ROOT / "reports" / "offline_sync_eval.json"
 REPORT_MD = ROOT / "evals" / "offline_sync" / "REPORT.md"
 
+# Offline/sync evals replay device events against the *fixture* pack
+# (tests/fixtures/packs/syncmath-0.1.0), not the current production pack
+# (packaging.PACK_VERSION). The version is intentionally pinned to the
+# fixture and never seeded into the PostgreSQL registry.
 PACK_VERSION = "0.1.0"
 Q_LINEAR = "sync.linear.001"
 Q_RATIOS = "sync.ratios.001"

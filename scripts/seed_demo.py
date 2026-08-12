@@ -36,17 +36,19 @@ sys.path.insert(0, str(ROOT))
 
 from app.engine import build_plan, score_diagnostic
 from app.auth import TokenStore
+from app.content_pipeline.importing import import_pack
+from app.content_pipeline.packaging import PACK_ID, PACK_VERSION, verify_pack_hashes
 from app.infrastructure import pg
 from app.infrastructure.learner_store import LearnerStore
 from app.infrastructure.migration_runner import migrate_database
 from app.memory import MemoryMode, build_mnemis_index, memory_mode
 from app.models import DiagnosticAnswer
+from app.question_bank import packs_root
 from app.repository import StudentRepository
 from app.sync.protocol import SyncEventEnvelope, SyncRequest
 from app.sync.service import SyncService
 from app.memory.worker import OutboxWorker
 
-PACK_VERSION = "0.1.0"
 DEMO_EVENT_START = datetime(2026, 8, 7, 10, 0, tzinfo=timezone(timedelta(hours=8)))
 
 
@@ -125,9 +127,9 @@ def _practice_events(
     from app.question_bank import packs_root
 
     identifiers = identifiers or _demo_identifiers(_default_tenant())
-    items_path = packs_root() / f"bridgesat-math-{PACK_VERSION}" / "items.jsonl"
+    items_path = packs_root() / f"{PACK_ID}-{PACK_VERSION}" / "items.jsonl"
     items = [json.loads(line) for line in items_path.open(encoding="utf-8") if line.strip()]
-    lessons_path = packs_root() / f"bridgesat-math-{PACK_VERSION}" / "lessons.jsonl"
+    lessons_path = packs_root() / f"{PACK_ID}-{PACK_VERSION}" / "lessons.jsonl"
     lessons = [json.loads(line) for line in lessons_path.open(encoding="utf-8") if line.strip()]
     worked_example = next(
         lesson
@@ -141,10 +143,17 @@ def _practice_events(
         by_skill.setdefault(item["target_skill"], []).append(item)
 
     linear = by_skill["linear_equations"]
-    wrong_pick = [c for c in linear[0]["choices"] if c["id"] == "B"][0]
+    def sign_error_choice(item: dict) -> dict:
+        choice_id = next(
+            choice_id
+            for choice_id, misconception in item["misconception_map"].items()
+            if misconception == "sign_error"
+        )
+        return next(choice for choice in item["choices"] if choice["id"] == choice_id)
+
     picks = [
-        (linear[0], wrong_pick),          # linear: sign_error (distractor B)
-        (linear[1], wrong_pick),          # linear: sign_error again (same B)
+        (linear[0], sign_error_choice(linear[0])),
+        (linear[1], sign_error_choice(linear[1])),
         (linear[2], None),                # linear: transfer item, correct, no hint
         (by_skill["functions_models"][0], None),
         (by_skill["systems_equations"][0], None),
@@ -192,13 +201,13 @@ def _practice_events(
             "ANSWER_SUBMITTED",
             {
                 "question_id": item["id"],
-                "question_version": 1,
+                "question_version": item.get("version", 1),
                 "selected_choice_id": selected,
                 "hint_level": 0,
                 "attempt_id": f"{identifiers.attempt_prefix}_{item['id']}",
             },
             question_id=item["id"],
-            version=1,
+            version=item.get("version", 1),
             depends_on=[presented_id],
         )
         answer_event_id = events[-1].event_id
@@ -370,6 +379,41 @@ def _configured_index(connection: psycopg.Connection):
     return build_mnemis_index(connection)
 
 
+def _version_key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) if part.isdigit() else 0 for part in version.split("."))
+
+
+def _validate_demo_pack(pack_dir: Path) -> tuple[dict, int]:
+    manifest = json.loads((pack_dir / "manifest.json").read_text(encoding="utf-8"))
+    if (
+        manifest.get("pack_id") != PACK_ID
+        or manifest.get("pack_version") != PACK_VERSION
+        or manifest.get("status") != "published"
+    ):
+        raise ValueError("demo pack manifest does not match the current published pack")
+    mismatches = verify_pack_hashes(pack_dir)
+    if mismatches:
+        raise ValueError(f"demo pack hash mismatch: {sorted(mismatches)}")
+    item_count = sum(
+        1
+        for line in (pack_dir / "items.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    )
+    lesson_path = pack_dir / "lessons.jsonl"
+    lesson_count = (
+        sum(1 for line in lesson_path.read_text(encoding="utf-8").splitlines() if line.strip())
+        if lesson_path.exists()
+        else 0
+    )
+    expected_counts = manifest.get("content_counts") or {}
+    if expected_counts and (
+        item_count != expected_counts.get("questions")
+        or lesson_count != expected_counts.get("lessons")
+    ):
+        raise ValueError("demo pack manifest content counts do not match its artifacts")
+    return manifest, item_count + lesson_count
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", default=None, help="PostgreSQL DSN")
@@ -396,6 +440,42 @@ def main(argv: list[str] | None = None) -> int:
         admin.rollback()
         connection.rollback()
         migrate_database(admin)
+        pack_dir = packs_root() / f"{PACK_ID}-{PACK_VERSION}"
+        if not pack_dir.is_dir():
+            print(
+                f"Demo content pack is missing: {pack_dir}",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            _manifest, expected_registry_items = _validate_demo_pack(pack_dir)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print(f"Demo content pack validation failed: {exc}", file=sys.stderr)
+            return 2
+        current_pack = admin.execute(
+            "SELECT pack_version FROM content_packs WHERE pack_id = %s",
+            (PACK_ID,),
+        ).fetchone()
+        if current_pack is not None and _version_key(current_pack["pack_version"]) > _version_key(
+            PACK_VERSION
+        ):
+            print(
+                "Refusing to downgrade the authoritative content registry "
+                f"from {current_pack['pack_version']} to {PACK_VERSION}.",
+                file=sys.stderr,
+            )
+            return 2
+        import_pack(admin, pack_dir)
+        registry_count = admin.execute(
+            "SELECT COUNT(*) AS n FROM content_pack_items WHERE pack_id = %s",
+            (PACK_ID,),
+        ).fetchone()["n"]
+        if int(registry_count) != expected_registry_items:
+            print(
+                "Demo content registry count does not match the validated pack.",
+                file=sys.stderr,
+            )
+            return 2
         connection.execute(
             "SELECT set_config('app.tenant_id', %s, false)", (args.tenant,)
         )
@@ -463,7 +543,7 @@ def main(argv: list[str] | None = None) -> int:
         if response.rejected_events:
             print(
                 "Demo sync rejected events: "
-                f"{[rejection.code for rejection in response.rejected_events]}",
+                f"{[(rejection.event_id, rejection.code, rejection.detail) for rejection in response.rejected_events]}",
                 file=sys.stderr,
             )
             return 2

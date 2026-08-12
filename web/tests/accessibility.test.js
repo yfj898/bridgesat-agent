@@ -18,9 +18,14 @@ const css = fs.readFileSync(path.join(WEB, "styles.css"), "utf8");
 test("network and sync state are announced with role=status", () => {
   const statuses = [...html.matchAll(/role="status"/g)];
   assert.ok(statuses.length >= 2, "expected at least 2 role=status elements");
-  for (const text of ["network-status", "sync-status"]) {
-    assert.ok(html.includes(`id="${text}"`), `${text} element exists`);
-  }
+  assert.ok(
+    html.includes('id="network-status" class="status" role="status"'),
+    "network status markup is preserved"
+  );
+  assert.ok(
+    html.includes('id="sync-status" class="status" role="status"'),
+    "sync status markup is preserved"
+  );
 });
 
 test("cards have accessible names via aria-labelledby", () => {
@@ -78,4 +83,5 @@ test("no motion-critical animation without a reduced-motion escape", () => {
 test("progress and error text is learner-facing and neutral", () => {
   assert.ok(html.includes("Checking connection"));
   assert.ok(/Checking connection…/.test(html));
+  assert.doesNotMatch(html, /Pending sync:/);
 });

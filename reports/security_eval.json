@@ -3,5 +3,5 @@
   "label": "controlled internal test",
   "command": "pytest tests/security tests/test_sync_protocol.py -q",
   "passed": 84,
-  "tail": "........................................................................ [ 85%]\n............                                                             [100%]\n84 passed, 1 warning in 21.45s\n"
+  "tail": "........................................................................ [ 85%]\n............                                                             [100%]\n84 passed, 1 warning in 22.96s\n"
 }

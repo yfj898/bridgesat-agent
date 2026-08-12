@@ -7,12 +7,26 @@
 
 - modular monolith: FastAPI + static PWA;
 - authoritative state: PostgreSQL;
-- schema: `app/infrastructure/migrations_pg/0001`–`0015`;
+- schema: `app/infrastructure/migrations_pg/0001`–`0016`;
 - learner events, projections, episodic memory, outbox, sync, content registry:
   PostgreSQL;
 - retrieval: PostgreSQL `tsvector` + GIN, metadata/prerequisite reranking, and
   citation/license validation;
 - Mnemis/LLM: optional, derived, rebuildable, never authoritative.
+
+## H9 final Hybrid boundary
+
+The competition configuration is frozen to `final_mode=deterministic` and sets
+`BRIDGESAT_HYBRID_COMPETITION_MODE=1`; startup rejects contradictory nonzero
+Hybrid flags and runtime task gates remain deterministic. All five
+Hybrid flags are `0`: `BRIDGESAT_HYBRID_ENABLED`,
+`BRIDGESAT_HYBRID_SHADOW_ENABLED`, `BRIDGESAT_HYBRID_EXPLANATION_ENABLED`,
+`BRIDGESAT_HYBRID_ACTION_RANKING_ENABLED`, and
+`BRIDGESAT_HYBRID_SUMMARY_ENABLED`. H7 action ranking and H8 summary remain
+opt-in, verified, and fail-closed paths. H7 action ranking is **No-Go** for
+default enablement because the final controlled evidence has scripted-provider
+timings but no repeated real-provider latency or lock-duration evidence. See
+`docs/HYBRID_FINAL_CONFIGURATION.md` and `reports/hybrid_final_gate.json`.
 
 ## Connected learning path
 
@@ -22,7 +36,7 @@
 | answer | PWA local scoring + `ANSWER_SUBMITTED` | pending event and local feedback |
 | evidence | `SyncService` version-bound scoring | mastery and misconception projections |
 | decide | `decide_next_action` with session evidence and recalled episodes | persisted `agent_events` |
-| display | sync `server_events` + snapshot `recent_agent_events` | PWA intervention card + version-bound `WORKED_EXAMPLE_PRESENTED` confirmation |
+| display | sync `server_events` + snapshot `recent_agent_events` | PWA intervention card + version-bound worked-example/micro-lesson presentation confirmation |
 | outcome | next question distinct from the triggering error after a confirmed worked example | runtime episode completion |
 | remember | validated episode + semantic fact + intervention statistics | PostgreSQL recall |
 | reuse | later-session similar error | earlier `SHOW_WORKED_EXAMPLE` |
@@ -86,6 +100,8 @@ retaining the exact cached version for offline scoring and recovery.
 ## Verification and honest limits
 
 Use the single command order in `README.md`. Generated metrics live in
-`reports/final_summary.md`. The repository proves controlled software behavior,
-not real SAT-score improvement. A real human content review, manual accessibility
-walkthrough, and recorded three-minute video remain human submission gates.
+`reports/final_summary.md`, with the artifact index in `docs/EVIDENCE_PACK.md`.
+The repository proves controlled software behavior, not real SAT-score
+improvement. A real human content review, manual accessibility walkthrough,
+public deployment, and recorded three-minute video remain human submission
+gates.

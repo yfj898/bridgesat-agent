@@ -35,11 +35,25 @@ class PackAnswerKey:
     def __init__(self, pack_version: str, pack_dir: Path) -> None:
         self.pack_version = pack_version
         self.pack_dir = pack_dir
+        self.pack_id = ""
         self._items: dict[str, dict] = {}
         self._lessons: list[dict] = []
         self._load()
 
     def _load(self) -> None:
+        manifest_path = self.pack_dir / "manifest.json"
+        if not manifest_path.exists():
+            raise QuestionVersionError(
+                SyncErrorCode.QUESTION_VERSION_UNKNOWN,
+                f"Pack {self.pack_version} has no manifest.json",
+            )
+        manifest = json.loads(manifest_path.read_text())
+        self.pack_id = manifest.get("pack_id") or self.pack_dir.name.rsplit("-", 1)[0]
+        if manifest.get("pack_version") != self.pack_version:
+            raise QuestionVersionError(
+                SyncErrorCode.QUESTION_VERSION_UNKNOWN,
+                f"Pack manifest version does not match {self.pack_version}",
+            )
         items_path = self.pack_dir / "items.jsonl"
         if not items_path.exists():
             raise QuestionVersionError(
@@ -141,6 +155,7 @@ class PackAnswerKey:
             "license_id": license_meta.get("id"),
             "license_name": license_meta.get("name"),
             "source_id": lineage.get("source_id"),
+            "pack_id": self.pack_id,
             "pack_version": self.pack_version,
         }
 

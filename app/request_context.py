@@ -37,11 +37,10 @@ def _bearer_token(authorization: str | None) -> str | None:
 
 def _requires_database(request: Request) -> bool:
     path = request.url.path
-    # Only stateful /v1 routes need a connection. Health, questions, content
-    # packs, and every non-/v1 path are filesystem/static/PWA-only paths.
+    # Only stateful /v1 routes need a connection. Health, questions, and every
+    # non-/v1 path are filesystem/static/PWA-only paths. Content packs are
+    # registry-backed and therefore stateful.
     if path == "/health" or path == "/v1/questions":
-        return False
-    if path == "/v1/content-packs" or path.startswith("/v1/content-packs/"):
         return False
     return path.startswith("/v1/")
 

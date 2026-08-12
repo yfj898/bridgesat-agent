@@ -15,22 +15,25 @@ code; `BLOCKED` means a required human or submission asset is absent.
 | poor-network continuity | READY IN TESTS | IndexedDB snapshot/queue, local scoring/policy, 10/10 offline/sync scenarios | manually verify on target browser/device |
 | working demo | CODE READY | FastAPI serves the PWA and public sync path returns decisions | complete timed clean-profile walkthrough and host it |
 | real student interaction flow | CODE READY | diagnostic → plan → practice → intervention → new session | record an unedited successful run |
+| public deployment and working-demo URL | BLOCKED | local FastAPI/PWA path is reproducible | deploy publicly, verify the URL, and record the final walkthrough |
 | three-minute video | BLOCKED | `docs/DEMO_SCRIPT.md` exists | record, trim to ≤3:00, upload, verify link |
 | GitHub repository | LOCAL READY | source, tests, docs, reproducible commands | push approved final diff and verify public access |
 | clear README | READY | one setup order, current PostgreSQL facts, honest limitations | insert final URLs/counts after freeze |
 | one-page write-up | READY | `docs/ONE_PAGE_WRITEUP.md` | attach or paste into submission form |
-| governed student content | BLOCKED FOR DEPLOYMENT | 889/889 automated checks; current reviewer IDs are `sim.*` | real humans must sign educational, answer, license, accessibility review |
+| governed student content | BLOCKED FOR DEPLOYMENT | 1799/1799 automated checks; current reviewer IDs are `sim.*`; pack is 8 math skills, 103 questions, 24 lessons | real humans must sign educational, answer, license, accessibility review |
 | Impact | READY IN NARRATIVE | tutoring-access and continuity value is visible in first 20 seconds | do not claim measured SAT improvement |
 | Innovation | READY | validated intervention outcome changes later timing | make Session 2 the demo climax |
 | Technical Execution | READY WITH RISK | PostgreSQL authority, sync integration, reproducible tests/evals | final clean run and browser walkthrough |
-| Accessibility | READY WITH RISK | browser-only/mobile/offline/refresh/reconnect design and tests | manual keyboard, screen-reader status, small-device check |
+| Accessibility | BLOCKED FOR SUBMISSION | browser-only/mobile/offline/refresh/reconnect design and tests | complete the manual keyboard, screen-reader status, and small-device checks |
+| H9 Hybrid configuration freeze | READY | `reports/hybrid_final_gate.json`; deterministic final mode; all five flags frozen at `0`; H7 action ranking **No-Go** | keep the default disabled unless a separately verified opt-in run is explicitly requested |
 
 ## Release blockers
 
 The code can support a competition demo, but the complete submission is not
 ready until the video/link package exists. The pack must not be represented as
 human-approved: its reviewer ledger is simulated. Human review is mandatory
-before real student deployment.
+before real student deployment. Public deployment, the manual accessibility
+walkthrough, and the recorded video remain open submission gates.
 
 ## Manual final gate
 

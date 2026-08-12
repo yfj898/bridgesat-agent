@@ -42,14 +42,14 @@ def cases() -> list[dict]:
 
 
 def test_golden_has_all_required_shape(cases: list[dict]) -> None:
-    assert len(cases) == 10
+    assert len(cases) == 15
     for case in cases:
         assert case["schema_version"] == GOLDEN_VERSION
         for key in ("case_id", "category", "task", "deterministic_expected_action",
                     "adjudicated_best_action", "variants"):
             assert key in case, case["case_id"]
         assert case["category"] in ("ambiguous", "decisive")
-        assert case["task"] in ("decision", "explanation")
+        assert case["task"] in ("decision", "explanation", "summary")
         for variant in case["variants"]:
             for key in ("variant", "expected_gate", "expected_calls",
                         "expected_accepted", "expected_would_change"):
@@ -138,6 +138,10 @@ def test_report_acceptance_metrics(report: dict) -> None:
     assert summary["fallback_success_rate"] == 1.0
     assert summary["decisive_zero_model_calls"] == 1.0
     assert summary["adversarial_attempts"] > 0
+    assert summary["summary_cases"] == 5
+    assert summary["summary_variants"] == 5
+    assert summary["summary_grounding_accuracy"] == 1.0
+    assert summary["summary_unavailable_fallback_rate"] == 1.0
 
 
 def test_version_mismatch_rejected(tmp_path: Path) -> None:
@@ -174,6 +178,7 @@ def test_subprocess_smoke(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stderr[-500:]
     payload = json.loads(result.stdout[result.stdout.find("{") : result.stdout.rfind("}") + 1])
-    assert payload["summary"]["cases"] == 10
+    assert payload["summary"]["cases"] == 15
+    assert payload["all_variants_passed"] is True
     assert payload["summary"]["fallback_success_rate"] == 1.0
     assert out.exists()

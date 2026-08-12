@@ -41,6 +41,7 @@ from app.agent.llm_client import LLMClient, LLMUnavailableError
 from app.infrastructure import pg
 from app.sync.protocol import SyncRequest
 from app.sync.service import SyncService
+from tests.pg_test_helpers import import_fixture_pack
 
 PACK_VERSION = "0.1.0"
 Q_LINEAR = "sync.linear.001"
@@ -232,6 +233,7 @@ def _make_service(
     isolated_pg_database,
     client: LLMClient | None = None,
 ) -> SyncService:
+    import_fixture_pack(isolated_pg_database.admin_dsn)
     connection = isolated_pg_database.connect_app()
     connection.execute(
         "SELECT set_config('app.tenant_id', %s, false)",
@@ -355,6 +357,23 @@ def test_ranking_requires_master_flag_and_shadow_gate(
     assert _trace_rows(service) == []
 
 
+def test_action_ranking_flag_runs_without_shadow_flag(
+    isolated_pg_database, monkeypatch
+) -> None:
+    monkeypatch.setenv("BRIDGESAT_HYBRID_ENABLED", "1")
+    monkeypatch.delenv("BRIDGESAT_HYBRID_SHADOW_ENABLED", raising=False)
+    monkeypatch.setenv("BRIDGESAT_HYBRID_ACTION_RANKING_ENABLED", "1")
+    transport = ChatTransport(contents=[_proposal_json("SHOW_MICRO_LESSON")])
+    service = _make_service(isolated_pg_database, client=_fake_client(transport))
+    _seed_repeated_misconception(service)
+
+    response = service.process_batch(_request(("evt_01", 1)))
+
+    assert len(transport.calls) == 1
+    assert response.server_events[0]["action"] == "SHOW_MICRO_LESSON"
+    assert _trace_rows(service)[0]["verified_action"] == "SHOW_MICRO_LESSON"
+
+
 # ---------------------------------------------------------------------------
 # Ranking on: verified action served, fallback stays durable
 # ---------------------------------------------------------------------------
@@ -396,7 +415,24 @@ def test_verified_ranking_replaces_fallback_with_auditable_trace(
     assert "action_allowed" in json.loads(trace["accepted_checks"])
 
 
-def test_ranking_and_explanation_coexist(
+def test_verified_ranking_can_serve_legal_non_content_action(
+    isolated_pg_database, monkeypatch
+) -> None:
+    _ranking_flags_on(monkeypatch)
+    transport = ChatTransport(contents=[_proposal_json("RETRY_SAME_SKILL")])
+    service = _make_service(isolated_pg_database, client=_fake_client(transport))
+    _seed_repeated_misconception(service)
+
+    response = service.process_batch(_request(("evt_01", 1)))
+
+    event = response.server_events[0]
+    assert event["action"] == "RETRY_SAME_SKILL"
+    assert event["action_payload"] == {"skill": "linear_equations", "difficulty": 2}
+    assert event["hybrid_ranked"] is True
+    assert _trace_rows(service)[0]["verified_action"] == "RETRY_SAME_SKILL"
+
+
+def test_ranking_suppresses_incompatible_explanation(
     isolated_pg_database, monkeypatch
 ) -> None:
     _ranking_flags_on(monkeypatch)
@@ -412,7 +448,9 @@ def test_ranking_and_explanation_coexist(
     event = response.server_events[0]
     assert event["action"] == "SHOW_MICRO_LESSON"
     assert event["hybrid_ranked"] is True
-    assert event["personalized_explanation"]
+    assert event["state_after"] == "MICRO_LESSON_ACTIVE"
+    assert event["reason_code"] == "HYBRID_RANKED_ACTION"
+    assert "personalized_explanation" not in event
 
 
 # ---------------------------------------------------------------------------
@@ -449,6 +487,136 @@ def test_stale_token_after_concurrent_advance_keeps_fallback(
     assert _trace_rows(service) == []
     assert _agent_event_row(service, "evt_01")["action"] == "SHOW_WORKED_EXAMPLE"
     assert _agent_event_row(service, "evt_02")["action"] is not None
+
+
+def test_presentation_after_phase_a_invalidates_ranked_action(
+    isolated_pg_database, monkeypatch
+) -> None:
+    _ranking_flags_on(monkeypatch)
+    presentation_results = []
+
+    def record_presentation() -> None:
+        payload = {
+            "source_answer_event_id": "evt_01",
+            "content_id": "we_linear_001",
+            "content_version": 1,
+            "skill": "linear_equations",
+            "misconception": "sign_error",
+            "intervention": "SHOW_WORKED_EXAMPLE",
+        }
+        request = SyncRequest.model_validate(
+            {
+                "student_id": STUDENT_ID,
+                "device_id": DEVICE_A,
+                "events": [
+                    {
+                        "event_id": "evt_presentation_after_phase_a",
+                        "student_id": STUDENT_ID,
+                        "session_id": SESSION_ID,
+                        "session_branch_id": "branch_" + DEVICE_A,
+                        "device_id": DEVICE_A,
+                        "device_sequence": 2,
+                        "event_type": "WORKED_EXAMPLE_PRESENTED",
+                        "payload": payload,
+                        "content_pack_version": PACK_VERSION,
+                        "question_id": "we_linear_001",
+                        "question_version": 1,
+                        "policy_version": "offline-policy-v1",
+                        "depends_on_event_ids": [],
+                        "device_occurred_at": "2026-08-07T16:00:01+08:00",
+                        "integrity_hash": _integrity(
+                            "WORKED_EXAMPLE_PRESENTED", payload
+                        ),
+                    }
+                ],
+            }
+        )
+        presentation_results.append(service.process_batch(request))
+
+    transport = ChatTransport(
+        contents=[_proposal_json("SHOW_MICRO_LESSON")], callback=record_presentation
+    )
+    service = _make_service(isolated_pg_database, client=_fake_client(transport))
+    _seed_repeated_misconception(service)
+
+    response = service.process_batch(_request(("evt_01", 1)))
+
+    assert presentation_results
+    assert presentation_results[0].accepted_event_ids == [
+        "evt_presentation_after_phase_a"
+    ]
+    assert response.server_events[0]["action"] == "SHOW_WORKED_EXAMPLE"
+    assert "hybrid_ranked" not in response.server_events[0]
+    assert _trace_rows(service) == []
+
+
+def test_registry_withdrawal_after_phase_a_keeps_fallback(
+    isolated_pg_database, monkeypatch
+) -> None:
+    _ranking_flags_on(monkeypatch)
+
+    def withdraw_lesson() -> None:
+        admin = pg.connect_admin(isolated_pg_database.admin_dsn)
+        try:
+            admin.execute(
+                "UPDATE content_items SET status = 'withdrawn' "
+                "WHERE content_id = 'ml_linear_001'"
+            )
+            admin.commit()
+        finally:
+            pg.quiet_close(admin)
+
+    transport = ChatTransport(
+        contents=[_proposal_json("SHOW_MICRO_LESSON")], callback=withdraw_lesson
+    )
+    service = _make_service(isolated_pg_database, client=_fake_client(transport))
+    _seed_repeated_misconception(service)
+
+    response = service.process_batch(_request(("evt_01", 1)))
+
+    assert response.server_events[0]["action"] == "SHOW_WORKED_EXAMPLE"
+    assert "hybrid_ranked" not in response.server_events[0]
+    assert _trace_rows(service) == []
+
+
+def test_registry_match_requires_exact_pack_identity(
+    isolated_pg_database,
+) -> None:
+    service = _make_service(isolated_pg_database)
+    lesson = service.answer_keys.pack(PACK_VERSION).teaching_asset_meta(
+        "linear_equations", "worked_example", "sign_error"
+    )
+    assert lesson is not None
+
+    admin = pg.connect_admin(isolated_pg_database.admin_dsn)
+    try:
+        admin.execute(
+            "DELETE FROM content_pack_items "
+            "WHERE pack_id = 'syncmath' AND content_id = %s",
+            (lesson["id"],),
+        )
+        admin.execute(
+            """
+            INSERT INTO content_packs (
+                pack_id, pack_version, status, manifest_json, created_at
+            ) VALUES ('other-pack', %s, 'published', '{}', %s)
+            ON CONFLICT (pack_id) DO NOTHING
+            """,
+            (PACK_VERSION, "2026-08-07T16:00:00+08:00"),
+        )
+        admin.execute(
+            """
+            INSERT INTO content_pack_items (pack_id, content_id, version)
+            VALUES ('other-pack', %s, %s)
+            ON CONFLICT (pack_id, content_id) DO NOTHING
+            """,
+            (lesson["id"], lesson["version"]),
+        )
+        admin.commit()
+    finally:
+        pg.quiet_close(admin)
+
+    assert service._registry_matches_lesson(lesson=lesson) is False
 
 
 def test_duplicate_sync_is_idempotent_single_trace(

@@ -31,6 +31,7 @@ FACT_CATEGORY_MISCONCEPTION_INTERVENTION = "misconception_intervention"
 # separator (0x1F) which cannot appear in skills, misconceptions, or
 # intervention names.
 KEY_SEPARATOR = "\x1f"
+UNSET_MISCONCEPTION = object()
 
 
 class PGMemory:
@@ -68,7 +69,7 @@ class PGMemory:
         *,
         student_id: str,
         skill: str,
-        misconception: str | None = None,
+        misconception: str | None | object = UNSET_MISCONCEPTION,
         intervention: str | None = None,
         limit: int = 5,
     ) -> list[Any]:
@@ -79,9 +80,12 @@ class PGMemory:
             "skill = %s",
         ]
         params: list[object] = [student_id, skill]
-        if misconception is not None:
-            clauses.append("misconception = %s")
-            params.append(misconception)
+        if misconception is not UNSET_MISCONCEPTION:
+            if misconception is None:
+                clauses.append("misconception IS NULL")
+            else:
+                clauses.append("misconception = %s")
+                params.append(misconception)
         if intervention is not None:
             clauses.append("intervention = %s")
             params.append(intervention)
@@ -95,6 +99,32 @@ class PGMemory:
             LIMIT %s
             """,
             params,
+        ).fetchall()
+        return [_episode_from_row(row) for row in rows]
+
+    def recall_contradicting_episodes(
+        self,
+        *,
+        student_id: str,
+        skill: str,
+        misconception: str | None,
+        limit: int = 3,
+    ) -> list[Any]:
+        rows = self.connection.execute(
+            """
+            SELECT * FROM learning_episodes
+            WHERE student_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+              AND skill = %s
+              AND misconception IS NOT DISTINCT FROM %s
+              AND (
+                    status = 'contradicted'
+                    OR outcome_json::jsonb ->> 'correct' = 'false'
+                  )
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (student_id, skill, misconception, limit),
         ).fetchall()
         return [_episode_from_row(row) for row in rows]
 

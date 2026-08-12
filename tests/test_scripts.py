@@ -19,6 +19,7 @@ import psycopg
 import pytest
 
 from app.domain.events import LearningEvent, LearningEventType
+from app.content_pipeline.importing import import_pack
 from app.infrastructure import pg
 from app.infrastructure.learner_store import LearnerStore
 from app.infrastructure.migration_runner import SCHEMA_VERSION, migrate_database
@@ -1027,6 +1028,24 @@ def test_seed_demo_uses_dsn_and_remains_idempotent(
     assert seed_demo.main(args) == 0
     second_output = capsys.readouterr().out
     assert "already seeded" in second_output
+
+
+def test_seed_demo_does_not_downgrade_current_content_registry(
+    env: tuple[object, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connection, _, tenant_id = env
+    monkeypatch.setenv("BRIDGESAT_PACKS_ROOT", str(PACKS_ROOT))
+    admin = pg.connect_admin()
+    import_pack(admin, PACKS_ROOT / "bridgesat-math-0.3.0")
+    pg.quiet_close(admin)
+
+    result = seed_demo.main(["--db", pg.dsn(), "--tenant", tenant_id])
+
+    assert result == 0
+    assert connection.execute(
+        "SELECT pack_version FROM content_packs WHERE pack_id = 'bridgesat-math'"
+    ).fetchone()["pack_version"] == "0.3.0"
 
 
 def test_seed_demo_local_mode_leaves_outbox_pending(

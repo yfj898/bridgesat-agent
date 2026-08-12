@@ -13,6 +13,8 @@ Executes:
 - content audit                -> reports/content_audit_eval.json
 - performance gates            -> reports/performance_eval.json
 - accessibility checklist      -> reports/accessibility_eval.md
+- full Python test suite       -> reports/python_tests.json
+- Hybrid final decision gate   -> reports/hybrid_final_gate.json
 - final summary                 -> reports/final_summary.md
 - evidence pack                 -> docs/EVIDENCE_PACK.md
 
@@ -82,7 +84,11 @@ def run_offline_sync() -> Path:
     result = _run([sys.executable, "scripts/run_offline_sync_evals.py"])
     if result.returncode not in (0, 2):
         raise RuntimeError(f"offline sync eval failed: {result.stderr[-500:]}")
-    return REPORTS / "offline_sync_eval.json"
+    path = REPORTS / "offline_sync_eval.json"
+    report = _read_json(path)
+    if result.returncode != 0 or report.get("pass_rate") != 1.0:
+        raise RuntimeError(f"offline sync gate failed: {report}")
+    return path
 
 
 def run_retrieval() -> Path:
@@ -132,6 +138,23 @@ def run_hybrid() -> Path:
     return path
 
 
+def run_hybrid_final_gate() -> Path:
+    """Freeze the competition mode after the Hybrid report is generated."""
+    result = _run(
+        [
+            sys.executable,
+            "scripts/run_hybrid_final_gate.py",
+            "--input",
+            "reports/hybrid_eval.json",
+            "--output",
+            "reports/hybrid_final_gate.json",
+        ]
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"hybrid final gate failed: {result.stdout[-500:]}{result.stderr[-500:]}")
+    return REPORTS / "hybrid_final_gate.json"
+
+
 def run_security() -> Path:
     result = _run([sys.executable, "-m", "pytest", *SECURITY_SUITES,
                    "--disable-warnings", "-p", "no:cacheprovider"])
@@ -146,6 +169,8 @@ def run_security() -> Path:
     }
     path = REPORTS / "security_eval.json"
     path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    if result.returncode != 0 or summary["passed"] == 0:
+        raise RuntimeError(f"security test suite failed: {tail[-1000:]}")
     return path
 
 
@@ -153,7 +178,11 @@ def run_content_audit() -> Path:
     result = _run([sys.executable, "scripts/run_content_audit.py"])
     if result.returncode not in (0, 2):
         raise RuntimeError(f"content audit failed: {result.stderr[-500:]}")
-    return REPORTS / "content_audit_eval.json"
+    path = REPORTS / "content_audit_eval.json"
+    report = _read_json(path)
+    if result.returncode != 0 or report.get("pass_rate") != 1.0:
+        raise RuntimeError(f"content audit gate failed: {report}")
+    return path
 
 
 def run_performance() -> Path:
@@ -161,7 +190,11 @@ def run_performance() -> Path:
     result = _run([sys.executable, "scripts/run_performance_evals.py"])
     if result.returncode not in (0, 2):
         raise RuntimeError(f"performance eval failed: {result.stderr[-500:]}")
-    return REPORTS / "performance_eval.json"
+    path = REPORTS / "performance_eval.json"
+    report = _read_json(path)
+    if result.returncode != 0 or not report.get("all_gates_passed"):
+        raise RuntimeError(f"performance gate failed: {report}")
+    return path
 
 
 def run_web_tests() -> Path:
@@ -183,6 +216,28 @@ def run_web_tests() -> Path:
         "tail": tail[-1500:],
     }
     path = REPORTS / "web_tests.json"
+    path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    if result.returncode != 0 or summary["failed"] != 0:
+        raise RuntimeError(f"web test suite failed: {tail[-1000:]}")
+    return path
+
+
+def run_python_tests() -> Path:
+    result = _run([sys.executable, "-m", "pytest", "-p", "no:warnings"])
+    tail = (result.stdout + result.stderr)[-4000:]
+    pass_match = re.search(r"(\d+) passed", tail)
+    fail_match = re.search(r"(\d+) failed", tail)
+    if result.returncode != 0 or pass_match is None:
+        raise RuntimeError(f"Python test suite failed: {tail[-1000:]}")
+    summary = {
+        "schema_version": "1.0",
+        "label": "controlled internal test",
+        "command": "python -m pytest -p no:warnings",
+        "passed": int(pass_match.group(1)),
+        "failed": int(fail_match.group(1)) if fail_match else 0,
+        "tail": tail[-1500:],
+    }
+    path = REPORTS / "python_tests.json"
     path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     return path
 
@@ -234,6 +289,8 @@ def write_summary(entries: dict[str, Path]) -> Path:
     rag = _read_json(entries["rag"])
     memory = _read_json(entries["memory"])
     hybrid = _read_json(entries["hybrid"])
+    hybrid_gate = _read_json(entries["hybrid_final_gate"])
+    python_tests = _read_json(entries["python_tests"])
     security = _read_json(entries["security"])
     content_audit = _read_json(entries["content_audit"])
     performance = _read_json(entries["performance"])
@@ -313,6 +370,44 @@ def write_summary(entries: dict[str, Path]) -> Path:
         f"- adversarial rejection: {hybrid['summary']['adversarial_rejection_rate']:.0%}",
         f"- verified beneficial differences: {hybrid['summary']['beneficial_difference_cases']}",
         f"- report: reports/hybrid_eval.json",
+        "",
+        "## Hybrid final gate (controlled internal test)",
+        "",
+        f"- final competition mode: `{hybrid_gate['final_mode']}`",
+        f"- frozen feature flags: "
+        f"{', '.join(f'{name}=0' for name in hybrid_gate['frozen_feature_flags'])}",
+        f"- H7 action-ranking final decision: **{hybrid_gate['action_ranking_decision']}** "
+        "(No-Go is a legal evidence outcome, not a gate failure)",
+        f"- gate status: {hybrid_gate['status']} (report shape and safety checks)",
+        f"- evidence split: legacy H6/H7 "
+        f"{hybrid_gate['evidence_scope']['legacy_metrics']['cases']} cases/"
+        f"{hybrid_gate['evidence_scope']['legacy_metrics']['variants']} variants; "
+        f"H8 summary "
+        f"{hybrid_gate['evidence_scope']['h8_summary']['cases']} cases/"
+        f"{hybrid_gate['evidence_scope']['h8_summary']['variants']} variants "
+        "(excluded from legacy metrics)",
+        f"- safety checks: allowed-action violations "
+        f"{hybrid_gate['safety_checks']['allowed_action_violations']}, "
+        f"hallucinated acceptance {hybrid_gate['safety_checks']['hallucinated_acceptance']}, "
+        f"fallback {hybrid_gate['safety_checks']['fallback_success_rate']:.0%}, "
+        f"decisive zero calls {hybrid_gate['safety_checks']['decisive_zero_model_calls']:.0%}, "
+        f"explanation grounding {hybrid_gate['safety_checks']['explanation_grounding_accuracy']:.0%}, "
+        f"H8 summary grounding {hybrid_gate['safety_checks']['summary_grounding_accuracy']:.0%}, "
+        f"unavailable H8 fallback {hybrid_gate['safety_checks']['summary_unavailable_fallback_rate']:.0%}",
+        f"- beneficial difference cases: "
+        f"{hybrid_gate['safety_checks']['beneficial_difference_cases'] or 'none'} "
+        "(controlled synthetic/scripted evidence only)",
+        f"- rationale: {hybrid_gate['rationale']}",
+        f"- latency disclaimer: {hybrid_gate['synthetic_latency_disclaimer']}",
+        f"- missing evidence: {', '.join(hybrid_gate['missing_evidence'])}",
+        f"- rollback profile: {hybrid_gate['rollback_profile']['name']}; "
+        f"{hybrid_gate['rollback_profile']['action']}",
+        f"- report: reports/hybrid_final_gate.json",
+        "",
+        "## Python test suite (controlled internal test)",
+        "",
+        f"- pytest: {python_tests['passed']} passed, {python_tests['failed']} failed",
+        f"- report: reports/python_tests.json",
         "",
         "## Offline and synchronization (controlled internal test)",
         "",
@@ -415,6 +510,8 @@ def write_evidence_pack(entries: dict[str, Path], summary_path: Path) -> Path:
         "| Retrieval (RAG) | controlled internal test | reports/rag_eval.json | `.venv/bin/python scripts/import_content_pack.py && .venv/bin/python scripts/run_retrieval_evals.py` |",
         "| Long-term memory | controlled internal test | reports/memory_eval.json | `.venv/bin/python scripts/run_memory_ablation.py` |",
         "| Hybrid shadow ablation | controlled internal test | reports/hybrid_eval.json | `.venv/bin/python scripts/run_hybrid_ablation.py` |",
+        "| Hybrid final gate | controlled internal test | reports/hybrid_final_gate.json | `.venv/bin/python scripts/run_hybrid_final_gate.py --input reports/hybrid_eval.json --output reports/hybrid_final_gate.json` |",
+        "| Full Python test suite | controlled internal test | reports/python_tests.json | `.venv/bin/python -m pytest -p no:warnings` |",
         "| Offline and sync | controlled internal test | reports/offline_sync_eval.json | `.venv/bin/python scripts/run_offline_sync_evals.py` |",
         "| Security | controlled internal test | reports/security_eval.json | `.venv/bin/python -m pytest tests/security tests/test_sync_protocol.py -q` |",
         "| Web core-flow tests | controlled internal test | reports/web_tests.json | `node --test web/tests/*.test.js` |",
@@ -428,6 +525,7 @@ def write_evidence_pack(entries: dict[str, Path], summary_path: Path) -> Path:
         "- real educational outcome (requires a human usability study, EVALUATION_SPEC section 2);",
         "- accessibility manual walkthrough items marked 'manual check required'.",
         "- real human content review (the current `sim.*` ledger is controlled test data).",
+        "- real-provider latency and lock-duration evidence for Hybrid action ranking; the final gate records a No-Go and keeps deterministic mode frozen.",
         "",
         "## Honesty rules (EVALUATION_SPEC section 2)",
         "",
@@ -435,6 +533,23 @@ def write_evidence_pack(entries: dict[str, Path], summary_path: Path) -> Path:
         "`human usability test`, or `real educational outcome`.",
         "2. Synthetic simulation is never presented as real student improvement.",
         "3. The final summary distinguishes measured results from design targets.",
+        "",
+        "## Hybrid final decision",
+        "",
+        "The Hybrid final gate is a controlled internal test over synthetic cases "
+        "with scripted provider responses. Set `BRIDGESAT_HYBRID_COMPETITION_MODE=1` "
+        "for the competition/demo deployment; startup rejects contradictory flags, "
+        "freezes competition mode to deterministic, and keeps all five Hybrid feature "
+        "flags at `0`. H7 action "
+        "ranking is **No-Go** for default enablement: scripted p50/p95 values of "
+        "0 ms are not real-provider latency evidence, and no repeated real-provider "
+        "latency/lock-duration run is present. The H8 five-case/five-variant "
+        "summary evidence remains separate from legacy H6/H7 metrics. This does "
+        "not claim real student outcomes or real-provider latency.",
+        "",
+        "- final mode: `deterministic`",
+        "- action-ranking decision: **No-Go**",
+        "- report: `reports/hybrid_final_gate.json`",
         "",
         "## Reproduction",
         "",
@@ -477,6 +592,8 @@ def main() -> int:
         ("rag", run_retrieval),
         ("memory", run_memory),
         ("hybrid", run_hybrid),
+        ("hybrid_final_gate", run_hybrid_final_gate),
+        ("python_tests", run_python_tests),
         ("security", run_security),
         ("content_audit", run_content_audit),
         ("performance", run_performance),

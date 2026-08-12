@@ -32,6 +32,7 @@ from app.agent.hybrid import (
     semantic_reasoning_needed,
     task_enabled,
     task_settings,
+    validate_hybrid_runtime_configuration,
 )
 from app.agent.policy import (
     PolicyEvidence,
@@ -233,6 +234,16 @@ def test_master_flag_off_blocks_all_tasks(monkeypatch) -> None:
     assert task_enabled(HybridTask.EXPLANATION) is False
     settings = task_settings(HybridTask.EXPLANATION)
     assert settings.enabled is False
+
+
+def test_competition_mode_freezes_hybrid_runtime(monkeypatch) -> None:
+    monkeypatch.setenv("BRIDGESAT_HYBRID_COMPETITION_MODE", "1")
+    monkeypatch.setenv("BRIDGESAT_HYBRID_ENABLED", "1")
+    monkeypatch.setenv("BRIDGESAT_HYBRID_SUMMARY_ENABLED", "1")
+
+    assert task_enabled(HybridTask.SUMMARY) is False
+    with pytest.raises(RuntimeError, match="competition mode"):
+        validate_hybrid_runtime_configuration()
 
 
 def test_gate_decision_shape() -> None:

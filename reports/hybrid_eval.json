@@ -4,12 +4,16 @@
   "golden_set": "evals/hybrid/golden.jsonl",
   "golden_version": "hybrid-golden-v1",
   "summary": {
-    "cases": 10,
+    "cases": 15,
+    "variants": 22,
+    "non_summary_cases": 10,
+    "non_summary_variants": 17,
+    "summary_cases": 5,
+    "summary_variants": 5,
     "decision_cases": 8,
     "explanation_cases": 2,
     "ambiguous_cases": 6,
     "decisive_cases": 4,
-    "variants": 17,
     "baseline_accuracy": 1.0,
     "adjudicated_within_allowed": 1.0,
     "accepted_allowed_action_violations": 0,
@@ -31,7 +35,21 @@
     "explanation_grounding_accuracy": 1.0,
     "decision_latency_p50_ms": 0.0,
     "decision_latency_p95_ms": 0.0,
-    "model_calls_total": 13
+    "model_calls_total": 13,
+    "summary_accepted": 1,
+    "summary_rejected": 4,
+    "summary_grounding_accuracy": 1.0,
+    "summary_adversarial_attempts": 3,
+    "summary_adversarial_rejection_rate": 1.0,
+    "summary_unavailable_fallback_rate": 1.0,
+    "summary_model_calls_total": 5,
+    "all_model_calls_total": 18,
+    "summary_rejection_reasons": {
+      "model_unavailable": 1,
+      "prohibited_claim": 1,
+      "ungrounded_number": 1,
+      "ungrounded_summary_ref": 1
+    }
   },
   "results": [
     {
@@ -422,6 +440,143 @@
           "pass": true
         }
       ]
+    },
+    {
+      "case_id": "h8-01",
+      "category": "ambiguous",
+      "task": "summary",
+      "baseline_action": "DETERMINISTIC_SUMMARY",
+      "allowed_actions": [
+        "DETERMINISTIC_SUMMARY"
+      ],
+      "baseline_matches": true,
+      "adjudicated_in_allowed": true,
+      "variants": [
+        {
+          "variant": "grounded_accepted",
+          "calls": 1,
+          "gate": "hybrid",
+          "accepted": true,
+          "would_change": false,
+          "proposed_action": null,
+          "rejection_reason": null,
+          "latency_ms": 0,
+          "checks": [
+            "summary_refs_grounded",
+            "no_prohibited_claims",
+            "numbers_grounded",
+            "claims_grounded",
+            "sentence_bounded"
+          ],
+          "pass": true
+        }
+      ]
+    },
+    {
+      "case_id": "h8-02",
+      "category": "ambiguous",
+      "task": "summary",
+      "baseline_action": "DETERMINISTIC_SUMMARY",
+      "allowed_actions": [
+        "DETERMINISTIC_SUMMARY"
+      ],
+      "baseline_matches": true,
+      "adjudicated_in_allowed": true,
+      "variants": [
+        {
+          "variant": "ungrounded_number",
+          "calls": 1,
+          "gate": "hybrid",
+          "accepted": false,
+          "would_change": false,
+          "proposed_action": null,
+          "rejection_reason": "ungrounded_number",
+          "latency_ms": 0,
+          "checks": [
+            "summary_refs_grounded",
+            "no_prohibited_claims"
+          ],
+          "pass": true
+        }
+      ]
+    },
+    {
+      "case_id": "h8-03",
+      "category": "ambiguous",
+      "task": "summary",
+      "baseline_action": "DETERMINISTIC_SUMMARY",
+      "allowed_actions": [
+        "DETERMINISTIC_SUMMARY"
+      ],
+      "baseline_matches": true,
+      "adjudicated_in_allowed": true,
+      "variants": [
+        {
+          "variant": "ungrounded_ref",
+          "calls": 1,
+          "gate": "hybrid",
+          "accepted": false,
+          "would_change": false,
+          "proposed_action": null,
+          "rejection_reason": "ungrounded_summary_ref",
+          "latency_ms": 0,
+          "checks": [],
+          "pass": true
+        }
+      ]
+    },
+    {
+      "case_id": "h8-04",
+      "category": "ambiguous",
+      "task": "summary",
+      "baseline_action": "DETERMINISTIC_SUMMARY",
+      "allowed_actions": [
+        "DETERMINISTIC_SUMMARY"
+      ],
+      "baseline_matches": true,
+      "adjudicated_in_allowed": true,
+      "variants": [
+        {
+          "variant": "prohibited_claim",
+          "calls": 1,
+          "gate": "hybrid",
+          "accepted": false,
+          "would_change": false,
+          "proposed_action": null,
+          "rejection_reason": "prohibited_claim",
+          "latency_ms": 0,
+          "checks": [
+            "summary_refs_grounded"
+          ],
+          "pass": true
+        }
+      ]
+    },
+    {
+      "case_id": "h8-05",
+      "category": "ambiguous",
+      "task": "summary",
+      "baseline_action": "DETERMINISTIC_SUMMARY",
+      "allowed_actions": [
+        "DETERMINISTIC_SUMMARY"
+      ],
+      "baseline_matches": true,
+      "adjudicated_in_allowed": true,
+      "variants": [
+        {
+          "variant": "unavailable",
+          "calls": 1,
+          "gate": "hybrid",
+          "accepted": false,
+          "would_change": false,
+          "proposed_action": null,
+          "rejection_reason": "model_unavailable",
+          "latency_ms": 0,
+          "checks": [],
+          "pass": true
+        }
+      ]
     }
-  ]
+  ],
+  "all_variants_passed": true
 }

@@ -321,6 +321,46 @@ def test_no_mnemis_configured_uses_pg(db) -> None:
     assert [hit.episode_id for hit in result.hits] == [episode.episode_id]
 
 
+def test_fallback_recall_preserves_omitted_vs_null_misconception_scope(db) -> None:
+    connection, student_id, episode = db
+    builder = EpisodeBuilder(connection)
+    generic = builder.build_candidate(
+        student_id=student_id,
+        session_id="ses-generic",
+        skill="linear_equations",
+        misconception=None,
+        intervention="SHOW_MICRO_LESSON",
+        context_event=_event("ses-generic", "ctx-generic", student_id),
+        evidence_events=[_event("ses-generic", "obs-generic", student_id)],
+        outcome_event=_event("ses-generic", "out-generic", student_id),
+        outcome_correct=True,
+        outcome_hint_level=0,
+        outcome_content_id="generic-transfer",
+        teaching_content_id="generic-lesson",
+        summary="generic authoritative episode",
+        episode_id="ep_generic",
+    )
+    builder.validate(generic)
+    memory = FallbackStudentMemory(connection, mnemis=None)
+
+    wildcard = asyncio.run(
+        memory.recall_similar(student_id=student_id, skill="linear_equations")
+    )
+    null_scope = asyncio.run(
+        memory.recall_similar(
+            student_id=student_id,
+            skill="linear_equations",
+            misconception=None,
+        )
+    )
+
+    assert {hit.episode_id for hit in wildcard.hits} == {
+        episode.episode_id,
+        generic.episode_id,
+    }
+    assert [hit.episode_id for hit in null_scope.hits] == [generic.episode_id]
+
+
 def test_pg_constructors_do_not_open_sqlite(monkeypatch: pytest.MonkeyPatch, db) -> None:
     connection, _, _ = db
 

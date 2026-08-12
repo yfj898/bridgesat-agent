@@ -1,81 +1,95 @@
-# BridgeSAT AceSAT three-minute demo
+# BridgeSAT offline-first SAT tutor remembers teaching strategies that actually helped and uses them sooner.
 
-This script proves student value, agent initiative, memory-caused behavior, and
-offline continuity. Do not show architecture diagrams or optional LLM/Mnemis.
+This three-minute student story shows continuity: the tutor notices a repeated
+stuck point, verifies what helps, and brings that help back in the next session.
+Keep the focus on what the student sees. Do not show architecture diagrams,
+internal action labels, episode identifiers, policy versions, or sync queues.
 
 ## Before recording
 
-Use the single setup/verification order in `README.md`, then open a clean browser
-profile at `http://127.0.0.1:8000`. Do not delete databases or edit report files.
-The current content review ledger is simulated; do not call it human-approved.
+Use the setup and verification path in `README.md`, then open a clean browser
+profile at `http://127.0.0.1:8000`. Do not delete databases or edit reports.
 
-## 0:00–0:20 — Problem and impact
+## Final configuration preflight
+
+Before recording, confirm `final_mode=deterministic` in
+`docs/HYBRID_FINAL_CONFIGURATION.md`. Set
+`BRIDGESAT_HYBRID_COMPETITION_MODE=1`, then confirm all five Hybrid flags are
+`0`:
+
+- `BRIDGESAT_HYBRID_ENABLED=0`;
+- `BRIDGESAT_HYBRID_SHADOW_ENABLED=0`;
+- `BRIDGESAT_HYBRID_EXPLANATION_ENABLED=0`;
+- `BRIDGESAT_HYBRID_ACTION_RANKING_ENABLED=0`.
+- `BRIDGESAT_HYBRID_SUMMARY_ENABLED=0`.
+
+H7 is **No-Go** for this recording. No live provider is used. The current content
+review is simulated and is not human-approved.
+
+## 0:00–0:20 — The tutoring continuity problem
 
 Show the mobile-width PWA.
 
-> Many students in underserved public schools cannot rely on a personal SAT
-> tutor, and unstable internet makes cloud-only tutoring even less reliable.
+> A student may not have a personal tutor, a new device, or a reliable connection.
+> When ordinary practice ends, it can forget the teaching strategy that was just
+> beginning to help. Every student deserves a tutor that remembers what actually
+> helps them learn. BridgeSAT is an offline-first SAT tutor that remembers
+> teaching strategies that actually helped and uses them sooner.
 
-## 0:20–0:45 — Diagnose and plan
+## 0:20–0:55 — Starting point, then Session 1 practice
 
-Create the learner. On the linear-equation diagnostic item choose `B` to expose
-`sign_error`; on the different-skill item choose its correct answer as shown.
-Wait for the plan card to confirm `linear equations` as the weak area before
-continuing.
+Create the learner and answer the two diagnostic questions to find a useful
+starting point. Do not characterize those two questions as similar.
 
-> BridgeSAT does not wait for the student to know what to ask. It identifies the
-> weak skill and chooses what to do next.
+Then begin Session 1 practice. On the first similar linear-equation practice
+problem, choose `B`. After the first answer, show: **Try one more similar problem
+so I can see whether the same step is getting in the way.** On the next similar
+practice problem, choose `B` again. Show the intervention that follows the
+repeated stuck point.
 
-## 0:45–1:20 — Session 1 learns what helps
+> BridgeSAT does not ask the student to diagnose the mistake. It notices the
+> repeated pattern and offers a useful next step.
 
-Start personalized practice focused on linear equations.
+## 0:55–1:20 — Check the help on a new problem
 
-1. Choose `B` on the first linear item: `sign_error`; show
-   `RETRY_SAME_SKILL`.
-2. Choose `B` on the next distinct item: repeated `sign_error`; show
-   `SHOW_WORKED_EXAMPLE`.
-3. Point to the short reason and lesson review/license/source metadata.
-4. Choose `A` on the next distinct transfer item; show
-   `Learning memory validated` and its Episode ID.
+Use **Try a new problem** after the lesson. Answer the different-item verification
+problem correctly, then show: **This approach worked on a new problem.** Point
+out that it is not the item that triggered the help.
 
-> BridgeSAT observed both the misconception and whether the intervention was
-> followed by transfer success.
+> This verifies that the teaching strategy worked on a different item before the
+> tutor remembers it for a later session.
 
-## 1:20–1:55 — Session 2 is the innovation proof
+## 1:20–1:55 — Session 2 remembers what helped
 
-End the session, start a new one, and choose `B` on the first similar item.
-Show `SHOW_WORKED_EXAMPLE`, `RECALLED_SUCCESSFUL_EPISODE`, policy version, and
-Episode ID.
+End the first session, start a second one, and make the planned first similar
+error. Show that the same successful intervention appears early, without waiting
+for a second repeat.
 
-> In Session 1, the first error produced a retry. With successful memory, the
-> first similar error in Session 2 produces the worked example immediately.
-> Memory changed what the student experiences.
+> The tutor intervenes earlier because this same teaching strategy was validated
+> by the new-problem success in Session 1.
 
-## 1:55–2:30 — Accessibility under disconnection
+## 1:55–2:25 — Keep learning offline
 
-Disable the network, select `Next question`, request a hint on that cached item,
-answer it, and refresh. Show that the current question/session returns and the
-pending-event count remains.
+Disable the network. Continue cached practice, answer a problem, and refresh the
+page. Show the session return after refresh. Restore the network and show that
+progress saves automatically after reconnection.
 
-> The core learning loop uses the cached approved record, local scoring, and a
-> bounded local policy. It does not depend on a live AI connection.
+> The student can keep practicing through a weak connection; the tutor preserves
+> the session and saves progress when service returns.
 
-## 2:30–2:45 — Recovery without double scoring
+## 2:25–2:50 — Open the learning record only for evaluator evidence
 
-Restore the network and synchronize. Show the pending count reach zero. Trigger
-sync again.
+Open the collapsed **Learning record details** section for evaluator evidence.
+Point out the same misconception, the validated intervention, the exact approved
+content shown, the different-item transfer, and the recalled action in the next
+session.
 
-> Stable event IDs and PostgreSQL deduplication make retry safe; the answer is
-> not scored twice.
+> This is verified interaction and transfer evidence for this controlled
+> interaction: the same misunderstanding, a confirmed intervention, and success
+> on a different problem. Under BridgeSAT's existing learning-memory semantics,
+> that different-item success validates the intervention for later recall. It does
+> not establish permanent mastery or SAT-score improvement.
 
-## 2:45–3:00 — Evidence and close
+## 2:50–3:00 — Close
 
-Show one evidence screen only: current Python/Web pass counts, 10/10
-offline/sync, and the two-session memory proof. Use values from the final run.
-
-> BridgeSAT does not just remember what a student got wrong. It remembers what
-> helped that student recover and reuses that evidence across sessions, even
-> when connectivity is unreliable.
-
-Label any educational-improvement number as **synthetic simulation — not real
-student outcome**.
+> Every student deserves a tutor that remembers what actually helps them learn.

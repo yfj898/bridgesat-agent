@@ -14,35 +14,35 @@
       "mrr": 0.3,
       "next_action_accuracy": 0.3,
       "intervention_accuracy": 0.3,
-      "latency_avg_ms": 0.46255241613835096,
-      "latency_p95_ms": 1.4199779834598303
+      "latency_avg_ms": 0.4805475939065218,
+      "latency_p95_ms": 1.0334759717807174
     },
     "similar_postgres": {
       "recall_at_3": 1.0,
       "mrr": 1.0,
       "next_action_accuracy": 1.0,
       "intervention_accuracy": 1.0,
-      "latency_avg_ms": 0.37173039745539427,
-      "latency_p95_ms": 1.4084239955991507
+      "latency_avg_ms": 0.3404686111025512,
+      "latency_p95_ms": 0.7256179815158248
     },
     "mnemis_system1": {
       "recall_at_3": 1.0,
       "mrr": 0.85,
       "next_action_accuracy": 1.0,
       "intervention_accuracy": 1.0,
-      "latency_avg_ms": 0.01781528117135167,
-      "latency_p95_ms": 0.049941008910536766
+      "latency_avg_ms": 0.013981375377625227,
+      "latency_p95_ms": 0.02452696207910776
     },
     "mnemis_dual": {
       "recall_at_3": 1.0,
       "mrr": 1.0,
       "next_action_accuracy": 1.0,
       "intervention_accuracy": 1.0,
-      "latency_avg_ms": 801.4605458010919,
-      "latency_p95_ms": 802.7473809197545,
+      "latency_avg_ms": 801.553442585282,
+      "latency_p95_ms": 803.1833190470934,
       "fallback_success": 1.0
     },
-    "tenant_id": "ablation_606370fb92154dfb9687f547f5a4dd58"
+    "tenant_id": "ablation_2807cc5d694648e48b368771946bba66"
   },
   "probes": [
     {
@@ -60,28 +60,28 @@
           "intervention_accuracy": true
         },
         "recent_postgres": {
-          "elapsed_ms": 0.7163139525800943,
+          "elapsed_ms": 0.5927450256422162,
           "recall_at_3": false,
           "mrr": 0.0,
           "next_action_accuracy": false,
           "intervention_accuracy": false
         },
         "similar_postgres": {
-          "elapsed_ms": 0.30988501384854317,
+          "elapsed_ms": 0.3684450639411807,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "mnemis_system1": {
-          "elapsed_ms": 0.03000407014042139,
+          "elapsed_ms": 0.02452696207910776,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "mnemis_dual": {
-          "elapsed_ms": 801.4589969534427,
+          "elapsed_ms": 801.2561500072479,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
@@ -111,28 +111,28 @@
           "intervention_accuracy": false
         },
         "recent_postgres": {
-          "elapsed_ms": 0.2884720452129841,
+          "elapsed_ms": 0.22095302119851112,
           "recall_at_3": false,
           "mrr": 0.0,
           "next_action_accuracy": false,
           "intervention_accuracy": false
         },
         "similar_postgres": {
-          "elapsed_ms": 0.29001489747315645,
+          "elapsed_ms": 0.24776801001280546,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "mnemis_system1": {
-          "elapsed_ms": 0.01807999797165394,
+          "elapsed_ms": 0.01267995685338974,
           "recall_at_3": true,
           "mrr": 0.5,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "mnemis_dual": {
-          "elapsed_ms": 801.634929026477,
+          "elapsed_ms": 802.8228459879756,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
@@ -161,28 +161,28 @@
           "intervention_accuracy": true
         },
         "recent_postgres": {
-          "elapsed_ms": 0.25415001437067986,
+          "elapsed_ms": 1.0334759717807174,
           "recall_at_3": false,
           "mrr": 0.0,
           "next_action_accuracy": false,
           "intervention_accuracy": false
         },
         "similar_postgres": {
-          "elapsed_ms": 0.2802630187943578,
+          "elapsed_ms": 0.3502459730952978,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "mnemis_system1": {
-          "elapsed_ms": 0.011452008038759232,
+          "elapsed_ms": 0.011653988622128963,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "mnemis_dual": {
-          "elapsed_ms": 801.5493120765314,
+          "elapsed_ms": 803.1833190470934,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
@@ -212,28 +212,28 @@
           "intervention_accuracy": false
         },
         "recent_postgres": {
-          "elapsed_ms": 0.25699601974338293,
+          "elapsed_ms": 0.8056210353970528,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "similar_postgres": {
-          "elapsed_ms": 0.23911602329462767,
+          "elapsed_ms": 0.7256179815158248,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "mnemis_system1": {
-          "elapsed_ms": 0.011749914847314358,
+          "elapsed_ms": 0.02201995812356472,
           "recall_at_3": true,
           "mrr": 0.5,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "mnemis_dual": {
-          "elapsed_ms": 802.7473809197545,
+          "elapsed_ms": 801.7130719963461,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
@@ -262,28 +262,28 @@
           "intervention_accuracy": true
         },
         "recent_postgres": {
-          "elapsed_ms": 1.4199779834598303,
+          "elapsed_ms": 0.5480280378833413,
           "recall_at_3": false,
           "mrr": 0.0,
           "next_action_accuracy": false,
           "intervention_accuracy": false
         },
         "similar_postgres": {
-          "elapsed_ms": 1.4084239955991507,
+          "elapsed_ms": 0.34419598523527384,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "mnemis_system1": {
-          "elapsed_ms": 0.049941008910536766,
+          "elapsed_ms": 0.01401000190526247,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "mnemis_dual": {
-          "elapsed_ms": 801.5051889233291,
+          "elapsed_ms": 801.0972919873893,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
@@ -313,28 +313,28 @@
           "intervention_accuracy": false
         },
         "recent_postgres": {
-          "elapsed_ms": 0.5779650527983904,
+          "elapsed_ms": 0.34604896791279316,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "similar_postgres": {
-          "elapsed_ms": 0.26000302750617266,
+          "elapsed_ms": 0.3455500118434429,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "mnemis_system1": {
-          "elapsed_ms": 0.012035947293043137,
+          "elapsed_ms": 0.009129056707024574,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "mnemis_dual": {
-          "elapsed_ms": 800.7884720573202,
+          "elapsed_ms": 801.2143489904702,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
@@ -363,28 +363,28 @@
           "intervention_accuracy": true
         },
         "recent_postgres": {
-          "elapsed_ms": 0.342613086104393,
+          "elapsed_ms": 0.3336179070174694,
           "recall_at_3": false,
           "mrr": 0.0,
           "next_action_accuracy": false,
           "intervention_accuracy": false
         },
         "similar_postgres": {
-          "elapsed_ms": 0.2676830627024174,
+          "elapsed_ms": 0.2752359723672271,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "mnemis_system1": {
-          "elapsed_ms": 0.011531985364854336,
+          "elapsed_ms": 0.011683907359838486,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "mnemis_dual": {
-          "elapsed_ms": 800.8970799855888,
+          "elapsed_ms": 800.7989849429578,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
@@ -414,28 +414,28 @@
           "intervention_accuracy": false
         },
         "recent_postgres": {
-          "elapsed_ms": 0.24669792037457228,
+          "elapsed_ms": 0.4012079443782568,
           "recall_at_3": false,
           "mrr": 0.0,
           "next_action_accuracy": false,
           "intervention_accuracy": false
         },
         "similar_postgres": {
-          "elapsed_ms": 0.19995297770947218,
+          "elapsed_ms": 0.2972290385514498,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "mnemis_system1": {
-          "elapsed_ms": 0.0094269635155797,
+          "elapsed_ms": 0.010745949111878872,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "mnemis_dual": {
-          "elapsed_ms": 801.1651050765067,
+          "elapsed_ms": 801.496451953426,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
@@ -464,14 +464,14 @@
           "intervention_accuracy": false
         },
         "recent_postgres": {
-          "elapsed_ms": 0.25384407490491867,
+          "elapsed_ms": 0.29829901177436113,
           "recall_at_3": false,
           "mrr": 0.0,
           "next_action_accuracy": false,
           "intervention_accuracy": false
         },
         "similar_postgres": {
-          "elapsed_ms": 0.21240999922156334,
+          "elapsed_ms": 0.28834305703639984,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
@@ -485,7 +485,7 @@
           "intervention_accuracy": true
         },
         "mnemis_dual": {
-          "elapsed_ms": 801.2109510600567,
+          "elapsed_ms": 800.6921989144757,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
@@ -514,28 +514,28 @@
           "intervention_accuracy": false
         },
         "recent_postgres": {
-          "elapsed_ms": 0.2684940118342638,
+          "elapsed_ms": 0.2254790160804987,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "similar_postgres": {
-          "elapsed_ms": 0.2495519584044814,
+          "elapsed_ms": 0.16205501742661,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "mnemis_system1": {
-          "elapsed_ms": 0.013013952411711216,
+          "elapsed_ms": 0.012447009794414043,
           "recall_at_3": true,
           "mrr": 0.5,
           "next_action_accuracy": true,
           "intervention_accuracy": true
         },
         "mnemis_dual": {
-          "elapsed_ms": 801.6480419319123,
+          "elapsed_ms": 801.2597620254382,
           "recall_at_3": true,
           "mrr": 1.0,
           "next_action_accuracy": true,

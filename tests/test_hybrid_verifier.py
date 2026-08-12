@@ -378,6 +378,74 @@ def test_fake_supported_stat_claim_about_selected_episode_rejected() -> None:
     assert outcome.rejected_reason == "claim_no_supported_stat"
 
 
+def test_transfer_claim_scope_is_bound_to_current_skill_and_misconception() -> None:
+    outcome = verify(
+        proposal=make_proposal(selected_episode_id=None),
+        episodes={
+            "ep_001": make_episode(
+                skill="other_skill", misconception="other_misconception"
+            )
+        },
+    )
+
+    assert outcome.accepted is True
+    assert outcome.rationale_accepted is False
+    assert "claim_skill_mismatch" in outcome.checks
+
+
+def test_supported_stat_claim_requires_matching_scope() -> None:
+    outcome = verify(
+        proposal=make_proposal(
+            selected_episode_id=None,
+            evidence_claims=(
+                EvidenceClaim(
+                    claim_code="SUPPORTED_INTERVENTION_EFFECT",
+                    evidence_refs=("ep_001",),
+                ),
+            ),
+        ),
+        context=make_context(
+            intervention_stats=(
+                InterventionEvidence(
+                    skill="other_skill",
+                    misconception="sign_error",
+                    intervention=BoundedAction.SHOW_WORKED_EXAMPLE,
+                    difficulty_band="d2",
+                    immediate_attempts=3,
+                    short_term_attempts=0,
+                    delayed_attempts=0,
+                    blended_effectiveness=0.75,
+                    support="supported",
+                ),
+            )
+        ),
+    )
+
+    assert outcome.accepted is True
+    assert outcome.rationale_accepted is False
+    assert "claim_stat_insufficient" in outcome.checks
+
+
+def test_insufficient_stat_does_not_expose_numeric_effectiveness() -> None:
+    context = make_context(
+        intervention_stats=(
+            InterventionEvidence(
+                skill="linear_equations",
+                misconception="sign_error",
+                intervention=BoundedAction.SHOW_WORKED_EXAMPLE,
+                difficulty_band="d2",
+                immediate_attempts=2,
+                short_term_attempts=0,
+                delayed_attempts=0,
+                blended_effectiveness=None,
+                support="insufficient",
+            ),
+        )
+    )
+
+    assert context.intervention_stats[0].blended_effectiveness is None
+
+
 def test_invented_ref_outside_candidates_loses_wording() -> None:
     outcome = verify(
         proposal=make_proposal(

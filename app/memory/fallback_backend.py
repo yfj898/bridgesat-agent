@@ -22,7 +22,7 @@ from app.memory.mnemis_backend import (
     MnemisMemoryResult,
     SYSTEM_1_TIMEOUT_MS,
 )
-from app.memory.pg_memory import PGMemory
+from app.memory.pg_memory import PGMemory, UNSET_MISCONCEPTION
 
 
 @dataclass
@@ -101,20 +101,21 @@ class FallbackStudentMemory:
         *,
         student_id: str,
         skill: str,
-        misconception: str | None = None,
+        misconception: str | None | object = UNSET_MISCONCEPTION,
         limit: int = 5,
     ) -> RecallResult:
         started = time.perf_counter()
         hits: list[RecallHit] = []
         route = "pg"
 
-        if self.mnemis is not None:
+        if self.mnemis is not None and misconception is not None:
             try:
                 query = {
                     "student_id": student_id,
                     "skill": skill,
-                    "misconception": misconception,
                 }
+                if misconception is not UNSET_MISCONCEPTION:
+                    query["misconception"] = misconception
                 results = await asyncio.wait_for(
                     self.mnemis.recall_similar(query),
                     timeout=self.timeout_ms / 1000,
@@ -130,12 +131,14 @@ class FallbackStudentMemory:
                 hits = []
 
         if not hits:
-            episodes = self.pg.recall_episodes(
-                student_id=student_id,
-                skill=skill,
-                misconception=misconception,
-                limit=limit,
-            )
+            pg_kwargs = {
+                "student_id": student_id,
+                "skill": skill,
+                "limit": limit,
+            }
+            if misconception is not UNSET_MISCONCEPTION:
+                pg_kwargs["misconception"] = misconception
+            episodes = self.pg.recall_episodes(**pg_kwargs)
             hits = [
                 RecallHit(
                     episode_id=e.episode_id,
@@ -149,9 +152,20 @@ class FallbackStudentMemory:
             route = "pg"
 
         if not hits and self.offline_snapshot is not None:
-            episodes = self.offline_snapshot.recall_episodes(
-                student_id=student_id, skill=skill, misconception=misconception, limit=limit
-            )
+            snapshot_kwargs = {
+                "student_id": student_id,
+                "skill": skill,
+                "limit": limit,
+            }
+            if misconception is not UNSET_MISCONCEPTION:
+                snapshot_kwargs["misconception"] = misconception
+            episodes = self.offline_snapshot.recall_episodes(**snapshot_kwargs)
+            if misconception is not UNSET_MISCONCEPTION:
+                episodes = [
+                    episode
+                    for episode in episodes
+                    if episode.misconception == misconception
+                ]
             hits = [
                 RecallHit(
                     episode_id=e.episode_id,

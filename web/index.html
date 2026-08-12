@@ -11,9 +11,9 @@
   <body>
     <main class="shell">
       <header>
-        <p class="eyebrow">Your adaptive SAT coach</p>
+        <p class="eyebrow">Your SAT study partner</p>
         <h1>BridgeSAT</h1>
-        <p>Practice that remembers what helped you and keeps working offline.</p>
+        <p>Every student deserves a tutor that remembers what actually helps them learn.</p>
         <div class="connection-status" aria-label="Connection and progress status">
           <div id="network-status" class="status" role="status">Checking connection…</div>
           <div id="sync-status" class="status" role="status"></div>
@@ -22,10 +22,9 @@
 
       <section id="welcome-card" class="card welcome-card" aria-labelledby="welcome-title">
         <p class="eyebrow">SAT Math practice</p>
-        <h2 id="welcome-title">Start with the right skill, not a random question</h2>
+        <h2 id="welcome-title">Start with two questions. I'll find the best place to begin.</h2>
         <p>
-          BridgeSAT uses a short diagnostic to choose where you should begin, then adapts
-          practice from your mistakes and what has helped you before.
+          BridgeSAT notices stuck points, chooses the next step, and remembers what worked. It remembers what worked for you before.
         </p>
 
         <div class="product-stats" aria-label="Available learning content">
@@ -72,16 +71,15 @@
         </div>
 
         <p class="welcome-note">
-          You do not need to choose a subject first. The Quick Diagnostic chooses your
-          starting point. After setup, cached practice continues offline.
+          two questions help BridgeSAT find a useful starting point. If your connection drops, you can keep learning.
         </p>
-        <button type="button" id="start-diagnostic-button">Start Quick Diagnostic</button>
+        <button type="button" id="start-diagnostic-button">Start with two questions</button>
       </section>
 
       <section id="profile-card" class="card hidden" aria-labelledby="profile-title">
         <p class="eyebrow">Welcome</p>
         <h2 id="profile-title">Set up today’s practice</h2>
-        <p>Start with a short diagnostic so BridgeSAT can choose where your time will help most.</p>
+        <p>Answer two questions to find the best place to begin.</p>
         <form id="profile-form">
           <label>
             Name
@@ -97,12 +95,9 @@
 
       <section id="session-card" class="card hidden" aria-labelledby="session-title">
         <h2 id="session-title">Practice session</h2>
-        <p id="learning-phase" class="eyebrow">Quick diagnostic</p>
+        <p id="learning-phase" class="eyebrow">Find your starting point</p>
         <p id="learning-focus" class="focus" role="status"></p>
         <div id="mastery-list" class="mastery-list"></div>
-        <div class="status" role="status">
-          Pending sync: <strong id="pending-count">0</strong>
-        </div>
 
         <div id="question-area">
           <p class="question-prompt"></p>
@@ -111,17 +106,17 @@
           <p id="hint-label" class="hint"></p>
           <p class="feedback"></p>
           <section id="agent-intervention" class="intervention hidden" aria-live="polite">
-            <p class="memory-banner hidden">Based on what helped you before</p>
-            <p class="eyebrow">BridgeSAT recommendation</p>
+            <p class="memory-banner hidden">This helped you before</p>
+            <p class="eyebrow">Your next step</p>
             <h3 class="intervention-title"></h3>
             <p class="intervention-why"></p>
             <div class="intervention-content"></div>
             <details class="recommendation-details">
-              <summary>Why this recommendation?</summary>
+              <summary>Why?</summary>
               <p class="recommendation-detail"></p>
             </details>
             <details class="technical-evidence">
-              <summary>Technical evidence</summary>
+              <summary>Learning record details</summary>
               <p class="intervention-meta"></p>
             </details>
           </section>
@@ -130,8 +125,8 @@
         </div>
 
         <div id="diagnostic-summary" class="hidden" aria-live="polite">
-          <p class="eyebrow">Diagnosis result</p>
-          <h3>Your focus for today</h3>
+          <p class="eyebrow">Your starting point</p>
+          <h3>Start here</h3>
           <p class="diagnostic-explanation"></p>
           <h4>Today’s plan</h4>
           <ol class="diagnostic-plan"></ol>

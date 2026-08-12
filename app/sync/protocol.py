@@ -56,6 +56,7 @@ class SyncRejectedEvent(BaseModel):
     event_id: str
     code: str
     retryable: bool
+    detail: str = ""
 
 
 class SyncConflict(BaseModel):
@@ -73,6 +74,14 @@ class SyncRequest(BaseModel):
     events: list[SyncEventEnvelope] = Field(default_factory=list)
 
 
+class PersonalizedSummary(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    source_event_id: str = Field(min_length=1, max_length=64)
+    session_id: str = Field(min_length=1, max_length=128)
+    summary_text: str = Field(min_length=1, max_length=480)
+
+
 class SyncResponse(BaseModel):
     accepted_event_ids: list[str] = []
     duplicate_event_ids: list[str] = []
@@ -84,6 +93,8 @@ class SyncResponse(BaseModel):
     required_content_packs: list[str] = []
     memory_snapshot: dict = {}
     sync_status: str = "complete"
+    personalized_summary: str | None = None
+    personalized_summaries: list[PersonalizedSummary] = Field(default_factory=list)
 
 
 class DeviceRegistration(BaseModel):

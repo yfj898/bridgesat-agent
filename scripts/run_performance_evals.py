@@ -47,6 +47,10 @@ from app.sync.service import SyncService
 
 REPORT_JSON = ROOT / "reports" / "performance_eval.json"
 
+# Performance evals replay historical device traffic against the archived
+# bridgesat-math-0.1.0 pack directory (kept for reproducibility), not the
+# current packaging.PACK_VERSION. The version is intentionally pinned; the
+# benchmark never seeds the PostgreSQL registry.
 PACK_VERSION = "0.1.0"
 PACK_DIR = packs_root() / f"bridgesat-math-{PACK_VERSION}"
 

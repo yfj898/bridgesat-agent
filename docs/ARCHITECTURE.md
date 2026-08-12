@@ -45,6 +45,12 @@ need not be physically merged. PostgreSQL is the only authoritative
 learner/event/memory/sync/content state. Optional LLM or memory layers are
 derived and degrade safely.
 
+The H9 competition configuration freezes the main path to
+`final_mode=deterministic`. H7 action ranking and H8 session summary are
+opt-in, verified, and fail-closed; all five `BRIDGESAT_HYBRID_*` flags are
+`0`. H7 action ranking is not default-enabled because the final controlled
+evidence does not include repeated real-provider latency or lock-duration runs.
+
 ---
 
 ## 2. Product definition
@@ -997,19 +1003,35 @@ BridgeSAT changed your plan because:
 
 ```text
 evals/
-├── golden_policy_scenarios.json
-├── golden_memory_scenarios.json
-├── golden_rag_queries.json
-├── offline_scenarios.json
-├── sync_scenarios.json
-├── content_license_cases.json
-├── run_policy_eval.py
-├── run_memory_eval.py
-├── run_rag_eval.py
-├── run_offline_eval.py
-├── run_sync_eval.py
+├── policy/golden.jsonl + REPORT.md
+├── educational/REPORT.md
+├── memory/golden.jsonl + REPORT.md
+├── retrieval/dev.jsonl + golden.jsonl
+├── offline_sync/REPORT.md
+├── hybrid/golden.jsonl + REPORT.md
+├── content_audit/REPORT.md
+└── run_all.py
+
+scripts/
+├── run_policy_evals.py
+├── run_educational_evals.py
+├── run_memory_ablation.py
+├── run_retrieval_evals.py
+├── run_offline_sync_evals.py
+├── run_hybrid_ablation.py
+├── run_hybrid_final_gate.py
 ├── run_content_audit.py
-└── reports/
+└── run_performance_evals.py
+
+reports/
+├── policy_eval.json, educational_eval.json, memory_eval.json
+├── rag_eval.json, offline_sync_eval.json, hybrid_eval.json
+├── hybrid_final_gate.json, content_audit_eval.json
+├── python_tests.json, performance_eval.json, security_eval.json, web_tests.json
+├── accessibility_eval.md
+└── final_summary.md
+
+docs/EVIDENCE_PACK.md indexes the artifacts and commands.
 ```
 
 ### 21.1 Policy evaluation
@@ -1062,6 +1084,25 @@ local interaction latency
 decision-explanation coverage
 ```
 
+### 21.5 H7 two-phase boundary and H9 final gate
+
+H7 action ranking is implemented behind feature flags rather than being part of
+the default decision authority. If an explicitly enabled run reaches H7, Phase
+A commits the deterministic evidence and fallback, Phase B calls the provider
+after the long transaction/advisory lock is released, and Phase C revalidates
+the source event, session state, and decision token before a verified response
+replacement. A timeout, stale token, provider failure, rejected proposal, or
+other race keeps the deterministic fallback.
+
+H8 summary personalization is likewise opt-in and must use validated facts with
+a deterministic fallback. H9 records the final competition mode as
+`deterministic`, freezes all five Hybrid flags at `0`, and marks H7 action
+ranking **No-Go** for default enablement. This is a legal evidence decision
+because scripted p50/p95 values of `0 ms` are not real-provider latency or
+lock-duration evidence; it is not a safety-test failure. See
+`reports/hybrid_final_gate.json`, `reports/final_summary.md`, and
+`docs/EVIDENCE_PACK.md`.
+
 ---
 
 ## 22. Failure and fallback design
@@ -1081,6 +1122,13 @@ decision-explanation coverage
 | Corrupt event | Reject it and preserve the remaining queue |
 
 ---
+
+> **Historical / planning snapshot (Sections 23–26).** The deployment modes,
+> implementation phases, gap list, and completeness assessment below preserve
+> design-time planning context. They are not a statement that every optional
+> service, phase, target, or next step is current runtime truth. For current
+> runtime and frozen evidence, use this document's decision-authority section,
+> `docs/IMPLEMENTATION_CHAIN.md`, `reports/*`, and `docs/EVIDENCE_PACK.md`.
 
 ## 23. Deployment architecture
 

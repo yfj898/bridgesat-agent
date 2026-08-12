@@ -23,6 +23,9 @@ CLAIM_CODES = (
     "SAME_MISCONCEPTION",
     "SUCCESSFUL_TRANSFER",
     "SUPPORTED_INTERVENTION_EFFECT",
+    "BEHAVIORAL_LEARNING_SIGNAL",
+    # Legacy H6 name retained so frozen verifier fixtures remain readable.
+    # New prompts emit BEHAVIORAL_LEARNING_SIGNAL.
     "STUDENT_REASONING_SIGNAL",
 )
 
@@ -52,6 +55,8 @@ class InterventionEvidence(BaseModel):
 
     model_config = {"extra": "forbid"}
 
+    skill: str | None = Field(default=None, max_length=64)
+    misconception: str | None = Field(default=None, max_length=64)
     intervention: BoundedAction
     difficulty_band: str = Field(min_length=1, max_length=8)
     immediate_attempts: int = Field(ge=0, le=1000)
@@ -117,6 +122,7 @@ class EvidenceClaim(BaseModel):
         "SAME_MISCONCEPTION",
         "SUCCESSFUL_TRANSFER",
         "SUPPORTED_INTERVENTION_EFFECT",
+        "BEHAVIORAL_LEARNING_SIGNAL",
         "STUDENT_REASONING_SIGNAL",
     ]
     evidence_refs: tuple[str, ...] = Field(max_length=8)
@@ -229,3 +235,44 @@ class ExplanationContext(BaseModel):
     learner_summary: str = Field(min_length=1, max_length=320)
     facts: tuple[ExplanationFact, ...] = Field(min_length=1, max_length=16)
     protected_spans: tuple[str, ...] = Field(max_length=8)
+
+
+class SummaryFact(BaseModel):
+    """A grounded, citable session fact for the H8 summary task.
+
+    ``ref`` is a stable identifier the model echoes back in
+    ``SummaryProposal.evidence_refs``; ``phrase`` is the exact safe phrasing
+    the model may build on. Facts are the only source of numbers, so numeric
+    grounding is checked against them.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    ref: str = Field(min_length=1, max_length=64)
+    phrase: str = Field(min_length=1, max_length=320)
+
+
+class SummaryProposal(BaseModel):
+    """Grounded concise session summary (H8); never changes actions or
+    persisted state. Rendered only after structured claim verification."""
+
+    model_config = {"extra": "forbid"}
+
+    summary_text: str = Field(min_length=1, max_length=480)
+    evidence_refs: tuple[str, ...] = Field(min_length=1, max_length=8)
+
+
+class SessionSummaryContext(BaseModel):
+    """Sanitized, scoped input for the H8 session summary task (plan
+    Section 15). Facts are derived from validated session state: skills
+    practiced, questions attempted, misconception evidence with confidence
+    labels, interventions actually shown, validated episodes, distinct
+    transfer outcomes, and review-due skills. Never includes student
+    identity, raw history, lesson body text, math truth, or provider
+    secrets."""
+
+    model_config = {"extra": "forbid"}
+
+    task: Literal["session_summary"]
+    context_version: str = CONTEXT_VERSION
+    session_summary_facts: tuple[SummaryFact, ...] = Field(min_length=1, max_length=16)

@@ -115,6 +115,25 @@ def test_append_and_get_learning_event_roundtrip(store: EventStore) -> None:
     assert store.get_learning_events("stu_1", session_id="sess_1") == [event]
 
 
+def test_micro_lesson_presented_event_rehydrates_from_event_store(
+    store: EventStore,
+) -> None:
+    event = LearningEvent(
+        event_id="evt_micro_presented",
+        student_id="stu_1",
+        session_id="sess_1",
+        event_type=LearningEventType.MICRO_LESSON_PRESENTED,
+        payload={"content_id": "ml_1"},
+        policy_version="test",
+        occurred_at="2026-01-01T00:00:00+00:00",
+        received_at="2026-01-01T00:00:00+00:00",
+        origin="online",
+    ).with_integrity()
+
+    assert store.append_learning_event(event) is True
+    assert store.get_learning_events("stu_1", session_id="sess_1") == [event]
+
+
 def test_learning_events_are_ordered_by_occurred_then_received(store: EventStore) -> None:
     occurred_first = _learning_event(
         "evt_occurred_first",

@@ -374,6 +374,10 @@ verified
 failed
 ```
 
+`sqlite_deleted` is a historical compatibility state name retained by the
+legacy deletion/metrics surface. The current runtime authority is PostgreSQL;
+the name must not be read as evidence that SQLite stores learner state.
+
 The user receives completion only after verification, not after the first local deletion step.
 
 ---
@@ -411,6 +415,10 @@ indexed_episode_count
 deletion_pending_count
 memory_fallback_rate
 ```
+
+`sqlite_episode_count` is likewise a historical compatibility metric name. Its
+current comparison is PostgreSQL episode state versus the rebuildable derived
+index; it does not identify a live SQLite store.
 
 Competition acceptance:
 

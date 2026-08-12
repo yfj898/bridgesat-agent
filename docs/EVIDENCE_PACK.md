@@ -10,6 +10,9 @@ What the repo can prove, and how to reproduce it.
 | Educational behavior | synthetic simulation | reports/educational_eval.json | `.venv/bin/python scripts/run_educational_evals.py` |
 | Retrieval (RAG) | controlled internal test | reports/rag_eval.json | `.venv/bin/python scripts/import_content_pack.py && .venv/bin/python scripts/run_retrieval_evals.py` |
 | Long-term memory | controlled internal test | reports/memory_eval.json | `.venv/bin/python scripts/run_memory_ablation.py` |
+| Hybrid shadow ablation | controlled internal test | reports/hybrid_eval.json | `.venv/bin/python scripts/run_hybrid_ablation.py` |
+| Hybrid final gate | controlled internal test | reports/hybrid_final_gate.json | `.venv/bin/python scripts/run_hybrid_final_gate.py --input reports/hybrid_eval.json --output reports/hybrid_final_gate.json` |
+| Full Python test suite | controlled internal test | reports/python_tests.json | `.venv/bin/python -m pytest -p no:warnings` |
 | Offline and sync | controlled internal test | reports/offline_sync_eval.json | `.venv/bin/python scripts/run_offline_sync_evals.py` |
 | Security | controlled internal test | reports/security_eval.json | `.venv/bin/python -m pytest tests/security tests/test_sync_protocol.py -q` |
 | Web core-flow tests | controlled internal test | reports/web_tests.json | `node --test web/tests/*.test.js` |
@@ -23,12 +26,21 @@ What the repo can prove, and how to reproduce it.
 - real educational outcome (requires a human usability study, EVALUATION_SPEC section 2);
 - accessibility manual walkthrough items marked 'manual check required'.
 - real human content review (the current `sim.*` ledger is controlled test data).
+- real-provider latency and lock-duration evidence for Hybrid action ranking; the final gate records a No-Go and keeps deterministic mode frozen.
 
 ## Honesty rules (EVALUATION_SPEC section 2)
 
 1. Every result is labeled `synthetic simulation`, `controlled internal test`, `human usability test`, or `real educational outcome`.
 2. Synthetic simulation is never presented as real student improvement.
 3. The final summary distinguishes measured results from design targets.
+
+## Hybrid final decision
+
+The Hybrid final gate is a controlled internal test over synthetic cases with scripted provider responses. Set `BRIDGESAT_HYBRID_COMPETITION_MODE=1` for the competition/demo deployment; startup rejects contradictory flags, freezes competition mode to deterministic, and keeps all five Hybrid feature flags at `0`. H7 action ranking is **No-Go** for default enablement: scripted p50/p95 values of 0 ms are not real-provider latency evidence, and no repeated real-provider latency/lock-duration run is present. The H8 five-case/five-variant summary evidence remains separate from legacy H6/H7 metrics. This does not claim real student outcomes or real-provider latency.
+
+- final mode: `deterministic`
+- action-ranking decision: **No-Go**
+- report: `reports/hybrid_final_gate.json`
 
 ## Reproduction
 

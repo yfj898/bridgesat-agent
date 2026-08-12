@@ -173,6 +173,11 @@ select:focus-visible,
   padding: 0.6rem 0;
 }
 
+.mastery-row strong {
+  color: #44506a;
+  font-weight: 600;
+}
+
 .focus {
   font-weight: 700;
 }
@@ -196,6 +201,10 @@ select:focus-visible,
 
 .intervention h3 {
   margin: 0 0 0.5rem;
+}
+
+.intervention-guide {
+  font-weight: 700;
 }
 
 .recommendation-details,

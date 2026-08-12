@@ -72,9 +72,23 @@ test("micro-lesson decisions expose a renderable teaching asset", () => {
     reason_text: "Review the rule before continuing.",
     policy_version: "policy-v1",
   });
-  assert.equal(view.title, "Micro lesson");
+  assert.equal(view.title, "Let's pause for a quick explanation");
   assert.equal(view.showTeachingAsset, true);
   assert.equal(view.showWorkedExample, false);
+});
+
+test("repeated skill errors use direct student-safe intervention copy", () => {
+  const view = agentEventToView({
+    action: "SHOW_MICRO_LESSON",
+    reason_code: "REPEATED_SKILL_ERRORS",
+    reason_text: "Two consecutive errors on the same skill indicate a concept gap.",
+    policy_version: "policy-v1",
+  });
+  assert.equal(
+    view.why,
+    "I noticed the same step is getting in the way. Let's switch approaches before you do more practice."
+  );
+  assert.doesNotMatch(view.why, /concept gap|mastery|confidence/i);
 });
 
 test("session time budget decreases before it reaches the policy", () => {
@@ -573,7 +587,7 @@ test("worked-example constraint selects the declared transfer item", () => {
   assert.equal(selected.id, "transfer");
 });
 
-test("memory changes the first-error offline intervention students see", () => {
+test("recalled worked example uses student-safe, action-aware teaching copy", () => {
   const baseline = localAgentDecision({
     skill: "linear_equations",
     misconception: "sign_error",
@@ -601,12 +615,34 @@ test("memory changes the first-error offline intervention students see", () => {
   assert.deepEqual(recalled.episode_ids, ["ep_success_1"]);
 
   const view = agentEventToView(recalled);
-  assert.equal(view.showWorkedExample, true);
+  assert.equal(view.showTeachingAsset, true);
   assert.equal(view.memoryBased, true);
-  assert.equal(view.memoryBanner, "Based on what helped you before");
-  assert.match(view.why, /similar misconception/i);
-  assert.match(view.why, /different item/i);
+  assert.equal(view.memoryBanner, "This helped you before");
+  assert.equal(view.title, "Let's use the approach that helped before");
+  assert.match(view.why, /came up before/i);
+  assert.match(view.why, /worked example/i);
+  assert.match(view.why, /new problem/i);
+  assert.match(view.why, /right away this time/i);
+  assert.match(view.lessonLead, /key step/i);
+  assert.match(view.lessonLead, /new problem/i);
   assert.equal(view.episodeLabel, "Episode ep_success_1");
+});
+
+test("recalled micro lesson names its teaching move without calling it a worked example", () => {
+  const view = agentEventToView({
+    action: "SHOW_MICRO_LESSON",
+    reason_code: "RECALLED_SUCCESSFUL_EPISODE",
+    reason_text: "A recalled intervention was selected.",
+    policy_version: "policy-0.1.0",
+    episode_ids: ["ep_success_2"],
+  });
+
+  assert.equal(view.showTeachingAsset, true);
+  assert.equal(view.memoryBased, true);
+  assert.match(view.why, /short explanation/i);
+  assert.match(view.why, /new problem/i);
+  assert.doesNotMatch(view.why, /worked example/i);
+  assert.equal(view.episodeLabel, "Episode ep_success_2");
 });
 
 test("agent event view keeps deterministic copy and passes through verified personalized explanation", () => {
@@ -619,7 +655,10 @@ test("agent event view keeps deterministic copy and passes through verified pers
   });
   assert.equal(without.personalized, "");
   assert.equal(without.personalizedEmphasis, "");
-  assert.equal(without.why, "Repeated errors map to the same misconception.");
+  assert.equal(
+    without.why,
+    "I noticed the same step is getting in the way. Let's switch approaches before you do more practice."
+  );
 
   const withPersonalized = agentEventToView({
     action: "SHOW_WORKED_EXAMPLE",
@@ -634,7 +673,10 @@ test("agent event view keeps deterministic copy and passes through verified pers
   assert.equal(withPersonalized.personalized,
     "Because 3 sign error mistakes were recorded this session, review the pattern before more practice.");
   assert.equal(withPersonalized.personalizedEmphasis, "process");
-  assert.equal(withPersonalized.why, "Repeated errors map to the same misconception.");
+  assert.equal(
+    withPersonalized.why,
+    "I noticed the same step is getting in the way. Let's switch approaches before you do more practice."
+  );
 });
 
 test("active learning session survives a browser refresh", () => {

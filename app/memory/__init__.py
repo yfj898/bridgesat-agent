@@ -6,7 +6,7 @@ from enum import StrEnum
 import psycopg
 
 from .episode_builder import EpisodeBuilder
-from .pg_memory import PGMemory
+from .pg_memory import PGMemory, UNSET_MISCONCEPTION
 
 
 class MemoryMode(StrEnum):
@@ -68,17 +68,31 @@ class MemoryProvider:
         *,
         student_id: str,
         skill: str,
-        misconception: str | None = None,
+        misconception: str | None | object = UNSET_MISCONCEPTION,
         limit: int = 5,
     ):
+        kwargs = {
+            "student_id": student_id,
+            "skill": skill,
+            "limit": limit,
+        }
+        if misconception is not UNSET_MISCONCEPTION:
+            kwargs["misconception"] = misconception
         return self.pg.recall_episodes(
-            student_id=student_id,
-            skill=skill,
-            misconception=misconception,
-            limit=limit,
+            **kwargs,
         )
 
     def has_successful_episode(self, *, student_id: str, skill: str, misconception: str | None) -> bool:
         return self.episodes.has_successful_episode(
             student_id=student_id, skill=skill, misconception=misconception
+        )
+
+    def recall_contradicting_episodes(
+        self, *, student_id: str, skill: str, misconception: str | None, limit: int = 3
+    ):
+        return self.pg.recall_contradicting_episodes(
+            student_id=student_id,
+            skill=skill,
+            misconception=misconception,
+            limit=limit,
         )

@@ -24,6 +24,7 @@ import hashlib
 import json
 import logging
 import threading
+import time
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -39,10 +40,13 @@ from app.agent.hybrid import (
     ContentRecord,
     DecisionToken,
     HybridTask,
+    MIN_INTERVENTION_EFFECT_GAP,
     MIN_INTERVENTION_STAT_ATTEMPTS,
+    MIN_INTERVENTION_SUPPORT,
     ShadowMaterial,
     run_shadow_decision,
     run_shadow_explanation,
+    run_shadow_summary,
     task_enabled,
 )
 from app.agent.hybrid_contracts import (
@@ -54,11 +58,14 @@ from app.agent.hybrid_contracts import (
     HybridShadowObservation,
     InterventionEvidence,
     RecalledEpisodeEvidence,
+    SessionSummaryContext,
+    SummaryFact,
 )
 from app.agent.policy import (
     POLICY_VERSION,
     PolicyConstraints,
     PolicyInput,
+    PolicyResult,
     decide_next_action,
     derive_policy_constraints,
 )
@@ -82,6 +89,7 @@ from .protocol import (
     SyncConflict,
     SyncErrorCode,
     SyncEventEnvelope,
+    PersonalizedSummary,
     SyncRejectedEvent,
     SyncRequest,
     SyncResponse,
@@ -90,6 +98,35 @@ from .protocol import (
 from .versioned_scoring import QuestionVersionError, VersionedAnswerKey
 
 logger = logging.getLogger(__name__)
+
+MAX_SUMMARY_FACTS = 16
+MAX_SUMMARIES_PER_BATCH = 8
+MAX_SUMMARY_BATCH_SECONDS = 5.0
+
+
+def _bounded_summary_facts(facts: list[SummaryFact]) -> tuple[SummaryFact, ...]:
+    unique_facts: list[SummaryFact] = []
+    seen_refs: set[str] = set()
+    for fact in facts:
+        if fact.ref not in seen_refs:
+            unique_facts.append(fact)
+            seen_refs.add(fact.ref)
+    if len(unique_facts) <= MAX_SUMMARY_FACTS:
+        return tuple(unique_facts)
+    stable_facts = [
+        fact
+        for fact in unique_facts
+        if not fact.ref.startswith("stat:misconception:")
+    ]
+    misconception_facts = [
+        fact
+        for fact in unique_facts
+        if fact.ref.startswith("stat:misconception:")
+    ]
+    if len(stable_facts) >= MAX_SUMMARY_FACTS:
+        return tuple(stable_facts[:MAX_SUMMARY_FACTS])
+    remaining = max(0, MAX_SUMMARY_FACTS - len(stable_facts))
+    return tuple(stable_facts + misconception_facts[:remaining])
 
 
 _GLOBAL_ID_CONSTRAINTS = frozenset(
@@ -357,6 +394,9 @@ class SyncService:
             or task_enabled(HybridTask.ACTION_RANKING)
             else None
         )
+        summary_sink: list[tuple[SyncEventEnvelope, SessionSummaryContext | None]] | None = (
+            [] if task_enabled(HybridTask.SUMMARY) else None
+        )
         with student_advisory_lock(self.connection, request.student_id):
             try:
                 with transaction(self.connection):
@@ -364,6 +404,7 @@ class SyncService:
                         request,
                         in_transaction=True,
                         shadow_sink=shadow_sink,
+                        summary_sink=summary_sink,
                     )
             except StudentInactiveError:
                 return self._unauthorized_student_response()
@@ -383,9 +424,72 @@ class SyncService:
                 self._apply_ranked_actions(response, shadow_sink, observations)
             for event in response.server_events:
                 proposal = explanations.get(event["source_event_id"])
-                if proposal is not None:
+                if proposal is not None and not event.get("hybrid_ranked"):
                     event["personalized_explanation"] = proposal.student_explanation
                     event["personalized_emphasis"] = proposal.emphasis
+        # H8 (Section 15): fact assembly happened inside the authoritative
+        # completion transaction. Only the provider call and response
+        # serialization happen here, after the lock is released.
+        if summary_sink:
+            summaries: list[PersonalizedSummary] = []
+            summary_deadline = time.monotonic() + MAX_SUMMARY_BATCH_SECONDS
+            for envelope, context in summary_sink:
+                if time.monotonic() >= summary_deadline:
+                    logger.warning(
+                        "hybrid_summary_batch_budget_exhausted summaries=%s",
+                        len(summaries),
+                    )
+                    break
+                if context is None:
+                    continue
+                sync_fact = SummaryFact(
+                    ref="stat:sync",
+                    phrase="session completion was accepted",
+                )
+                context = context.model_copy(
+                    update={
+                        "session_summary_facts": _bounded_summary_facts(
+                            [*context.session_summary_facts, sync_fact]
+                        )
+                    }
+                )
+                try:
+                    remaining_ms = max(
+                        1,
+                        int((summary_deadline - time.monotonic()) * 1000),
+                    )
+                    proposal = run_shadow_summary(
+                        context,
+                        self._shadow_client(),
+                        timeout_ms=remaining_ms,
+                    )
+                except Exception:
+                    logger.warning(
+                        "hybrid_summary_failed source_event_id=%s session_id=%s",
+                        envelope.event_id,
+                        envelope.session_id,
+                        exc_info=True,
+                    )
+                    continue
+                if proposal is not None:
+                    try:
+                        summaries.append(
+                            PersonalizedSummary(
+                                source_event_id=envelope.event_id,
+                                session_id=envelope.session_id,
+                                summary_text=proposal.summary_text,
+                            )
+                        )
+                    except Exception:
+                        logger.warning(
+                            "hybrid_summary_response_failed source_event_id=%s session_id=%s",
+                            envelope.event_id,
+                            envelope.session_id,
+                            exc_info=True,
+                        )
+            response.personalized_summaries = summaries
+            if len(summaries) == 1:
+                response.personalized_summary = summaries[0].summary_text
         return response
 
     @staticmethod
@@ -408,6 +512,7 @@ class SyncService:
         *,
         in_transaction: bool = False,
         shadow_sink: list[ShadowMaterial] | None = None,
+        summary_sink: list[tuple[SyncEventEnvelope, SessionSummaryContext | None]] | None = None,
     ) -> SyncResponse:
         if not self._student_exists(request.student_id, in_transaction=in_transaction):
             return self._unauthorized_student_response()
@@ -489,6 +594,7 @@ class SyncService:
                         event_id=envelope.event_id,
                         code=exc.code.value,
                         retryable=exc.retryable,
+                        detail=str(exc),
                     )
                 )
                 continue
@@ -510,6 +616,7 @@ class SyncService:
                             conflicts,
                             server_agent_events,
                             shadow_sink=shadow_sink,
+                            summary_sink=summary_sink,
                             in_transaction=True,
                         )
                 else:
@@ -520,6 +627,7 @@ class SyncService:
                         conflicts,
                         server_agent_events,
                         shadow_sink=shadow_sink,
+                        summary_sink=summary_sink,
                     )
             except (DeviceNotFoundError, DeviceRevokedError):
                 raise
@@ -533,6 +641,7 @@ class SyncService:
                         event_id=envelope.event_id,
                         code=exc.code.value,
                         retryable=exc.retryable,
+                        detail=str(exc),
                     )
                 )
             except UniqueViolation as unique_error:
@@ -671,6 +780,7 @@ class SyncService:
                     event_id=envelope.event_id,
                     code=SyncErrorCode.MISSING_DEPENDENCY.value,
                     retryable=True,
+                    detail=f"Dependency {dep} is not stored",
                 )
         return None
 
@@ -685,6 +795,7 @@ class SyncService:
         insert_event_row: bool = True,
         in_transaction: bool = False,
         shadow_sink: list[ShadowMaterial] | None = None,
+        summary_sink: list[tuple[SyncEventEnvelope, SessionSummaryContext | None]] | None = None,
     ) -> None:
         """Projection-only application; `insert_event_row=False` replays
         already-stored events (used by scripts/rebuild_learner_projections.py)."""
@@ -699,7 +810,8 @@ class SyncService:
         if event_type == "SESSION_COMPLETED":
             self._apply_session_completed(envelope, accepted, rejected, conflicts,
                                           insert_event_row=insert_event_row,
-                                          in_transaction=in_transaction)
+                                          in_transaction=in_transaction,
+                                          summary_sink=summary_sink)
             return
         if event_type in (
             "DIAGNOSTIC_STARTED",
@@ -763,35 +875,57 @@ class SyncService:
             if insert_event_row:
                 self._insert_learning_event_row(self.connection, envelope, received_at)
             self._ensure_session(self.connection, envelope, SessionState.NEW.value)
-            if insert_event_row and event_type_value(envelope) == "WORKED_EXAMPLE_PRESENTED":
+            if insert_event_row and event_type_value(envelope) in (
+                "WORKED_EXAMPLE_PRESENTED",
+                "MICRO_LESSON_PRESENTED",
+            ):
                 self._start_presented_intervention(envelope)
         accepted.append(envelope.event_id)
 
     def _start_presented_intervention(self, envelope: SyncEventEnvelope) -> Episode:
         payload = envelope.payload
+        expected_action_by_event = {
+            "WORKED_EXAMPLE_PRESENTED": BoundedAction.SHOW_WORKED_EXAMPLE.value,
+            "MICRO_LESSON_PRESENTED": BoundedAction.SHOW_MICRO_LESSON.value,
+        }
+        expected_action = expected_action_by_event.get(event_type_value(envelope))
         required = (
             "source_answer_event_id",
             "content_id",
             "content_version",
             "skill",
-            "misconception",
             "intervention",
         )
-        if any(not payload.get(field) for field in required):
+        misconception = payload.get("misconception")
+        if (
+            expected_action is None
+            or any(not payload.get(field) for field in required)
+            or payload.get("intervention") != expected_action
+            or (
+                misconception is not None
+                and (not isinstance(misconception, str) or not misconception)
+            )
+        ):
             raise EventValidationError(
-                "worked-example presentation is missing required evidence",
+                "teaching intervention presentation is missing required evidence",
                 code=SyncErrorCode.INVALID_SCHEMA,
                 retryable=False,
             )
         row = self.connection.execute(
             """
             SELECT ae.action, ae.action_payload_json,
-                   le.payload_json AS source_payload_json
+                   le.payload_json AS source_payload_json,
+                   hdt.verified_action,
+                   hdt.decision_token
             FROM agent_events AS ae
             JOIN learning_events AS le
               ON le.event_id = ae.source_event_id
              AND le.student_id = ae.student_id
              AND le.tenant_id = ae.tenant_id
+            LEFT JOIN hybrid_decision_trace AS hdt
+              ON hdt.source_event_id = ae.source_event_id
+             AND hdt.student_id = ae.student_id
+             AND hdt.tenant_id = ae.tenant_id
             WHERE ae.student_id = %s
               AND ae.tenant_id = current_setting('app.tenant_id', true)
               AND ae.session_id = %s
@@ -803,27 +937,89 @@ class SyncService:
                 payload["source_answer_event_id"],
             ),
         ).fetchone()
-        if row is None or row["action"] != BoundedAction.SHOW_WORKED_EXAMPLE.value:
+        if row is None:
             raise EventValidationError(
-                "worked-example presentation has no matching server decision",
+                "teaching intervention presentation has no matching server decision",
                 code=SyncErrorCode.INVALID_SCHEMA,
+                retryable=False,
+            )
+        if envelope.content_pack_version != self.answer_keys.pack(
+            envelope.content_pack_version
+        ).pack_version:
+            raise EventValidationError(
+                "teaching intervention presentation references an unknown pack",
+                code=SyncErrorCode.QUESTION_VERSION_UNKNOWN,
                 retryable=False,
             )
         expected = json.loads(row["action_payload_json"] or "{}")
         source_payload = json.loads(row["source_payload_json"] or "{}")
         source_question_id = source_payload.get("question_id")
+        durable_action = row["action"]
+        served_action = row["verified_action"] or durable_action
+        if served_action != expected_action:
+            raise EventValidationError(
+                "teaching intervention presentation has no matching served action: "
+                f"durable={durable_action!r} verified={row['verified_action']!r} "
+                f"expected={expected_action!r}",
+                code=SyncErrorCode.INVALID_SCHEMA,
+                retryable=False,
+            )
+        lesson_type = {
+            BoundedAction.SHOW_WORKED_EXAMPLE.value: "worked_example",
+            BoundedAction.SHOW_MICRO_LESSON.value: "micro_lesson",
+        }.get(expected_action)
+        if lesson_type is None:
+            raise EventValidationError(
+                "teaching intervention presentation has invalid action",
+                code=SyncErrorCode.INVALID_SCHEMA,
+                retryable=False,
+            )
+        if row["verified_action"]:
+            try:
+                trace_token = json.loads(row["decision_token"] or "{}")
+            except (TypeError, json.JSONDecodeError):
+                trace_token = None
+            verified_payload = (
+                trace_token.get("verified_action_payload")
+                if isinstance(trace_token, dict)
+                else None
+            )
+            if not isinstance(verified_payload, dict) or not self._lesson_matches_verified_payload(
+                pack_version=envelope.content_pack_version,
+                lesson_type=lesson_type,
+                misconception=misconception,
+                payload=verified_payload,
+            ):
+                raise EventValidationError(
+                    "ranked intervention presentation does not match verified content",
+                    code=SyncErrorCode.INVALID_SCHEMA,
+                    retryable=False,
+                )
+            expected = verified_payload
+        elif not self._lesson_matches_durable_payload(
+            pack_version=envelope.content_pack_version,
+            lesson_type=lesson_type,
+            misconception=misconception,
+            payload=expected,
+        ):
+            raise EventValidationError(
+                "teaching intervention presentation does not match approved content",
+                code=SyncErrorCode.INVALID_SCHEMA,
+                retryable=False,
+            )
         if (
             expected.get("content_id") != payload["content_id"]
-            or expected.get("content_version") != payload["content_version"]
+            or str(expected.get("content_version"))
+            != str(payload["content_version"])
             or expected.get("skill") != payload["skill"]
-            or expected.get("misconception") != payload["misconception"]
-            or payload["intervention"] != BoundedAction.SHOW_WORKED_EXAMPLE.value
+            or expected.get("misconception") != misconception
+            or expected.get("review_status") != "approved"
             or envelope.question_id != payload["content_id"]
             or envelope.question_version != payload["content_version"]
             or not source_question_id
         ):
             raise EventValidationError(
-                "worked-example presentation does not match the server decision",
+                "teaching intervention presentation does not match the server decision",
                 code=SyncErrorCode.INVALID_SCHEMA,
                 retryable=False,
             )
@@ -841,13 +1037,71 @@ class SyncService:
             student_id=envelope.student_id,
             session_id=envelope.session_id,
             skill=payload["skill"],
-            misconception=payload["misconception"],
+            misconception=misconception,
             intervention=payload["intervention"],
             teaching_content_id=payload["content_id"],
             trigger_content_id=source_question_id,
             evidence_event_id=envelope.event_id,
             episode_id=episode_id,
             commit=False,
+        )
+
+    def _lesson_matches_durable_payload(
+        self,
+        *,
+        pack_version: str,
+        lesson_type: str,
+        misconception: str | None,
+        payload: dict,
+    ) -> bool:
+        try:
+            lesson = self.answer_keys.pack(pack_version).teaching_asset_meta(
+                payload.get("skill"), lesson_type, misconception
+            )
+        except QuestionVersionError:
+            return False
+        return bool(
+            lesson is not None
+            and lesson["id"] == payload.get("content_id")
+            and str(lesson["version"]) == str(payload.get("content_version"))
+            and lesson["review_status"] == "approved"
+            and self._registry_matches_lesson(lesson=lesson)
+            and payload.get("skill") == lesson["target_skill"]
+            and payload.get("misconception") == misconception
+            and (
+                misconception is None
+                or not lesson["target_misconceptions"]
+                or misconception in lesson["target_misconceptions"]
+            )
+        )
+
+    def _lesson_matches_verified_payload(
+        self,
+        *,
+        pack_version: str,
+        lesson_type: str,
+        misconception: str | None,
+        payload: dict,
+    ) -> bool:
+        if not self._lesson_matches_durable_payload(
+            pack_version=pack_version,
+            lesson_type=lesson_type,
+            misconception=misconception,
+            payload=payload,
+        ):
+            return False
+        try:
+            lesson = self.answer_keys.pack(pack_version).teaching_asset_meta(
+                payload.get("skill"), lesson_type, misconception
+            )
+        except QuestionVersionError:
+            return False
+        return bool(
+            lesson is not None
+            and payload.get("content_hash") == lesson["content_hash"]
+            and payload.get("pack_version") == lesson["pack_version"]
+            and payload.get("source_lineage") == lesson["source_lineage"]
+            and payload.get("review_status") == "approved"
         )
 
     def _apply_session_completed(
@@ -859,8 +1113,10 @@ class SyncService:
         *,
         insert_event_row: bool = True,
         in_transaction: bool = False,
+        summary_sink: list[tuple[SyncEventEnvelope, SessionSummaryContext | None]] | None = None,
     ) -> None:
         received_at = _utc_now_iso()
+        summarize = False
         with _transaction_scope(
             self.connection,
             in_transaction=in_transaction,
@@ -871,6 +1127,7 @@ class SyncService:
                 self.connection, envelope.session_id, envelope.student_id
             )
             if row is None:
+                summarize = True
                 self.connection.execute(
                     """
                     INSERT INTO study_sessions (
@@ -884,6 +1141,7 @@ class SyncService:
                      SessionState.SESSION_COMPLETED.value, received_at, received_at),
                 )
             elif row["session_state"] != SessionState.SESSION_COMPLETED.value:
+                summarize = True
                 self.connection.execute(
                     """
                     UPDATE study_sessions
@@ -895,7 +1153,194 @@ class SyncService:
                     (SessionState.SESSION_COMPLETED.value, received_at, received_at,
                      envelope.session_id, envelope.student_id),
                 )
+            if (
+                summary_sink is not None
+                and summarize
+                and len(summary_sink) < MAX_SUMMARIES_PER_BATCH
+            ):
+                context = None
+                try:
+                    with _event_savepoint(self.connection, "summary_context"):
+                        context = self._build_session_summary_context(envelope)
+                except Exception:
+                    logger.warning(
+                        "hybrid_summary_context_failed source_event_id=%s session_id=%s",
+                        envelope.event_id,
+                        envelope.session_id,
+                        exc_info=True,
+                    )
+                if context is not None:
+                    summary_sink.append((envelope, context))
         accepted.append(envelope.event_id)
+
+    def _build_session_summary_context(
+        self, envelope: SyncEventEnvelope
+    ) -> SessionSummaryContext | None:
+        """Deterministic H8 fact allowlist for one completed session, derived
+        from the committed session state (plan Section 15). Every fact phrase
+        carries its own numbers, so numeric grounding checks against them.
+        Returns None for an empty session (nothing to summarize)."""
+        facts: list[SummaryFact] = []
+        attempts = self.connection.execute(
+            """
+            SELECT COUNT(*) AS n FROM answer_attempts
+            WHERE student_id = %s AND session_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+              AND validity = 'valid'
+            """,
+            (envelope.student_id, envelope.session_id),
+        ).fetchone()["n"]
+        if attempts:
+            facts.append(
+                SummaryFact(
+                    ref="stat:attempts",
+                    phrase=(
+                        f"{attempts} question{'s' if attempts != 1 else ''} "
+                        "attempted in this session"
+                    ),
+                )
+            )
+        skills = self.connection.execute(
+            """
+            SELECT COUNT(DISTINCT ci.target_skill) AS n
+            FROM answer_attempts aa
+            JOIN content_items ci
+              ON ci.content_id = aa.content_id AND ci.version = aa.version
+            WHERE aa.student_id = %s AND aa.session_id = %s
+              AND aa.tenant_id = current_setting('app.tenant_id', true)
+              AND aa.validity = 'valid'
+            """,
+            (envelope.student_id, envelope.session_id),
+        ).fetchone()["n"]
+        if skills:
+            facts.append(
+                SummaryFact(
+                    ref="stat:skills",
+                    phrase=(
+                        f"{skills} skill{'s' if skills != 1 else ''} practiced "
+                        "this session"
+                    ),
+                )
+            )
+        misconception_rows = self.connection.execute(
+            """
+            SELECT skill, misconception, confidence_label, COUNT(*) AS n
+            FROM misconception_evidence
+            WHERE student_id = %s AND session_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+            GROUP BY skill, misconception, confidence_label
+            ORDER BY skill, misconception
+            """,
+            (envelope.student_id, envelope.session_id),
+        ).fetchall()
+        for row in misconception_rows:
+            facts.append(
+                SummaryFact(
+                    ref=(
+                        f"stat:misconception:{row['skill']}:{row['misconception']}"
+                        f":{row['confidence_label']}"
+                    ),
+                    phrase=(
+                        f"{row['misconception']} evidence recorded "
+                        f"{row['n']} time{'s' if row['n'] != 1 else ''} on "
+                        f"{row['skill']} ({row['confidence_label']} confidence)"
+                    ),
+                )
+            )
+        intervention_rows = self.connection.execute(
+            """
+            SELECT DISTINCT event_type FROM learning_events
+            WHERE student_id = %s AND session_id = %s
+              AND event_type IN ('WORKED_EXAMPLE_PRESENTED', 'MICRO_LESSON_PRESENTED')
+              AND tenant_id = current_setting('app.tenant_id', true)
+            ORDER BY event_type
+            """,
+            (envelope.student_id, envelope.session_id),
+        ).fetchall()
+        if intervention_rows:
+            labels = {
+                "WORKED_EXAMPLE_PRESENTED": "worked example",
+                "MICRO_LESSON_PRESENTED": "micro lesson",
+            }
+            shown = " and ".join(
+                labels[row["event_type"]] for row in intervention_rows
+            )
+            facts.append(
+                SummaryFact(
+                    ref="stat:interventions",
+                    phrase=f"{shown} presentation was confirmed this session",
+                )
+            )
+        episodes = self.connection.execute(
+            """
+            SELECT COUNT(*) AS n FROM learning_episodes
+            WHERE student_id = %s AND session_id = %s AND status = 'validated'
+              AND tenant_id = current_setting('app.tenant_id', true)
+            """,
+            (envelope.student_id, envelope.session_id),
+        ).fetchone()["n"]
+        if episodes:
+            facts.append(
+                SummaryFact(
+                    ref="stat:episodes",
+                    phrase=(
+                        f"{episodes} validated learning strateg"
+                        f"{'y' if episodes == 1 else 'ies'} recorded this session"
+                    ),
+                )
+            )
+        transfer = self.connection.execute(
+            """
+            SELECT COUNT(*) AS n FROM learning_episodes
+            WHERE student_id = %s AND session_id = %s AND status = 'validated'
+              AND outcome_json::jsonb ->> 'different_item' = 'true'
+              AND outcome_json::jsonb ->> 'correct' = 'true'
+              AND tenant_id = current_setting('app.tenant_id', true)
+            """,
+            (envelope.student_id, envelope.session_id),
+        ).fetchone()["n"]
+        if transfer:
+            facts.append(
+                SummaryFact(
+                    ref="stat:transfer",
+                    phrase=(
+                        f"{transfer} transfer success{'es' if transfer != 1 else ''} "
+                        "on a different item recorded"
+                    ),
+                )
+            )
+        due_review = self.connection.execute(
+            """
+            SELECT DISTINCT s.skill FROM student_skill_states s
+            JOIN answer_attempts aa
+              ON aa.student_id = s.student_id AND aa.session_id = %s
+            JOIN content_items ci
+              ON ci.content_id = aa.content_id
+             AND ci.version = aa.version
+             AND ci.target_skill = s.skill
+            WHERE aa.tenant_id = current_setting('app.tenant_id', true)
+              AND s.student_id = %s
+              AND s.review_due_at IS NOT NULL
+              AND s.review_due_at <= %s
+              AND s.evidence_count > 0
+              AND s.tenant_id = current_setting('app.tenant_id', true)
+            ORDER BY s.skill
+            """,
+            (envelope.session_id, envelope.student_id, _utc_now_iso()),
+        ).fetchall()
+        for row in due_review:
+            facts.append(
+                SummaryFact(
+                    ref=f"stat:review:{row['skill']}",
+                    phrase=f"{row['skill']} is due for review next session",
+                )
+            )
+        unique_facts = _bounded_summary_facts(facts)
+        if not unique_facts:
+            return None
+        return SessionSummaryContext.model_validate(
+            dict(task="session_summary", session_summary_facts=tuple(unique_facts))
+        )
 
     def _apply_answer_submitted(
         self,
@@ -913,14 +1358,11 @@ class SyncService:
         question_version = envelope.question_version or envelope.payload.get("question_version")
         selected = envelope.payload.get("selected_choice_id")
         if not question_id or question_version is None or not selected:
-            rejected.append(
-                SyncRejectedEvent(
-                    event_id=envelope.event_id,
-                    code=SyncErrorCode.INVALID_SCHEMA.value,
-                    retryable=False,
-                )
+            raise EventValidationError(
+                "answer submission is missing question or selected choice",
+                code=SyncErrorCode.INVALID_SCHEMA,
+                retryable=False,
             )
-            return
 
         try:
             correct = self.answer_keys.score(
@@ -932,12 +1374,13 @@ class SyncService:
             meta = self.answer_keys.pack(envelope.content_pack_version).item_meta(
                 question_id, int(question_version)
             )
-        except QuestionVersionError:
+        except QuestionVersionError as exc:
             rejected.append(
                 SyncRejectedEvent(
                     event_id=envelope.event_id,
                     code=SyncErrorCode.QUESTION_VERSION_UNKNOWN.value,
                     retryable=False,
+                    detail=str(exc),
                 )
             )
             return
@@ -1189,6 +1632,7 @@ class SyncService:
         observations = 0
         distinct_items = 0
         recalled: list[Episode] = []
+        contradicted: list[Episode] = []
         if misconception:
             row = self.connection.execute(
                 """
@@ -1211,6 +1655,12 @@ class SyncService:
             observations = row["observations"]
             distinct_items = row["distinct_items"]
             recalled = self.memory.recall_episodes(
+                student_id=envelope.student_id,
+                skill=meta["skill"],
+                misconception=misconception,
+                limit=3,
+            )
+            contradicted = self.memory.recall_contradicting_episodes(
                 student_id=envelope.student_id,
                 skill=meta["skill"],
                 misconception=misconception,
@@ -1251,6 +1701,16 @@ class SyncService:
             if not attempt["correct"]:
                 break
             correct_streak += 1
+        recalled_ids_by_intervention: dict[str, list[str]] = {}
+        for episode in recalled:
+            if episode.intervention not in {
+                BoundedAction.SHOW_WORKED_EXAMPLE.value,
+                BoundedAction.SHOW_MICRO_LESSON.value,
+            }:
+                continue
+            recalled_ids_by_intervention.setdefault(episode.intervention, []).append(
+                episode.episode_id
+            )
         inputs = PolicyInput(
             student_id=envelope.student_id,
             session_id=envelope.session_id,
@@ -1267,8 +1727,9 @@ class SyncService:
             misconception_distinct_items=distinct_items,
             minutes_remaining=int(envelope.payload.get("minutes_remaining", 20)),
             hints_used_this_item=int(envelope.payload.get("hint_level", 0)),
-            recalled_successful_episode=bool(recalled),
             recalled_episode_ids=[episode.episode_id for episode in recalled],
+            recalled_successful_interventions=list(recalled_ids_by_intervention),
+            recalled_episode_ids_by_intervention=recalled_ids_by_intervention,
             recent_correct_without_high_hint=sum(
                 1
                 for row in skill_recent[:3]
@@ -1287,7 +1748,7 @@ class SyncService:
             lesson = pack_key.teaching_asset_meta(
                 meta["skill"], lesson_type, misconception
             )
-            if lesson is not None:
+            if lesson is not None and self._registry_matches_lesson(lesson=lesson):
                 decision = decision.model_copy(
                     update={
                         "action_payload": {
@@ -1295,6 +1756,10 @@ class SyncService:
                             "content_id": lesson["id"],
                             "content_version": lesson["version"],
                             "review_status": lesson["review_status"],
+                            "content_hash": lesson["content_hash"],
+                            "pack_version": lesson["pack_version"],
+                            "skill": lesson["target_skill"],
+                            "misconception": misconception,
                             "license": lesson["license"],
                             "source_lineage": lesson["source_lineage"],
                         },
@@ -1302,6 +1767,27 @@ class SyncService:
                     }
                 )
                 referenced_content.append(lesson["id"])
+            else:
+                decision = decision.model_copy(
+                    update={
+                        "action": BoundedAction.RETRY_SAME_SKILL.value,
+                        "action_payload": {
+                            "skill": inputs.skill,
+                            "difficulty": inputs.difficulty,
+                        },
+                        "content_id": None,
+                        "reason_code": "CONTENT_UNAVAILABLE_FALLBACK",
+                        "reason_text": (
+                            "The selected teaching asset is unavailable or no "
+                            "longer passes the approved-content gate, so the "
+                            "student stays on the same skill with another question."
+                        ),
+                    }
+                )
+                result = PolicyResult(
+                    decision=decision,
+                    next_state=SessionState.QUESTION_ACTIVE,
+                )
         event_id = "agt_" + hashlib.sha256(envelope.event_id.encode("utf-8")).hexdigest()[:16]
         agent_event = AgentEvent(
             event_id=event_id,
@@ -1342,6 +1828,7 @@ class SyncService:
                     constraints=derive_policy_constraints(inputs),
                     decision=decision,
                     recalled=recalled,
+                    contradicted=contradicted,
                     skill_state=skill_state,
                     pack_key=pack_key,
                     now=now,
@@ -1398,7 +1885,11 @@ class SyncService:
         records: dict[str, ContentRecord] = {}
         for content_type in ("worked_example", "micro_lesson"):
             lesson = pack_key.teaching_asset_meta(skill, content_type, misconception)
-            if lesson is None or not lesson.get("content_hash"):
+            if (
+                lesson is None
+                or not lesson.get("content_hash")
+                or not self._registry_matches_lesson(lesson=lesson)
+            ):
                 continue
             candidates.append(
                 ContentCandidate(
@@ -1428,12 +1919,77 @@ class SyncService:
             )
         return candidates, records
 
+    def _registry_matches_lesson(self, *, lesson: dict) -> bool:
+        """Require the installed lesson to match the authoritative PG registry."""
+        try:
+            version = int(lesson["version"])
+        except (KeyError, TypeError, ValueError):
+            return False
+        row = self.connection.execute(
+            """
+            SELECT ci.content_id, ci.version, ci.content_type, ci.target_skill,
+                   ci.license_id, ci.license_name, ci.source_id,
+                   ci.review_status, ci.status, ci.withdrawn_at,
+                   ci.canonical_body_hash, ci.license_snapshot_json,
+                   ci.source_lineage_json, civ.content_hash AS version_hash,
+                   cp.pack_version, cp.status AS pack_status
+            FROM content_items AS ci
+            JOIN content_item_versions AS civ
+              ON civ.content_id = ci.content_id
+             AND civ.version = ci.version
+            JOIN content_pack_items AS cpi
+              ON cpi.content_id = ci.content_id
+             AND cpi.version = ci.version
+            JOIN content_packs AS cp
+              ON cp.pack_id = cpi.pack_id
+             AND cp.pack_version = %s
+             AND cp.pack_id = %s
+            WHERE ci.content_id = %s
+              AND ci.version = %s
+              AND ci.review_status = 'approved'
+              AND ci.status = 'approved'
+              AND ci.withdrawn_at IS NULL
+              AND cp.status = 'published'
+            LIMIT 1
+            """,
+            (lesson["pack_version"], lesson.get("pack_id"), lesson["id"], version),
+        ).fetchone()
+        if row is None:
+            return False
+        try:
+            registry_license = json.loads(row["license_snapshot_json"] or "{}")
+            registry_lineage = json.loads(row["source_lineage_json"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return False
+        return (
+            row["content_id"] == lesson["id"]
+            and int(row["version"]) == version
+            and row["content_type"] == lesson["content_type"]
+            and row["target_skill"] == lesson["target_skill"]
+            and row["license_id"] == lesson.get("license_id")
+            and row["license_name"] == lesson.get("license_name")
+            and row["source_id"] == lesson.get("source_id")
+            and row["version_hash"] == lesson["content_hash"]
+            and row["canonical_body_hash"] == lesson["content_hash"]
+            and registry_license == (lesson.get("license") or {})
+            and registry_lineage == (lesson.get("source_lineage") or {})
+            and row["pack_version"] == lesson["pack_version"]
+        )
+
     def _shadow_intervention_evidence(
-        self, student_id: str, skill: str
+        self,
+        student_id: str,
+        skill: str,
+        misconception: str | None,
+        *,
+        difficulty_band: str | None = None,
+        recalled: list[Episode] | None = None,
     ) -> list[InterventionEvidence]:
-        entries: list[InterventionEvidence] = []
+        scoped_stats: list[tuple[dict, BoundedAction, InterventionStat]] = []
         for row in self._intervention_stats(student_id, in_transaction=True):
-            if row["skill"] != skill:
+            if row["skill"] != skill or row["misconception"] != misconception:
+                continue
+            if difficulty_band is not None and row["difficulty_band"] != difficulty_band:
                 continue
             try:
                 intervention = BoundedAction(row["intervention"])
@@ -1456,23 +2012,69 @@ class SyncService:
                 delayed_attempts=row["delayed_attempts"],
                 delayed_weight=row["delayed_weight"],
             )
+            scoped_stats.append((row, intervention, stat))
+
+        entries: list[InterventionEvidence] = []
+        # Window bound: at most 8 scoped stats are surfaced per decision. The
+        # SQL is unscoped (all interventions for the student); rows are filtered
+        # to one skill+misconception+difficulty band before ranking, so a wider
+        # window would only ever add interventions outside the current question
+        # context. The cap keeps the shadow material bounded.
+        for row, intervention, stat in scoped_stats[:8]:
+            effectiveness = stat.blended_effectiveness()
+            alternative_effectiveness = [
+                other_stat.blended_effectiveness()
+                for other_row, _other_intervention, other_stat in scoped_stats
+                if (
+                    other_row["difficulty_band"] == row["difficulty_band"]
+                    and other_row["intervention"] != row["intervention"]
+                    and other_stat.blended_effectiveness() is not None
+                )
+            ]
+            # Plan Section 12.4: a >=0.15 difference is required before a stat
+            # is used as a *preference claim* over another teaching strategy.
+            # When no same-band alternative has evidence, there is no stated
+            # preference to protect: the gate stays fail-open on the gap and
+            # support is decided by attempts/effectiveness/contradiction alone.
+            has_material_effect_gap = not alternative_effectiveness or all(
+                effectiveness is not None
+                and effectiveness - alternative >= MIN_INTERVENTION_EFFECT_GAP
+                for alternative in alternative_effectiveness
+            )
+            comparable_attempts = sum(
+                row[f"{window}_attempts"]
+                for window in ("immediate", "short_term", "delayed")
+            )
+            has_recent_contradiction = any(
+                episode.skill == skill
+                and episode.misconception == misconception
+                and episode.intervention == row["intervention"]
+                and (
+                    episode.status == "contradicted"
+                    or episode.outcome.get("correct") is False
+                )
+                for episode in recalled or []
+            )
+            supported = (
+                comparable_attempts >= MIN_INTERVENTION_STAT_ATTEMPTS
+                and effectiveness is not None
+                and effectiveness >= MIN_INTERVENTION_SUPPORT
+                and has_material_effect_gap
+                and not has_recent_contradiction
+            )
             entries.append(
                 InterventionEvidence(
+                    skill=row["skill"],
+                    misconception=row["misconception"],
                     intervention=intervention,
                     difficulty_band=row["difficulty_band"],
                     immediate_attempts=row["immediate_attempts"],
                     short_term_attempts=row["short_term_attempts"],
                     delayed_attempts=row["delayed_attempts"],
-                    blended_effectiveness=stat.blended_effectiveness(),
-                    support=(
-                        "supported"
-                        if row["immediate_attempts"] >= MIN_INTERVENTION_STAT_ATTEMPTS
-                        else "insufficient"
-                    ),
+                    blended_effectiveness=effectiveness if supported else None,
+                    support="supported" if supported else "insufficient",
                 )
             )
-            if len(entries) == 8:
-                break
         return entries
 
     def _build_shadow_material(
@@ -1484,6 +2086,7 @@ class SyncService:
         constraints,
         decision,
         recalled: list[Episode],
+        contradicted: list[Episode] | None = None,
         skill_state: SkillState,
         pack_key,
         now: str,
@@ -1517,7 +2120,11 @@ class SyncService:
                 deterministic_fallback=decision,
                 recalled_episodes=episodes,
                 intervention_stats=self._shadow_intervention_evidence(
-                    envelope.student_id, meta["skill"]
+                    envelope.student_id,
+                    meta["skill"],
+                    inputs.active_misconception,
+                    difficulty_band=f"d{meta.get('difficulty') or 2}",
+                    recalled=[*recalled, *(contradicted or [])],
                 ),
                 content_candidates=candidates,
             )
@@ -1539,6 +2146,11 @@ class SyncService:
             constraints=constraints,
             evidence=evidence,
             fallback=decision,
+            task=(
+                HybridTask.ACTION_RANKING
+                if task_enabled(HybridTask.ACTION_RANKING)
+                else HybridTask.DECISION_REASONING
+            ),
             token=token,
             verified_payloads=self._verified_payloads(
                 inputs=inputs,
@@ -1589,6 +2201,15 @@ class SyncService:
             """,
             (envelope.student_id, envelope.session_id),
         ).fetchone()["n"]
+        learning_event_count = self.connection.execute(
+            """
+            SELECT COUNT(*) AS n FROM learning_events
+            WHERE student_id = %s
+              AND session_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+            """,
+            (envelope.student_id, envelope.session_id),
+        ).fetchone()["n"]
         return DecisionToken(
             student_id=envelope.student_id,
             session_id=envelope.session_id,
@@ -1598,6 +2219,7 @@ class SyncService:
             policy_version=decision.policy_version,
             state_after=next_state.value,
             agent_event_count=int(count),
+            learning_event_count=int(learning_event_count),
         )
 
     def _verified_payloads(
@@ -1616,21 +2238,52 @@ class SyncService:
             BoundedAction.SHOW_WORKED_EXAMPLE.value: "worked_example",
             BoundedAction.SHOW_MICRO_LESSON.value: "micro_lesson",
         }
+        non_content_payload_by_action = {
+            BoundedAction.END_WITH_REVIEW.value: {"review": "time_budget"},
+            BoundedAction.RETRY_SAME_SKILL.value: {
+                "skill": inputs.skill,
+                "difficulty": inputs.difficulty,
+            },
+            BoundedAction.SWITCH_TO_PREREQUISITE.value: {
+                "skill": inputs.skill,
+                "difficulty": inputs.difficulty,
+            },
+            BoundedAction.LOWER_DIFFICULTY.value: {
+                "skill": inputs.skill,
+                "difficulty": max(1, inputs.difficulty - 1),
+            },
+            BoundedAction.RAISE_DIFFICULTY.value: {
+                "skill": inputs.skill,
+                "difficulty": min(3, inputs.difficulty + 1),
+            },
+        }
         payloads: dict[str, dict] = {}
         for action_value in constraints.allowed_actions:
-            lesson_type = lesson_type_by_action.get(action_value)
+            action_name = action_value.value
+            lesson_type = lesson_type_by_action.get(action_name)
             if lesson_type is None:
+                payload = non_content_payload_by_action.get(action_name)
+                if payload is not None:
+                    payloads[action_name] = payload
                 continue
             lesson = pack_key.teaching_asset_meta(
                 meta["skill"], lesson_type, inputs.active_misconception
             )
-            if lesson is None or not lesson.get("content_hash"):
+            if (
+                lesson is None
+                or not lesson.get("content_hash")
+                or not self._registry_matches_lesson(lesson=lesson)
+            ):
                 continue
-            payloads[action_value] = {
+            payloads[action_name] = {
                 **decision.action_payload,
                 "content_id": lesson["id"],
                 "content_version": lesson["version"],
                 "review_status": lesson["review_status"],
+                "content_hash": lesson["content_hash"],
+                "pack_version": lesson["pack_version"],
+                "skill": lesson["target_skill"],
+                "misconception": inputs.active_misconception,
                 "license": lesson["license"],
                 "source_lineage": lesson["source_lineage"],
             }
@@ -1669,22 +2322,30 @@ class SyncService:
                 continue
             if episode.effectiveness < 0.6 or episode.confidence < 0.5:
                 continue
+            intervention_label = {
+                BoundedAction.SHOW_WORKED_EXAMPLE.value: "worked example",
+                BoundedAction.SHOW_MICRO_LESSON.value: "micro lesson",
+            }.get(episode.intervention)
+            if intervention_label is None:
+                continue
             facts.append(
                 ExplanationFact(
                     ref=f"episode:{episode.episode_id}",
                     phrase=(
-                        f"A validated {episode.intervention} episode on this "
-                        "skill was followed by success on a different item."
+                        f"A validated prior {intervention_label} on this skill "
+                        "was followed by success on a different item."
                     ),
                 )
             )
         if evidence_counts >= 1 and misconception:
+            misconception_label = misconception.replace("_", " ")
             facts.append(
                 ExplanationFact(
                     ref="stat:misconception",
                     phrase=(
-                        f"{evidence_counts} recorded {misconception} error"
-                        f"{'s' if evidence_counts != 1 else ''} in this session"
+                        f"{evidence_counts} {misconception_label} mistake"
+                        f"{'s' if evidence_counts != 1 else ''} were recorded "
+                        "in this session"
                     ),
                 )
             )
@@ -1694,14 +2355,30 @@ class SyncService:
                     ref="stat:consecutive_errors",
                     phrase=(
                         f"{inputs.consecutive_errors} consecutive wrong answer"
-                        f"{'s' if inputs.consecutive_errors != 1 else ''} on {inputs.skill}"
+                        f"{'s' if inputs.consecutive_errors != 1 else ''} were "
+                        f"recorded on {inputs.skill.replace('_', ' ')}"
                     ),
                 )
             )
+        action = BoundedAction(decision.action)
+        action_purpose = {
+            BoundedAction.SHOW_WORKED_EXAMPLE: (
+                "a worked example reviews the current error pattern before more practice"
+            ),
+            BoundedAction.SHOW_MICRO_LESSON: (
+                "a micro lesson reviews the current skill concept before more practice"
+            ),
+        }[action]
+        facts.append(
+            ExplanationFact(
+                ref="action:purpose",
+                phrase=action_purpose,
+            )
+        )
         facts.append(
             ExplanationFact(
                 ref="stat:mastery",
-                phrase=f"mastery {inputs.mastery:.2f}",
+                phrase=f"current mastery is {inputs.mastery:.2f}",
             )
         )
         protected = [decision.reason_text]
@@ -1794,6 +2471,17 @@ class SyncService:
             if material is None or material.token is None:
                 continue
             verified_action = observation.model_proposal_action.value
+            verified_state = material.constraints.next_states.get(
+                observation.model_proposal_action
+            )
+            if verified_state is None:
+                logger.info(
+                    "hybrid_action_rank missing verified state dropped "
+                    "source_event_id=%s verified_action=%s",
+                    observation.source_event_id,
+                    verified_action,
+                )
+                continue
             payload = (material.verified_payloads or {}).get(verified_action)
             if payload is None:
                 logger.info(
@@ -1804,7 +2492,9 @@ class SyncService:
                 )
                 continue
             try:
-                fresh = self._revalidate_decision_token(material)
+                fresh = self._revalidate_and_persist_decision_trace(
+                    material, observation
+                )
             except Exception:
                 logger.exception(
                     "hybrid action-ranking revalidation failed for "
@@ -1818,114 +2508,152 @@ class SyncService:
                     observation.source_event_id,
                 )
                 continue
-            try:
-                self._persist_decision_trace(material, observation)
-            except Exception:
-                logger.exception(
-                    "hybrid decision trace persist failed for "
-                    "source_event_id=%s",
-                    observation.source_event_id,
-                )
-                continue
             for event in response.server_events:
                 if event["source_event_id"] == observation.source_event_id:
                     event["action"] = verified_action
                     event["action_payload"] = payload
+                    event["state_after"] = verified_state.value
+                    event["reason_code"] = "HYBRID_RANKED_ACTION"
+                    event["reason_text"] = (
+                        "A verified alternative teaching move was selected from "
+                        "the allowed policy actions."
+                    )
                     event["hybrid_ranked"] = True
                     event["decision_trace_id"] = self._trace_id(
                         observation.source_event_id
                     )
 
-    def _revalidate_decision_token(self, material: ShadowMaterial) -> bool:
-        """Short Phase C transaction: the durable state must still match the
-        Phase A token exactly. Verifies the committed fallback agent event,
-        the session state, and the agent event count (no concurrent sync or
-        retry advanced the session)."""
+    def _revalidate_and_persist_decision_trace(
+        self, material: ShadowMaterial, observation: HybridShadowObservation
+    ) -> bool:
+        """Atomically revalidate Phase A and persist the H7 trace.
+
+        The student lock covers both operations so a concurrent sync cannot
+        advance the token after validation but before trace persistence.
+        """
         token: DecisionToken = material.token  # type: ignore[assignment]
-        with transaction(self.connection):
-            row = self.connection.execute(
-                """
-                SELECT action, reason_code, policy_version FROM agent_events
-                WHERE student_id = %s
-                  AND session_id = %s
-                  AND source_event_id = %s
-                  AND tenant_id = current_setting('app.tenant_id', true)
-                """,
-                (token.student_id, token.session_id, token.source_event_id),
-            ).fetchone()
-            if row is None:
-                return False
-            if (row["action"], row["reason_code"], row["policy_version"]) != (
-                token.fallback_action,
-                token.reason_code,
-                token.policy_version,
-            ):
-                return False
-            session = self.connection.execute(
-                """
-                SELECT session_state FROM study_sessions
-                WHERE session_id = %s
-                  AND tenant_id = current_setting('app.tenant_id', true)
-                """,
-                (token.session_id,),
-            ).fetchone()
-            if session is None or session["session_state"] != token.state_after:
-                return False
-            count = self.connection.execute(
-                """
-                SELECT COUNT(*) AS n FROM agent_events
-                WHERE student_id = %s
-                  AND session_id = %s
-                  AND tenant_id = current_setting('app.tenant_id', true)
-                """,
-                (token.student_id, token.session_id),
-            ).fetchone()["n"]
-            return int(count) == token.agent_event_count
+        with student_advisory_lock(self.connection, token.student_id):
+            with transaction(self.connection):
+                verified_action = observation.model_proposal_action
+                lesson_type = {
+                    BoundedAction.SHOW_WORKED_EXAMPLE: "worked_example",
+                    BoundedAction.SHOW_MICRO_LESSON: "micro_lesson",
+                }.get(verified_action)
+                if lesson_type is not None:
+                    verified_payload = (material.verified_payloads or {}).get(
+                        verified_action.value
+                    )
+                    if not isinstance(verified_payload, dict) or not isinstance(
+                        verified_payload.get("pack_version"), str
+                    ) or not self._lesson_matches_verified_payload(
+                        pack_version=verified_payload["pack_version"],
+                        lesson_type=lesson_type,
+                        misconception=verified_payload.get("misconception"),
+                        payload=verified_payload,
+                    ):
+                        return False
+                if not self._decision_token_is_current(token):
+                    return False
+                self._insert_decision_trace(material, observation)
+        return True
+
+    def _decision_token_is_current(self, token: DecisionToken) -> bool:
+        row = self.connection.execute(
+            """
+            SELECT action, reason_code, policy_version FROM agent_events
+            WHERE student_id = %s
+              AND session_id = %s
+              AND source_event_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+            """,
+            (token.student_id, token.session_id, token.source_event_id),
+        ).fetchone()
+        if row is None:
+            return False
+        if (row["action"], row["reason_code"], row["policy_version"]) != (
+            token.fallback_action,
+            token.reason_code,
+            token.policy_version,
+        ):
+            return False
+        session = self.connection.execute(
+            """
+            SELECT session_state FROM study_sessions
+            WHERE session_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+            """,
+            (token.session_id,),
+        ).fetchone()
+        if session is None or session["session_state"] != token.state_after:
+            return False
+        count = self.connection.execute(
+            """
+            SELECT COUNT(*) AS n FROM agent_events
+            WHERE student_id = %s
+              AND session_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+            """,
+            (token.student_id, token.session_id),
+        ).fetchone()["n"]
+        learning_event_count = self.connection.execute(
+            """
+            SELECT COUNT(*) AS n FROM learning_events
+            WHERE student_id = %s
+              AND session_id = %s
+              AND tenant_id = current_setting('app.tenant_id', true)
+            """,
+            (token.student_id, token.session_id),
+        ).fetchone()["n"]
+        return (
+            int(count) == token.agent_event_count
+            and int(learning_event_count) == token.learning_event_count
+        )
 
     @staticmethod
     def _trace_id(source_event_id: str) -> str:
         return f"h7b_{source_event_id}"
 
-    def _persist_decision_trace(
+    def _insert_decision_trace(
         self, material: ShadowMaterial, observation: HybridShadowObservation
     ) -> None:
-        """Idempotent auditable trace binding the verified action to its
-        source event (H7). One trace row per source event: retries and
-        duplicate syncs cannot double-record."""
+        """Insert the idempotent H7 trace within the caller's transaction."""
         token: DecisionToken = material.token  # type: ignore[assignment]
-        with transaction(self.connection):
-            self.connection.execute(
-                """
-                INSERT INTO hybrid_decision_trace (
-                    trace_id, tenant_id, student_id, source_event_id,
-                    decision_token, fallback_action, verified_action,
-                    accepted_checks, created_at
-                ) VALUES (
-                    %s, current_setting('app.tenant_id', true), %s, %s, %s, %s, %s, %s, %s
-                )
-                ON CONFLICT (trace_id) DO NOTHING
-                """,
-                (
-                    self._trace_id(token.source_event_id),
-                    token.student_id,
-                    token.source_event_id,
-                    json.dumps(
-                        {
-                            "session_id": token.session_id,
-                            "fallback_action": token.fallback_action,
-                            "reason_code": token.reason_code,
-                            "policy_version": token.policy_version,
-                            "state_after": token.state_after,
-                            "agent_event_count": token.agent_event_count,
-                        },
-                        sort_keys=True,
-                    ),
-                    token.fallback_action,
-                    observation.model_proposal_action.value,
-                    json.dumps(list(observation.verification_checks), sort_keys=True),
-                    _utc_now_iso(),
-                ),
+        self.connection.execute(
+            """
+            INSERT INTO hybrid_decision_trace (
+                trace_id, tenant_id, student_id, source_event_id,
+                decision_token, fallback_action, verified_action,
+                accepted_checks, created_at
+            ) VALUES (
+                %s, current_setting('app.tenant_id', true), %s, %s, %s, %s, %s, %s, %s
             )
+            ON CONFLICT (trace_id) DO NOTHING
+            """,
+            (
+                self._trace_id(token.source_event_id),
+                token.student_id,
+                token.source_event_id,
+                json.dumps(
+                    {
+                        "session_id": token.session_id,
+                        "fallback_action": token.fallback_action,
+                        "reason_code": token.reason_code,
+                        "policy_version": token.policy_version,
+                        "state_after": token.state_after,
+                        "agent_event_count": token.agent_event_count,
+                        "learning_event_count": token.learning_event_count,
+                        "verified_action_payload": (
+                            material.verified_payloads or {}
+                        ).get(observation.model_proposal_action.value),
+                    },
+                    sort_keys=True,
+                ),
+                token.fallback_action,
+                observation.model_proposal_action.value,
+                json.dumps(list(observation.verification_checks), sort_keys=True),
+                _utc_now_iso(),
+            ),
+        )
 
     def _evidence_weight(self, meta: dict, envelope: SyncEventEnvelope, repeated: bool) -> float:
         difficulty = meta.get("difficulty") or 2

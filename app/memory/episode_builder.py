@@ -186,7 +186,7 @@ class EpisodeBuilder:
         student_id: str,
         session_id: str,
         skill: str,
-        misconception: str,
+        misconception: str | None,
         intervention: str,
         teaching_content_id: str,
         trigger_content_id: str,

@@ -67,7 +67,7 @@ def _policy_input_brief(inputs: PolicyInput) -> dict:
         "requires_unmastered_prerequisite": inputs.requires_unmastered_prerequisite,
         "minutes_remaining": inputs.minutes_remaining,
         "hints_used_this_item": inputs.hints_used_this_item,
-        "recalled_successful_episode": inputs.recalled_successful_episode,
+        "recalled_successful_interventions": inputs.recalled_successful_interventions,
     }
 
 
@@ -178,6 +178,16 @@ class SessionOrchestrator:
         )
 
         recalled = self._recall_episodes(student_id, item.skill, misconception)
+        recalled_ids_by_intervention: dict[str, list[str]] = {}
+        for episode in recalled:
+            if episode.intervention not in {
+                BoundedAction.SHOW_WORKED_EXAMPLE.value,
+                BoundedAction.SHOW_MICRO_LESSON.value,
+            }:
+                continue
+            recalled_ids_by_intervention.setdefault(episode.intervention, []).append(
+                episode.episode_id
+            )
         inputs = PolicyInput(
             student_id=student_id,
             session_id=session_id,
@@ -192,8 +202,9 @@ class SessionOrchestrator:
             misconception_observation_count=obs_count,
             misconception_distinct_items=distinct_items,
             minutes_remaining=minutes_remaining,
-            recalled_successful_episode=bool(recalled),
             recalled_episode_ids=[e.episode_id for e in recalled],
+            recalled_successful_interventions=list(recalled_ids_by_intervention),
+            recalled_episode_ids_by_intervention=recalled_ids_by_intervention,
         )
         result = self._decide(inputs)
 
@@ -226,12 +237,10 @@ class SessionOrchestrator:
         )
 
     def _recall_episodes(self, student_id: str, skill: str, misconception: str | None):
-        return self.memory.recall_episodes(
-            student_id=student_id,
-            skill=skill,
-            misconception=misconception,
-            limit=3,
-        )
+        kwargs = {"student_id": student_id, "skill": skill, "limit": 3}
+        if misconception is not None:
+            kwargs["misconception"] = misconception
+        return self.memory.recall_episodes(**kwargs)
 
     def _decide(self, inputs: PolicyInput):
         """Dual-mode next-action selection.

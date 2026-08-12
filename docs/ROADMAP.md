@@ -1,8 +1,10 @@
 # BridgeSAT Competition Roadmap
 
-Current runtime: PostgreSQL authority, migrations `0001`–`0015`, PostgreSQL
-`tsvector` retrieval, and optional rebuildable Mnemis. Historical SQLite/FTS5
-milestones are superseded.
+Current runtime: PostgreSQL authority, migrations `0001`–`0016`, PostgreSQL
+`tsvector` retrieval, and optional rebuildable Mnemis. H9 freezes the competition
+configuration to deterministic mode with all five Hybrid flags at `0`; see
+`docs/HYBRID_FINAL_CONFIGURATION.md`. Historical SQLite/FTS5 milestones are
+superseded.
 
 ## Engineering gates
 
@@ -19,6 +21,8 @@ milestones are superseded.
 - [x] Mnemis timeout and PostgreSQL fallback
 - [x] deterministic evaluation runner prepares its own retrieval index
 - [x] one-page write-up and submission-readiness matrix
+- [x] H9 final metric/configuration freeze with `reports/hybrid_final_gate.json`,
+  `reports/final_summary.md`, and `docs/EVIDENCE_PACK.md`
 
 ## Submission gates
 
@@ -29,7 +33,8 @@ milestones are superseded.
 - [ ] clean public deployment and working-demo URL
 - [ ] screenshots and ≤3-minute video following `docs/DEMO_SCRIPT.md`
 - [ ] public GitHub URL and link verification
-- [ ] final metric freeze from the exact README command order
+- [x] final metric freeze from the exact README command order; fresh evidence is
+  recorded in `reports/final_summary.md` and `docs/EVIDENCE_PACK.md`
 
 ## Post-competition, not MVP
 

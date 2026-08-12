@@ -1,15 +1,18 @@
 # Hybrid Shadow Ablation
 
-Phase H6 behavioral-value proof for the verified shadow Hybrid layer (plan sections 21/22). Deterministic baseline and shadow gate run on a versioned golden set with scripted model responses; no live provider is called. **This is a controlled internal test with synthetic learners — not real student outcomes.**
+H6/H7 behavioral-value proof plus H5/H8 grounded wording checks for the verified shadow Hybrid layer (plan sections 21/22). Deterministic baseline and shadow gate run on a versioned golden set with scripted model responses; no live provider is called. **This is a controlled internal test with synthetic learners — not real student outcomes. H8 summary results are aggregated separately from the decision/explanation metrics.**
 
-Golden set: `evals/hybrid/golden.jsonl` (`hybrid-golden-v1`), 10 cases, 17 variants.
+Golden set: `evals/hybrid/golden.jsonl` (`hybrid-golden-v1`), 15 cases, 22 variants.
 
 ## Metrics
 
 | Metric | Value |
 | --- | --- |
-| Cases | 10 |
-| Variants | 17 |
+| Cases | 15 |
+| Variants | 22 |
+| Pre-H8 cases included in legacy metrics | 10 |
+| H8 summary cases (reported separately) | 5 |
+| H8 summary variants (reported separately) | 5 |
 | Ambiguous cases | 6 |
 | Decisive cases | 4 |
 | Baseline accuracy (deterministic == expected) | 1.0 |
@@ -60,6 +63,31 @@ Golden set: `evals/hybrid/golden.jsonl` (`hybrid-golden-v1`), 10 cases, 17 varia
   - [pass] `adversarial_hallucinated_ref` gate=hybrid calls=1 accepted=False would_change=False reason=ungrounded_explanation_ref
 - `h6-09` (ambiguous, explanation) — baseline `SHOW_WORKED_EXAMPLE`, allowed `SHOW_WORKED_EXAMPLE` — variant results `P`
   - [pass] `provider_unavailable` gate=hybrid calls=1 accepted=False would_change=False reason=model_unavailable
+
+## H8 session summary grounding
+
+The five additive H8 cases use the real summary prompt, parser, and fail-closed verifier. Their outcomes do not contribute to the H6/H7 decision or H5 explanation metrics above.
+
+- `h8-01` (summary) — variant results `P`
+  - [pass] `grounded_accepted` gate=hybrid calls=1 accepted=True reason=
+- `h8-02` (summary) — variant results `P`
+  - [pass] `ungrounded_number` gate=hybrid calls=1 accepted=False reason=ungrounded_number
+- `h8-03` (summary) — variant results `P`
+  - [pass] `ungrounded_ref` gate=hybrid calls=1 accepted=False reason=ungrounded_summary_ref
+- `h8-04` (summary) — variant results `P`
+  - [pass] `prohibited_claim` gate=hybrid calls=1 accepted=False reason=prohibited_claim
+- `h8-05` (summary) — variant results `P`
+  - [pass] `unavailable` gate=hybrid calls=1 accepted=False reason=model_unavailable
+
+| H8 metric | Value |
+| --- | --- |
+| Accepted summaries | 1 |
+| Rejected summaries | 4 |
+| Summary grounding accuracy | 1.0 |
+| Summary adversarial attempts | 3 |
+| Summary adversarial rejection rate | 1.0 |
+| Unavailable fallback rate | 1.0 |
+| H8 scripted model calls | 5 |
 
 ## Conclusion vs H6 acceptance criteria
 

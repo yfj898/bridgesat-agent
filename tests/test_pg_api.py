@@ -21,6 +21,7 @@ from app.memory.deletion import StudentMemoryDeletionService
 from app.memory.outbox import student_advisory_lock
 from app.models import Skill, StudentCreate
 from app.repository import StudentRepository
+from tests.pg_test_helpers import import_fixture_pack
 
 
 class _FakeCursor:
@@ -280,8 +281,6 @@ def test_lifespan_probes_configured_app_before_migration(
     [
         "/health",
         "/v1/questions",
-        "/v1/content-packs",
-        "/v1/content-packs/skeleton-0.1.0",
         "/",
         "/sw.js",
     ],
@@ -302,6 +301,210 @@ def test_database_independent_paths_bypass_connection_factory(path: str) -> None
     assert response.status_code == 200
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert calls == 0
+
+
+def _register_pack_row(
+    dsn: str,
+    *,
+    pack_id: str,
+    pack_version: str,
+    manifest: dict | None = None,
+    include_items: bool = True,
+) -> None:
+    """Insert one content_packs row (and required content rows) directly so the
+    negative registry paths (404/409/503) are exercised without relying on the
+    importing pipeline."""
+    admin = pg.connect_admin(dsn)
+    try:
+        manifest_json = manifest or {
+            "pack_id": pack_id,
+            "pack_version": pack_version,
+            "status": "published",
+        }
+        with transaction(admin):
+            admin.execute(
+                """
+                INSERT INTO content_packs (pack_id, pack_version, status,
+                    manifest_json, created_at)
+                VALUES (%s, %s, 'published', %s, '2026-01-01T00:00:00')
+                """,
+                (pack_id, pack_version, json.dumps(manifest_json)),
+            )
+            if include_items:
+                admin.execute(
+                    """
+                    INSERT INTO content_items (content_id, version, content_type,
+                        review_status, status, target_skill)
+                    VALUES (%s, 1, 'question', 'approved', 'approved',
+                        'linear_equations')
+                    """,
+                    (f"{pack_id}.q1",),
+                )
+                admin.execute(
+                    """
+                    INSERT INTO content_item_versions (content_id, version,
+                        item_json, content_hash, versioned_body, versioned_at)
+                    VALUES (%s, 1, %s, 'sha256:baditem',
+                        '{"id": "not json', '2026-01-01T00:00:00')
+                    """,
+                    (f"{pack_id}.q1", '{"id": "not json'),
+                )
+                admin.execute(
+                    """
+                    INSERT INTO content_pack_items (pack_id, content_id, version)
+                    VALUES (%s, %s, 1)
+                    """,
+                    (pack_id, f"{pack_id}.q1"),
+                )
+    finally:
+        pg.quiet_close(admin)
+
+
+def test_content_pack_endpoint_reads_the_postgres_registry(
+    isolated_pg_database, monkeypatch, tmp_path
+) -> None:
+    import_fixture_pack(isolated_pg_database.admin_dsn)
+    fake_pack = tmp_path / "syncmath-0.1.0"
+    fake_pack.mkdir()
+    (fake_pack / "manifest.json").write_text(
+        json.dumps(
+            {
+                "pack_id": "syncmath",
+                "pack_version": "0.1.0",
+                "status": "published",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (fake_pack / "items.jsonl").write_text(
+        json.dumps({"id": "filesystem-item", "content_type": "question"}) + "\n",
+        encoding="utf-8",
+    )
+    (fake_pack / "lessons.jsonl").write_text(
+        json.dumps(
+            {
+                "id": "filesystem-lesson",
+                "content_type": "worked_example",
+                "review_status": "approved",
+            }
+        ) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BRIDGESAT_PACKS_ROOT", str(tmp_path))
+    application = create_app(
+        isolated_pg_database.connect_app,
+        run_migrations=False,
+    )
+
+    with TestClient(application) as client:
+        response = client.get("/v1/content-packs/0.1.0")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["manifest"]["pack_id"] == "syncmath"
+    assert {item["id"] for item in body["items"]} == {
+        "sync.linear.001",
+        "sync.ratios.001",
+    }
+    assert {lesson["id"] for lesson in body["lessons"]} == {
+        "we_linear_001",
+        "ml_linear_001",
+    }
+
+
+def test_content_pack_endpoint_returns_404_for_unknown_version(
+    isolated_pg_database,
+) -> None:
+    import_fixture_pack(isolated_pg_database.admin_dsn)
+    application = create_app(
+        isolated_pg_database.connect_app,
+        run_migrations=False,
+    )
+
+    with TestClient(application) as client:
+        response = client.get("/v1/content-packs/9.9.9")
+
+    assert response.status_code == 404
+    assert "9.9.9" in response.json()["detail"]
+
+
+def test_content_pack_endpoint_returns_409_for_ambiguous_version(
+    isolated_pg_database,
+) -> None:
+    _register_pack_row(
+        isolated_pg_database.admin_dsn,
+        pack_id="clash-a",
+        pack_version="5.0.0",
+    )
+    _register_pack_row(
+        isolated_pg_database.admin_dsn,
+        pack_id="clash-b",
+        pack_version="5.0.0",
+    )
+    application = create_app(
+        isolated_pg_database.connect_app,
+        run_migrations=False,
+    )
+
+    with TestClient(application) as client:
+        response = client.get("/v1/content-packs/5.0.0")
+
+    assert response.status_code == 409
+    assert "ambiguous" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    ("manifest", "detail"),
+    [
+        (
+            {"pack_id": "clash-other", "pack_version": "0.2.0", "status": "published"},
+            "manifest mismatch",
+        ),
+        (
+            {"pack_id": "clash-c", "pack_version": "0.3.0", "status": "withdrawn"},
+            "manifest mismatch",
+        ),
+    ],
+)
+def test_content_pack_endpoint_returns_503_on_manifest_mismatch(
+    isolated_pg_database, manifest, detail
+) -> None:
+    _register_pack_row(
+        isolated_pg_database.admin_dsn,
+        pack_id="clash-c",
+        pack_version="0.2.0",
+        manifest=manifest,
+    )
+    application = create_app(
+        isolated_pg_database.connect_app,
+        run_migrations=False,
+    )
+
+    with TestClient(application) as client:
+        response = client.get("/v1/content-packs/0.2.0")
+
+    assert response.status_code == 503
+    assert detail in response.json()["detail"]
+
+
+def test_content_pack_endpoint_returns_503_on_invalid_item_json(
+    isolated_pg_database,
+) -> None:
+    _register_pack_row(
+        isolated_pg_database.admin_dsn,
+        pack_id="clash-d",
+        pack_version="0.2.0",
+    )
+    application = create_app(
+        isolated_pg_database.connect_app,
+        run_migrations=False,
+    )
+
+    with TestClient(application) as client:
+        response = client.get("/v1/content-packs/0.2.0")
+
+    assert response.status_code == 503
+    assert "Invalid content registry item" in response.json()["detail"]
 
 
 def test_request_cleanup_closes_connection_when_rollback_raises() -> None:

@@ -1,0 +1,113 @@
+{
+  "schema_version": "1.0",
+  "gate_schema_version": "hybrid-final-gate-v1",
+  "label": "controlled internal test",
+  "source_report": "reports/hybrid_eval.json",
+  "source_schema_version": "1.0",
+  "source_label": "controlled internal test",
+  "final_mode": "deterministic",
+  "frozen_feature_flags": {
+    "BRIDGESAT_HYBRID_ENABLED": 0,
+    "BRIDGESAT_HYBRID_SHADOW_ENABLED": 0,
+    "BRIDGESAT_HYBRID_EXPLANATION_ENABLED": 0,
+    "BRIDGESAT_HYBRID_ACTION_RANKING_ENABLED": 0,
+    "BRIDGESAT_HYBRID_SUMMARY_ENABLED": 0
+  },
+  "action_ranking_decision": "No-Go",
+  "rationale": "Default competition mode remains deterministic. H7 action-ranking evidence is limited to a controlled synthetic evaluation with scripted provider responses. Scripted p50/p95 values of 0 ms are not real-provider latency evidence. No repeated real-provider latency and lock-duration run was supplied.",
+  "rationale_points": [
+    "Default competition mode remains deterministic.",
+    "H7 action-ranking evidence is limited to a controlled synthetic evaluation with scripted provider responses.",
+    "Scripted p50/p95 values of 0 ms are not real-provider latency evidence.",
+    "No repeated real-provider latency and lock-duration run was supplied."
+  ],
+  "evidence_scope": {
+    "label": "controlled internal test",
+    "provider": "scripted provider; no live provider",
+    "learners": "synthetic cases; not real students",
+    "legacy_metrics": {
+      "cases": 10,
+      "variants": 17
+    },
+    "h8_summary": {
+      "cases": 5,
+      "variants": 5
+    }
+  },
+  "report_shape": {
+    "passed": true,
+    "expected": {
+      "cases": 15,
+      "variants": 22,
+      "non_summary_cases": 10,
+      "non_summary_variants": 17,
+      "summary_cases": 5,
+      "summary_variants": 5,
+      "decision_cases": 8,
+      "explanation_cases": 2,
+      "ambiguous_cases": 6,
+      "decisive_cases": 4
+    },
+    "observed": {
+      "cases": 15,
+      "variants": 22,
+      "non_summary_cases": 10,
+      "non_summary_variants": 17,
+      "summary_cases": 5,
+      "summary_variants": 5,
+      "decision_cases": 8,
+      "explanation_cases": 2,
+      "ambiguous_cases": 6,
+      "decisive_cases": 4
+    },
+    "errors": [],
+    "error_details": []
+  },
+  "safety_checks": {
+    "passed": true,
+    "allowed_action_violations": 0,
+    "hallucinated_acceptance": 0,
+    "fallback_success_rate": 1.0,
+    "decisive_zero_model_calls": 1.0,
+    "explanation_grounding_accuracy": 1.0,
+    "summary_grounding_accuracy": 1.0,
+    "summary_unavailable_fallback_rate": 1.0,
+    "beneficial_difference_cases": [
+      "h6-01"
+    ],
+    "recomputed": {
+      "allowed_action_violations": 0,
+      "hallucinated_acceptance": 0,
+      "fallback_success_rate": 1.0,
+      "decisive_zero_model_calls": 1.0,
+      "explanation_grounding_accuracy": 1.0,
+      "summary_grounding_accuracy": 1.0,
+      "summary_unavailable_fallback_rate": 1.0,
+      "beneficial_difference_cases": [
+        "h6-01"
+      ],
+      "policy_errors": []
+    },
+    "failed_checks": []
+  },
+  "synthetic_latency_disclaimer": "The hybrid report latency values are scripted-transport harness timings from a controlled internal test; a scripted p50/p95 of 0 ms is not real-provider latency evidence, a lock-duration measurement, or an SLA.",
+  "missing_evidence": [
+    "repeated real-provider latency runs",
+    "real-provider lock-duration measurements under the sync path",
+    "real student outcome measurements"
+  ],
+  "rollback_profile": {
+    "name": "deterministic-default",
+    "trigger": "Any report-shape or safety-check failure, provider instability, or explicit rollback request.",
+    "action": "Keep deterministic policy authoritative, leave all five Hybrid flags at 0, and disable any action-changing path.",
+    "frozen_feature_flags": {
+      "BRIDGESAT_HYBRID_ENABLED": 0,
+      "BRIDGESAT_HYBRID_SHADOW_ENABLED": 0,
+      "BRIDGESAT_HYBRID_EXPLANATION_ENABLED": 0,
+      "BRIDGESAT_HYBRID_ACTION_RANKING_ENABLED": 0,
+      "BRIDGESAT_HYBRID_SUMMARY_ENABLED": 0
+    }
+  },
+  "gate_passed": true,
+  "status": "PASS"
+}

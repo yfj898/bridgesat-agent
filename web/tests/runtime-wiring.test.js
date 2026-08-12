@@ -10,6 +10,26 @@ const app = fs.readFileSync(path.join(WEB, "app.js"), "utf8");
 const core = fs.readFileSync(path.join(WEB, "offline-core.js"), "utf8");
 const html = fs.readFileSync(path.join(WEB, "index.html"), "utf8");
 
+test("student promise leads the initial PWA markup before technical evidence", () => {
+  const studentPromise = html.indexOf("Every student deserves a tutor");
+  const welcomeStart = html.indexOf('id="welcome-card"');
+  const technicalEvidenceStart = html.indexOf(
+    '<details class="technical-evidence">'
+  );
+
+  assert.ok(studentPromise >= 0, "header promise exists in initial markup");
+  assert.ok(welcomeStart >= 0, "welcome card exists in initial markup");
+  assert.ok(technicalEvidenceStart >= 0, "technical evidence exists in initial markup");
+  assert.ok(
+    studentPromise < welcomeStart,
+    "header promise precedes the welcome card in initial markup"
+  );
+  assert.ok(
+    welcomeStart < technicalEvidenceStart,
+    "welcome card precedes technical evidence in initial markup"
+  );
+});
+
 test("lightweight student home introduces content without bypassing diagnostic", () => {
   assert.ok(html.includes('id="welcome-card"'));
   assert.match(html, /id="catalog-question-count">103<\/strong> practice items/);
@@ -42,6 +62,8 @@ test("PWA consumes server agent events returned by sync", () => {
   assert.match(app, /renderAgentIntervention\(relevant\)/);
   assert.match(app, /selectRelevantAgentEvent\(events, expectedSourceEventId\)/);
   assert.match(core, /event\.source_event_id === expectedSourceEventId/);
+  assert.match(core, /event\.source_event_id === expectedSourceEventId/);
+  assert.match(app, /feedbackState\.serverAgentEvent\.hybrid_ranked/);
   assert.match(
     app,
     /nextActionConstraint = \{[\s\S]*\.\.\.\(nextActionConstraint \|\| \{\}\)[\s\S]*\.\.\.\(relevant\.action_payload \|\| \{\}\)/
@@ -49,12 +71,84 @@ test("PWA consumes server agent events returned by sync", () => {
   assert.match(app, /pickNextQuestion\([\s\S]*nextActionConstraint/);
 });
 
+test("consumeAgentEvents reconstructs a teaching transfer constraint", () => {
+  const start = app.indexOf("function consumeAgentEvents");
+  const end = app.indexOf("async function completeDiagnostic", start);
+  assert.ok(start >= 0 && end > start, "consumeAgentEvents source exists");
+  const consumeAgentEvents = app.slice(start, end);
+
+  assert.ok(consumeAgentEvents.includes("relevant.action_payload"));
+  assert.ok(consumeAgentEvents.includes("isTeachingAction(relevant)"));
+  assert.ok(consumeAgentEvents.includes("currentQuestion.author_metadata.transfer_group"));
+  assert.ok(consumeAgentEvents.includes("transfer_group"));
+  assert.ok(consumeAgentEvents.includes('instruction_role: "transfer"'));
+});
+
+test("attemptSync reports rejected progress without promising automatic updates", () => {
+  const start = app.indexOf("async function attemptSync()");
+  const end = app.indexOf("function seedSkillStates", start);
+  assert.ok(start >= 0 && end > start, "attemptSync source exists");
+  const attemptSync = app.slice(start, end);
+
+  assert.match(
+    attemptSync,
+    /const result = await client\.sync\(\);[\s\S]*await refreshPendingCount\(\);/
+  );
+  assert.ok(
+    attemptSync.includes(
+      "Some progress could not be saved yet. Keep learning; recent work remains on this device."
+    )
+  );
+  assert.doesNotMatch(
+    attemptSync,
+    /will update automatically when the connection returns\./
+  );
+});
+
+test("attemptSync chooses truthful status after its final pending refresh", () => {
+  const start = app.indexOf("async function attemptSync()");
+  const end = app.indexOf("function seedSkillStates", start);
+  assert.ok(start >= 0 && end > start, "attemptSync source exists");
+  const attemptSync = app.slice(start, end);
+  const syncStart = attemptSync.indexOf("const result = await client.sync();");
+  const tryEnd = attemptSync.indexOf("  } catch", syncStart);
+  const syncAttempt = attemptSync.slice(syncStart, tryEnd);
+  const finalRefresh = syncAttempt.lastIndexOf("await refreshPendingCount();");
+  assert.ok(syncStart >= 0, "client sync result exists");
+  assert.ok(tryEnd > syncStart, "attemptSync try block exists");
+  assert.ok(finalRefresh > syncStart, "final pending refresh follows client sync");
+  const postSyncStatus = syncAttempt.slice(finalRefresh);
+
+  assert.match(
+    postSyncStatus,
+    /await refreshPendingCount\(\);\s*if \(failedEventTotal > 0\)/
+  );
+  assert.ok(
+    postSyncStatus.includes(
+      "Some progress could not be saved yet. Keep learning; recent work remains on this device."
+    )
+  );
+  assert.match(
+    postSyncStatus,
+    /else if \(result\.reason === "empty" && pendingTotal > 0\)/
+  );
+  assert.ok(
+    postSyncStatus.includes(
+      "Some saved progress needs another try. Keep learning; nothing has been lost."
+    )
+  );
+  assert.ok(
+    postSyncStatus.includes("Your recent learning progress is saved.")
+  );
+});
+
 test("memory-aware intervention is visible and traceable", () => {
   assert.ok(html.includes('id="agent-intervention"'));
-  assert.match(core, /Based on what helped you before/);
-  assert.match(html, /<summary>Why this recommendation\?<\/summary>/);
+  assert.match(core, /This helped you before/);
+  assert.match(html, /<summary>Why\?<\/summary>/);
   assert.match(html, /<details class="technical-evidence">/);
   assert.doesNotMatch(html, /<details class="technical-evidence" open>/);
+  assert.match(html, /<summary>Learning record details<\/summary>/);
   assert.match(app, /details\.open = false/);
   assert.match(core, /RECALLED_SUCCESSFUL_EPISODE/);
   assert.match(app, /view\.reasonCode, view\.policyVersion/);
@@ -65,7 +159,10 @@ test("memory-aware intervention is visible and traceable", () => {
   assert.match(app, /source: \$\{lesson\.source_lineage/);
   assert.match(app, /entry\.id === event\.action_payload\?\.content_id/);
   assert.match(app, /"WORKED_EXAMPLE_PRESENTED"/);
+  assert.match(app, /"MICRO_LESSON_PRESENTED"/);
   assert.match(app, /source_answer_event_id: sourceEventId/);
+  assert.match(app, /const answeredWhileOnline = navigator\.onLine/);
+  assert.match(app, /if \(!answeredWhileOnline\) \{\s*await recordPresentedIntervention/);
 });
 
 test("verified personalized explanation is rendered without replacing the deterministic copy", () => {
@@ -73,15 +170,91 @@ test("verified personalized explanation is rendered without replacing the determ
   assert.match(core, /event\.personalized_emphasis \|\| ""/);
   assert.match(app, /view\.personalized[\s\S]{0,40}event\.validated_episode_id/);
   assert.match(app, /personalized: \$\{view\.personalizedEmphasis/);
-  assert.match(app, /view\.personalized/);
+  assert.doesNotMatch(app, /view\.personalized \|\|/);
+});
+
+test("correct feedback retains the worked explanation", () => {
+  assert.match(app, /state\.correct[\s\S]*item\.worked_explanation/);
+});
+
+test("finishSession renders a verified sync summary and keeps deterministic fallback", () => {
+  const start = app.indexOf("async function finishSession()");
+  const end = app.indexOf("async function upgradeInstalledPackWhenIdle", start);
+  assert.ok(start >= 0 && end > start, "finishSession source exists");
+  const finishSession = app.slice(start, end);
+
+  assert.match(finishSession, /const synced = await attemptSync\(\);/);
+  assert.match(
+    finishSession,
+    /Array\.isArray\(personalizedSummaries\)/
+  );
+  assert.match(
+    finishSession,
+    /typeof synced\?\.body\?\.personalized_summary === "string"/
+  );
+  assert.match(finishSession, /String\(currentSummary \|\| legacySummary\)\.trim\(\)/);
+  assert.match(finishSession, /entry\.source_event_id === completionRecord\?\.id/);
+  assert.match(finishSession, /entry\.session_id === sessionId/);
+  assert.match(
+    finishSession,
+    /if \(verifiedSummary\) \{\s*summaryText\.textContent = `\$\{verifiedSummary\} \$\{syncStatusText\}`;\s*\} else \{/s
+  );
+  assert.match(
+    finishSession,
+    /const memorySummary = episodes\.length > 0[\s\S]*summaryText\.textContent = `Session complete\./
+  );
+  assert.match(
+    finishSession,
+    /failedEventTotal > 0[\s\S]*Some progress could not be saved yet\. Keep learning; recent work remains on this device\./
+  );
+  assert.match(app, /let failedEventTotal = 0;/);
+  assert.match(app, /failedEventTotal = records\.filter\(\(record\) => record\.status === "failed"\)\.length;/);
+  assert.match(
+    finishSession,
+    /pending > 0[\s\S]*Your progress is saved on this device and will save when the connection returns\./
+  );
+  assert.doesNotMatch(
+    finishSession,
+    /will update automatically when the connection returns\./
+  );
+  assert.match(finishSession, /: "Your progress is saved\.";/);
 });
 
 test("offline and reconnect states remain student-visible", () => {
-  assert.match(app, /Offline — keep practicing with saved questions/);
-  assert.match(app, /Back online — reconnecting/);
-  assert.match(app, /Syncing saved progress…/);
-  assert.match(app, /Synced — .*no progress lost/);
-  assert.match(app, /progress is safe on this device and will retry/);
+  assert.match(app, /you can keep learning/);
+  assert.match(app, /save automatically/);
+  assert.match(app, /You're connected again\. Saving the progress from this session/);
+  assert.match(app, /Saving your recent learning progress…/);
+  assert.match(app, /progress is safe on this device/);
+  assert.doesNotMatch(app, /Sync paused/);
+  assert.doesNotMatch(app, /\$\{pending\} update/);
+});
+
+test("student-facing practice rendering uses qualitative learning language", () => {
+  assert.ok(html.includes("Your SAT study partner"));
+  assert.ok(
+    html.includes("Start with two questions. I'll find the best place to begin.")
+  );
+  assert.ok(
+    html.includes(
+      "BridgeSAT notices stuck points, chooses the next step, and remembers what worked."
+    )
+  );
+  assert.doesNotMatch(html, /Pending sync:/);
+  assert.doesNotMatch(html, /id="pending-count"/);
+  assert.match(app, /function studentSkillLabel\(skill\)/);
+  assert.match(app, /function studentProgressLabel\(state\)/);
+  assert.match(app, /value\.textContent = studentProgressLabel\(state\)/);
+  assert.doesNotMatch(app, /value\.textContent = `\$\{mastery\}%`/);
+  assert.match(
+    app,
+    /Try one more similar problem so I can see whether the same step is getting in the way\./
+  );
+  assert.match(app, /isTeachingAction\(agentEvent\)[\s\S]{0,120}"Try a new problem"/);
+  assert.match(app, /"This approach worked on a new problem\."/);
+  assert.doesNotMatch(app, /This answer suggests \$\{state\.misconception/);
+  assert.match(app, /transfer_group: item\.author_metadata\.transfer_group/);
+  assert.match(app, /instruction_role: "transfer"/);
 });
 
 test("active session is persisted and restored through IndexedDB", () => {
@@ -102,5 +275,5 @@ test("time-budget closure is executed by the student UI", () => {
   assert.match(app, /isSessionEndingAction\(relevant\)/);
   assert.match(app, /isSessionEndingAction\(feedbackState\?\.serverAgentEvent/);
   assert.match(app, /await finishSession\(\)/);
-  assert.match(app, /"End with review"/);
+  assert.match(app, /"Finish with a review"/);
 });

@@ -376,22 +376,32 @@ function isSessionEndingAction(event) {
 function agentEventToView(event) {
   const episodeId = (event.episode_ids || [])[0] || null;
   const recalled = event.reason_code === "RECALLED_SUCCESSFUL_EPISODE";
+  const showTeachingAsset = ["SHOW_WORKED_EXAMPLE", "SHOW_MICRO_LESSON"].includes(
+    event.action
+  );
+  const teachingMove =
+    event.action === "SHOW_MICRO_LESSON" ? "a short explanation" : "a worked example";
   return {
     title:
-      event.action === "SHOW_WORKED_EXAMPLE"
-        ? "Worked example"
+      recalled
+        ? "Let's use the approach that helped before"
+        : event.action === "SHOW_WORKED_EXAMPLE"
+          ? "Let's look at a short example"
         : event.action === "SHOW_MICRO_LESSON"
-          ? "Micro lesson"
-        : "Next teaching move",
+          ? "Let's pause for a quick explanation"
+          : "Here's what to do next",
     showWorkedExample: event.action === "SHOW_WORKED_EXAMPLE",
-    showTeachingAsset: ["SHOW_WORKED_EXAMPLE", "SHOW_MICRO_LESSON"].includes(
-      event.action
-    ),
+    showTeachingAsset,
     memoryBased: recalled,
-    memoryBanner: recalled ? "Based on what helped you before" : "",
+    memoryBanner: recalled ? "This helped you before" : "",
     why: recalled
-      ? "You had a similar misconception before, and a worked example was followed by success on a different item. BridgeSAT is reusing that strategy earlier this time."
-      : event.reason_text,
+      ? `This came up before. ${teachingMove} helped on a new problem, so we're using it right away this time.`
+      : ["REPEATED_MISCONCEPTION", "REPEATED_SKILL_ERRORS"].includes(event.reason_code)
+        ? "I noticed the same step is getting in the way. Let's switch approaches before you do more practice."
+        : event.reason_text,
+    lessonLead: showTeachingAsset
+      ? "Focus on the key step that is easiest to miss. Then try a new problem to see whether this method works again."
+      : "",
     personalized: event.personalized_explanation || "",
     personalizedEmphasis: event.personalized_emphasis || "",
     reasonCode: event.reason_code,

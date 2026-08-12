@@ -10,6 +10,81 @@ EVALUATION_SPEC.md); this file is a chronological log, not a spec.
 
 ---
 
+## 2026-08-12 — Hybrid H8-H10: summary, final freeze, and closeout
+
+Completed the remaining Hybrid plan phases after H7. The competition default is
+now explicitly frozen to deterministic mode; the optional Hybrid paths remain
+implemented and fail-closed but are not enabled by default.
+
+### H8 — Session summary personalization
+
+- Added strict `SummaryFact`, `SummaryProposal`, and `SessionSummaryContext`
+  contracts plus a bounded summary prompt/parser/verifier in `app/agent/`.
+- Derived facts from committed PostgreSQL answer attempts, approved content
+  metadata, misconception evidence, validated episodes, transfer outcomes,
+  confirmed presentation events, review-due skills, and session completion
+  status. Facts are deduplicated and capped at 16; context/enrichment failures
+  cannot roll back `SESSION_COMPLETED`.
+- Added provenance-bearing `personalized_summaries` to `SyncResponse`; the PWA
+  selects the current completion/session entry and always retains deterministic
+  sync-status prose. Worked-example and micro-lesson presentation events are
+  both supported.
+- Added H8 sync/verifier/PWA tests and five additive golden cases (`h8-01` to
+  `h8-05`). Summary metrics remain separate from legacy H6/H7 metrics.
+
+### H9 — Final evaluation and enablement freeze
+
+- Added `scripts/run_hybrid_final_gate.py` and
+  `reports/hybrid_final_gate.json`. The gate validates golden case/variant
+  metadata, recomputes safety metrics from the golden inputs/results, and treats
+  an H7 No-Go as a valid evidence decision rather than a test failure.
+- Frozen competition configuration: `final_mode=deterministic` with
+  `BRIDGESAT_HYBRID_COMPETITION_MODE=1`; all five
+  `BRIDGESAT_HYBRID_*` flags are `0`; H7 action ranking is No-Go for default
+  enablement because the available provider evidence is scripted and lacks
+  repeated real-provider latency/lock-duration measurements.
+- `evals.run_all` now records the full Python suite in
+  `reports/python_tests.json` and fails closed on Python, Web, security,
+  content, performance, offline, or Hybrid gate regressions.
+
+### H10 — Demo and documentation closeout
+
+- Updated current PostgreSQL/migration, curriculum, test, evaluation, demo,
+  roadmap, architecture, and submission-readiness documentation; historical
+  SQLite/planning material is explicitly labeled.
+- Added `docs/HYBRID_FINAL_CONFIGURATION.md` with flags, rollback profile,
+  evidence scope, reproduction order, and limitations.
+
+### Post-gate hardening
+
+- Both `WORKED_EXAMPLE_PRESENTED` and `MICRO_LESSON_PRESENTED` now require a
+  matching approved server decision and create the same runtime episode path;
+  forged, replayed, and distinct-item completion cases are covered.
+- H8 facts are captured inside the authoritative completion transaction, while
+  provider calls remain outside the student lock. Duplicate completed sessions
+  do not resummarize, and a batch is capped at eight summary calls.
+- Summary verification now grounds every non-generic claim token and spelled-out
+  number against cited facts; misconception refs preserve skill, misconception,
+  and confidence identity, including signed/compound-count rejection and local
+  subject binding.
+- Competition mode is consumed at application startup: contradictory enabled
+  flags fail startup and runtime gates remain deterministic.
+- Micro presentation events are part of the typed event-store enum; H7 ranked
+  response actions are validated against the decision trace and approved pack
+  before runtime episode creation.
+
+### Results (controlled internal tests / synthetic cases)
+
+- Full Python suite: 850 passed; Node PWA suite: 55 passed.
+- Content audit: 1799/1799; offline/sync: 10/10.
+- Hybrid: 15 cases/22 variants; H8 summary 5/5; allowed-action violations 0;
+  hallucinated acceptance 0; fallback 100%; explanation and summary grounding
+  100%; unavailable-summary fallback 100%.
+- No real student outcome, human content approval, real-provider latency/SLA,
+  public deployment, video, or manual accessibility walkthrough is claimed.
+
+---
+
 ## 2026-08-11 — Hybrid H6: shadow ablation and behavioral-value proof
 
 Phase H6 (plan sections 21/22): proved the verified shadow Hybrid layer adds

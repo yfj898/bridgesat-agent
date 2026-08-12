@@ -5,7 +5,6 @@ const profileCard = document.querySelector("#profile-card");
 const sessionCard = document.querySelector("#session-card");
 const networkStatus = document.querySelector("#network-status");
 const syncStatus = document.querySelector("#sync-status");
-const pendingCount = document.querySelector("#pending-count");
 const questionArea = document.querySelector("#question-area");
 const masteryList = document.querySelector("#mastery-list");
 const sessionSummary = document.querySelector("#session-summary");
@@ -54,8 +53,8 @@ function authHeaders(extra) {
 
 function updateNetworkStatus() {
   networkStatus.textContent = navigator.onLine
-    ? "Online — progress can sync"
-    : "Offline — keep practicing with saved questions";
+    ? "Connected. Your learning progress will save automatically."
+    : "Your connection is down, but you can keep learning. Your progress will save automatically when it returns.";
 }
 
 function renderWelcomeCatalog(contentPack) {
@@ -94,13 +93,15 @@ async function hydrateWelcomeCatalog() {
 }
 
 window.addEventListener("online", () => {
-  networkStatus.textContent = "Back online — reconnecting";
-  setSyncStatus("Syncing saved progress…");
+  networkStatus.textContent = "You're connected again. Saving the progress from this session…";
+  setSyncStatus("Saving your recent learning progress…");
   attemptSync();
 });
 window.addEventListener("offline", () => {
   updateNetworkStatus();
-  setSyncStatus("Saved on this device — keep practicing; no progress lost");
+  setSyncStatus(
+    "You can keep learning. Your progress will save automatically when the connection returns."
+  );
 });
 
 if ("serviceWorker" in navigator) {
@@ -134,41 +135,51 @@ function transport(url, options) {
   }));
 }
 
+function studentSkillLabel(skill) {
+  const label = String(skill || "SAT foundations").replaceAll("_", " ");
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function studentProgressLabel(state) {
+  if ((state?.evidence_count || 0) < 2) return "Getting started";
+  return (state?.mastery || 0) >= 0.65 ? "Getting steadier" : "Keep practicing";
+}
+
+function isTeachingAction(event) {
+  return ["SHOW_WORKED_EXAMPLE", "SHOW_MICRO_LESSON"].includes(event?.action);
+}
+
 function renderMastery() {
   masteryList.replaceChildren();
   for (const [skill, state] of Object.entries(skillStates)) {
     const row = document.createElement("div");
     row.className = "mastery-row";
-    const mastery = Math.round((state.mastery ?? 0.5) * 100);
     const label = document.createElement("span");
-    label.textContent = skill.replaceAll("_", " ");
+    label.textContent = studentSkillLabel(skill);
     const value = document.createElement("strong");
-    value.textContent = `${mastery}%`;
+    value.textContent = studentProgressLabel(state);
     row.append(label, value);
     masteryList.append(row);
   }
   const weakest = weakestSkill(skillStates);
   learningFocus.textContent = weakest
-    ? `Current weak area: ${weakest.replaceAll("_", " ")}`
-    : "Answer the short diagnostic so BridgeSAT can choose a focus.";
+    ? `Let's work on ${studentSkillLabel(weakest)} next.`
+    : "Answer two questions and BridgeSAT will find a useful place to begin.";
 }
 
 function renderPhase() {
   learningPhase.textContent =
-    sessionPhase === "diagnostic" ? "Quick diagnostic" : "Personalized practice";
-}
-
-function renderPendingCount() {
-  pendingCount.textContent = String(pendingTotal);
+    sessionPhase === "diagnostic" ? "Find your starting point" : "Practice that adapts to you";
 }
 
 let pendingTotal = 0;
+let failedEventTotal = 0;
 
 async function refreshPendingCount() {
   if (!store) return;
   const records = await store.all("pending_events");
   pendingTotal = records.filter((record) => record.status !== "failed").length;
-  renderPendingCount();
+  failedEventTotal = records.filter((record) => record.status === "failed").length;
 }
 
 function setSyncStatus(text) {
@@ -231,17 +242,11 @@ async function attemptSync() {
   try {
     await refreshPendingCount();
     if (pendingTotal > 0) {
-      setSyncStatus("Syncing saved progress…");
+      setSyncStatus("Saving your recent learning progress…");
     }
     const result = await client.sync();
+    const rejected = result.body?.rejected_events?.length || 0;
     if (result.synced) {
-      const accepted = result.body.accepted_event_ids?.length || 0;
-      const rejected = result.body.rejected_events?.length || 0;
-      setSyncStatus(
-        rejected > 0
-          ? `Sync paused — ${accepted} saved, ${rejected} will retry; progress remains on this device`
-          : `Synced — ${accepted} update${accepted === 1 ? "" : "s"} saved; no progress lost`
-      );
       if (result.body.memory_snapshot) {
         strategyMemory = result.body.memory_snapshot;
       }
@@ -253,17 +258,34 @@ async function attemptSync() {
         consumeAgentEvents(strategyMemory.recent_agent_events || []);
         renderMastery();
       }
-    } else if (result.reason === "http") {
-      setSyncStatus("Connection interrupted — progress is safe on this device and will retry");
-    } else if (result.reason === "network") {
-      setSyncStatus("Connection interrupted — progress is safe on this device and will retry");
-    } else if (result.reason === "empty") {
-      setSyncStatus("Synced — no progress lost");
     }
     await refreshPendingCount();
+    if (failedEventTotal > 0) {
+      setSyncStatus(
+        "Some progress could not be saved yet. Keep learning; recent work remains on this device."
+      );
+    } else if (result.synced) {
+      setSyncStatus(
+        rejected > 0
+          ? "Some saved progress needs another try. Keep learning; nothing has been lost."
+          : "Your recent learning progress is saved."
+      );
+    } else if (result.reason === "empty" && pendingTotal > 0) {
+      setSyncStatus(
+        "Some saved progress needs another try. Keep learning; nothing has been lost."
+      );
+    } else if (result.reason === "empty") {
+      setSyncStatus("Your progress is saved.");
+    } else if (result.reason === "http" || result.reason === "network") {
+      setSyncStatus(
+        "Connection interrupted — progress is safe on this device and will retry"
+      );
+    }
     return result;
   } catch (_error) {
-    setSyncStatus("Connection interrupted — progress is safe on this device and will retry");
+    setSyncStatus(
+      "Connection interrupted — progress is safe on this device and will retry"
+    );
     await client.queue.restore();
     await refreshPendingCount();
     return null;
@@ -310,7 +332,7 @@ function renderQuestion({ preserveState = false } = {}) {
   if (!preserveState) hintLevel = 0;
   const hintLabel = document.querySelector("#hint-label");
   hintLabel.textContent = hintLevel
-    ? `Hint level ${hintLevel} was already opened before refresh.`
+    ? "You had already opened this hint before refresh."
     : "";
   questionArea.querySelector(".feedback").textContent = "";
   agentIntervention.classList.add("hidden");
@@ -472,34 +494,49 @@ async function submitAnswer(selectedChoiceId) {
     source_event_id: currentAnswerEventId,
   };
   renderAnswerFeedback(feedbackState);
-  await recordPresentedIntervention(feedbackState.localAgentEvent);
+  const answeredWhileOnline = navigator.onLine;
+  if (!answeredWhileOnline) {
+    await recordPresentedIntervention(feedbackState.localAgentEvent);
+  }
   await persistActiveSession("feedback");
-  attemptSync();
+  const syncResult = await attemptSync();
+  if (
+    answeredWhileOnline &&
+    (!syncResult?.synced ||
+      !(syncResult.body?.server_events || []).some(
+        (event) => event.source_event_id === currentAnswerEventId
+      ))
+  ) {
+    await recordPresentedIntervention(feedbackState.localAgentEvent);
+    await persistActiveSession("feedback");
+  }
 }
 
 function renderAnswerFeedback(state) {
   const item = currentQuestion;
   const feedback = questionArea.querySelector(".feedback");
   feedback.replaceChildren();
+  const agentEvent = state.serverAgentEvent || state.localAgentEvent;
   const verdict = document.createElement("strong");
-  verdict.textContent = state.correct ? "Correct" : "Not quite";
+  verdict.textContent = state.correct ? "Nice work" : "Not quite";
   feedback.append(verdict);
   const explanationText = state.correct
     ? ` — ${item.worked_explanation || ""}`
-    : state.misconception
-      ? ` — This answer suggests ${state.misconception.replaceAll("_", " ")}.`
-      : " — BridgeSAT will use another item to clarify the error.";
+    : isTeachingAction(agentEvent)
+      ? " — Let's switch approaches before you do more practice."
+      : " — Try one more similar problem so I can see whether the same step is getting in the way.";
   const explanation = document.createTextNode(explanationText);
   feedback.append(explanation);
 
   const nextButton = questionArea.querySelector(".next-button");
-  const agentEvent = state.serverAgentEvent || state.localAgentEvent;
   nextButton.textContent =
     sessionPhase === "diagnostic" && diagnosticAnswers.length >= DIAGNOSTIC_ITEM_COUNT
-      ? "View my study plan"
+      ? "See where to start"
       : isSessionEndingAction(agentEvent)
-        ? "End with review"
-        : "Next question";
+        ? "Finish with a review"
+        : isTeachingAction(agentEvent)
+          ? "Try a new problem"
+          : "Next question";
   nextButton.classList.remove("hidden");
   questionArea.querySelector(".question-choices").replaceChildren();
   document.querySelector("#hint-button").disabled = true;
@@ -528,20 +565,25 @@ function findTeachingAsset(event) {
   );
 }
 
-function findWorkedExample(event) {
-  return findTeachingAsset(event);
-}
-
 async function recordPresentedIntervention(event) {
-  if (!event || event.action !== "SHOW_WORKED_EXAMPLE") return false;
-  const lesson = findWorkedExample(event);
+  if (
+    !event ||
+    !["SHOW_WORKED_EXAMPLE", "SHOW_MICRO_LESSON"].includes(event.action)
+  ) {
+    return false;
+  }
+  const lesson = findTeachingAsset(event);
   const sourceEventId = event.source_event_id || currentAnswerEventId;
   if (!lesson || !sourceEventId) return false;
   const presentationKey = `${sourceEventId}:${lesson.id}`;
   if (presentedInterventionSources.has(presentationKey)) return false;
   presentedInterventionSources.add(presentationKey);
+  const presentationEventType =
+    event.action === "SHOW_MICRO_LESSON"
+      ? "MICRO_LESSON_PRESENTED"
+      : "WORKED_EXAMPLE_PRESENTED";
   await enqueueEvent(
-    "WORKED_EXAMPLE_PRESENTED",
+    presentationEventType,
     {
       source_answer_event_id: sourceEventId,
       content_id: lesson.id,
@@ -567,27 +609,23 @@ function renderAgentIntervention(event) {
   memoryBanner.textContent = view.memoryBanner;
   memoryBanner.classList.toggle("hidden", !view.memoryBased);
   agentIntervention.querySelector(".intervention-title").textContent =
-    event.validated_episode_id ? "Learning memory validated" : view.title;
-  agentIntervention.querySelector(".intervention-why").textContent =
-    view.personalized ||
-    (event.validated_episode_id
-      ? "The intervention was followed by success on a different item, so BridgeSAT can reuse this evidence later."
-      : view.why);
-  agentIntervention.querySelector(".recommendation-detail").textContent =
-    view.memoryBased
-      ? "BridgeSAT matched this misconception to a validated earlier learning episode. Because the earlier worked example was followed by transfer success, the same teaching move is shown on the first similar error instead of waiting for the mistake to repeat."
-      : view.why;
+    event.validated_episode_id ? "This approach worked on a new problem." : view.title;
+  agentIntervention.querySelector(".intervention-why").textContent = view.why;
+  agentIntervention.querySelector(".recommendation-detail").textContent = view.why;
   const content = agentIntervention.querySelector(".intervention-content");
   content.replaceChildren();
   let lesson = null;
   if (view.showTeachingAsset) {
     lesson = findTeachingAsset(event);
     if (lesson) {
+      const guide = document.createElement("p");
+      guide.className = "intervention-guide";
+      guide.textContent = view.lessonLead;
       const heading = document.createElement("strong");
       heading.textContent = lesson.title;
       const body = document.createElement("p");
       body.textContent = lesson.body;
-      content.append(heading, body);
+      content.append(guide, heading, body);
     }
   }
   const meta = [view.reasonCode, view.policyVersion];
@@ -619,14 +657,30 @@ function consumeAgentEvents(events) {
   if (!expectedSourceEventId) return;
   const relevant = selectRelevantAgentEvent(events, expectedSourceEventId);
   if (!relevant) return;
+  if (
+    feedbackState?.serverAgentEvent?.source_event_id === relevant.source_event_id &&
+    feedbackState.serverAgentEvent.hybrid_ranked &&
+    !relevant.hybrid_ranked
+  ) {
+    return;
+  }
   feedbackState = { ...(feedbackState || {}), serverAgentEvent: relevant };
   nextActionConstraint = {
     ...(nextActionConstraint || {}),
     ...(relevant.action_payload || {}),
   };
+  if (isTeachingAction(relevant) && currentQuestion?.author_metadata?.transfer_group) {
+    nextActionConstraint = {
+      ...nextActionConstraint,
+      transfer_group: currentQuestion.author_metadata.transfer_group,
+      instruction_role: "transfer",
+    };
+  }
   renderAgentIntervention(relevant);
   if (isSessionEndingAction(relevant)) {
-    questionArea.querySelector(".next-button").textContent = "End with review";
+    questionArea.querySelector(".next-button").textContent = "Finish with a review";
+  } else if (isTeachingAction(relevant)) {
+    questionArea.querySelector(".next-button").textContent = "Try a new problem";
   }
   persistActiveSession("feedback");
   recordPresentedIntervention(relevant).then((recorded) => {
@@ -687,22 +741,24 @@ function renderDiagnosticResult(result) {
   questionArea.classList.add("hidden");
   diagnosticSummary.classList.remove("hidden");
   const focus = result.focus || diagnosticAnswers[0]?.skill || "SAT foundations";
-  learningFocus.textContent = `Weak area: ${String(focus).replaceAll("_", " ")}`;
+  learningFocus.textContent = `Start with ${studentSkillLabel(focus)}.`;
   diagnosticSummary.querySelector(".diagnostic-explanation").textContent =
-    result.explanation;
+    `We'll begin with ${studentSkillLabel(focus)} and adjust as we learn what helps you.`;
   const planList = diagnosticSummary.querySelector(".diagnostic-plan");
   planList.replaceChildren();
   for (const item of result.plan) {
     const row = document.createElement("li");
-    const skill = String(item.skill || result.focus).replaceAll("_", " ");
-    row.textContent = `${item.activity.replaceAll("_", " ")} — ${skill}, ${item.minutes} min. ${item.reason}`;
+    const skill = studentSkillLabel(item.skill || result.focus);
+    row.textContent = `Start with ${item.activity.replaceAll("_", " ")} for ${skill}.`;
     planList.append(row);
   }
 }
 
 async function finishSession() {
-  await enqueueEvent("SESSION_COMPLETED", { student_id: studentId });
-  await attemptSync();
+  const completionRecord = await enqueueEvent("SESSION_COMPLETED", {
+    student_id: studentId,
+  });
+  const synced = await attemptSync();
   const snapshot = await client.pullSnapshot().catch(() => null);
   if (snapshot) {
     seedSkillStates(snapshot);
@@ -713,16 +769,37 @@ async function finishSession() {
   const summaryText = sessionSummary.querySelector(".summary-text");
   await refreshPendingCount();
   const pending = pendingTotal;
-  const memorySummary = episodes.length > 0
-    ? `BridgeSAT has ${episodes.length} validated learning strateg${
-        episodes.length === 1 ? "y" : "ies"
-      } it can reuse in a future session.`
-    : "BridgeSAT will keep track of which teaching moves help you recover.";
-  summaryText.textContent = `Session complete. ${memorySummary} ${
-    pending > 0
-      ? `${pending} update${pending === 1 ? " is" : "s are"} saved on this device and will sync when the connection returns.`
-      : "Everything is synced — no progress lost."
-  }.`;
+  // H8: the server may return a verified, fact-grounded session summary
+  // (plan Section 15). Use it only when present and non-empty; every failure
+  // path (offline, provider unavailable, rejected proposal) falls back to
+  // the deterministic summary prose below.
+  const personalizedSummaries = synced?.body?.personalized_summaries;
+  const currentSummary = Array.isArray(personalizedSummaries)
+    ? personalizedSummaries.find(
+        (entry) =>
+          entry.source_event_id === completionRecord?.id &&
+          entry.session_id === sessionId
+      )?.summary_text
+    : null;
+  const legacySummary =
+    (!Array.isArray(personalizedSummaries) || personalizedSummaries.length === 0) &&
+    typeof synced?.body?.personalized_summary === "string"
+      ? synced.body.personalized_summary
+      : "";
+  const verifiedSummary = String(currentSummary || legacySummary).trim();
+  const syncStatusText = failedEventTotal > 0
+    ? "Some progress could not be saved yet. Keep learning; recent work remains on this device."
+    : pending > 0
+      ? "Your progress is saved on this device and will save when the connection returns."
+      : "Your progress is saved.";
+  if (verifiedSummary) {
+    summaryText.textContent = `${verifiedSummary} ${syncStatusText}`;
+  } else {
+    const memorySummary = episodes.length > 0
+      ? "BridgeSAT will remember the approaches that helped you, so it can use them sooner next time."
+      : "BridgeSAT will keep track of the approaches that help you learn.";
+    summaryText.textContent = `Session complete. ${memorySummary} ${syncStatusText}`;
+  }
   sessionSummary.classList.remove("hidden");
   questionArea.classList.add("hidden");
   await store.delete("active_session", "state");
