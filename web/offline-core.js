@@ -380,7 +380,7 @@ function agentEventToView(event) {
     event.action
   );
   const teachingMove =
-    event.action === "SHOW_MICRO_LESSON" ? "a short explanation" : "a worked example";
+    event.action === "SHOW_MICRO_LESSON" ? "A short explanation" : "A worked example";
   return {
     title:
       recalled

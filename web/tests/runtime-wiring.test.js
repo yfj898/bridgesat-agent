@@ -71,6 +71,13 @@ test("PWA consumes server agent events returned by sync", () => {
   assert.match(app, /pickNextQuestion\([\s\S]*nextActionConstraint/);
 });
 
+test("snapshot replay cannot downgrade a live validated-episode event", () => {
+  assert.match(
+    app,
+    /feedbackState\.serverAgentEvent\.validated_episode_id[\s\S]{0,120}!relevant\.validated_episode_id[\s\S]{0,40}return;/
+  );
+});
+
 test("consumeAgentEvents reconstructs a teaching transfer constraint", () => {
   const start = app.indexOf("function consumeAgentEvents");
   const end = app.indexOf("async function completeDiagnostic", start);
@@ -268,6 +275,20 @@ test("PWA competition path posts only sync; /v1/adapt is never called", () => {
   assert.match(core, /\/v1\/sync\/events/);
   assert.doesNotMatch(app, /\/v1\/adapt/);
   assert.doesNotMatch(core, /\/v1\/adapt/);
+});
+
+test("practice sessions do not enqueue an unsupported SESSION_STARTED event", () => {
+  const start = app.indexOf("async function presentQuestion()");
+  const end = app.indexOf("async function showHint()", start);
+  assert.ok(start >= 0 && end > start, "presentQuestion source exists");
+  const presentQuestion = app.slice(start, end);
+
+  assert.match(
+    presentQuestion,
+    /if \(sessionPhase === "diagnostic"\) \{\s*await enqueueEvent\("DIAGNOSTIC_STARTED"/
+  );
+  assert.doesNotMatch(presentQuestion, /"SESSION_STARTED"/);
+  assert.match(presentQuestion, /await enqueueEvent\("CONTENT_PRESENTED"/);
 });
 
 test("time-budget closure is executed by the student UI", () => {

@@ -1,35 +1,35 @@
 {
   "schema_version": "1.0",
   "label": "controlled internal test (on-device latency, this machine)",
-  "tenant_id": "perf_2ee63425c14b4133a55b17c2e465f592",
+  "tenant_id": "perf_3b6eaa130a78426ea9398107248551be",
   "results": {
     "local_policy": {
       "samples": 2000,
       "p50_ms": 0.01,
       "p95_ms": 0.01,
-      "max_ms": 0.06,
+      "max_ms": 0.05,
       "target_p95_ms": 150.0,
       "passed": true
     },
     "tsvector": {
       "samples": 200,
-      "p50_ms": 0.86,
-      "p95_ms": 1.15,
-      "max_ms": 2.75,
+      "p50_ms": 0.95,
+      "p95_ms": 1.11,
+      "max_ms": 1.93,
       "target_p95_ms": 200.0,
       "passed": true
     },
     "session_restore": {
       "samples": 100,
-      "p50_ms": 2.04,
-      "p95_ms": 2.67,
-      "max_ms": 3.89,
+      "p50_ms": 1.76,
+      "p95_ms": 2.42,
+      "max_ms": 3.26,
       "target_p95_ms": 500.0,
       "passed": true
     }
   },
-  "sync_throughput_events_per_sec": 316.9,
-  "max_rss_mb": 80.7,
+  "sync_throughput_events_per_sec": 363.4,
+  "max_rss_mb": 80.2,
   "mnemis_timeout_nonblocking": "covered by tests: tests/test_memory*",
   "targets": {
     "local_policy_p95_ms": 150.0,

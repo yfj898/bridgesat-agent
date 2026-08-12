@@ -381,10 +381,9 @@ async function presentQuestion() {
   feedbackState = null;
   if (!sessionStarted) {
     sessionStarted = true;
-    await enqueueEvent(
-      sessionPhase === "diagnostic" ? "DIAGNOSTIC_STARTED" : "SESSION_STARTED",
-      { student_id: studentId }
-    );
+    if (sessionPhase === "diagnostic") {
+      await enqueueEvent("DIAGNOSTIC_STARTED", { student_id: studentId });
+    }
   }
   await enqueueEvent("CONTENT_PRESENTED", {
     question_id: item.id,
@@ -661,6 +660,13 @@ function consumeAgentEvents(events) {
     feedbackState?.serverAgentEvent?.source_event_id === relevant.source_event_id &&
     feedbackState.serverAgentEvent.hybrid_ranked &&
     !relevant.hybrid_ranked
+  ) {
+    return;
+  }
+  if (
+    feedbackState?.serverAgentEvent?.source_event_id === relevant.source_event_id &&
+    feedbackState.serverAgentEvent.validated_episode_id &&
+    !relevant.validated_episode_id
   ) {
     return;
   }

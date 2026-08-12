@@ -82,7 +82,7 @@ Synthetic simulation is never presented as real student improvement.
 
 ## Web core-flow tests (controlled internal test)
 
-- node --test web/tests: 55 passed, 0 failed (offline flow, refresh, weak network, accessibility core paths)
+- node --test web/tests: 57 passed, 0 failed (offline flow, refresh, weak network, accessibility core paths)
 - report: reports/web_tests.json
 
 ## Content audit (controlled internal test)
@@ -95,9 +95,9 @@ Synthetic simulation is never presented as real student improvement.
 ## Performance gates (controlled internal test, this machine)
 
 - local policy p95: 0.01 ms (target < 150 ms)
-- PostgreSQL tsvector p95: 1.15 ms (target < 200 ms)
-- session restore p95: 2.67 ms (target < 500 ms)
-- sync throughput: 316.9 events/s, max RSS 80.7 MB
+- PostgreSQL tsvector p95: 1.11 ms (target < 200 ms)
+- session restore p95: 2.42 ms (target < 500 ms)
+- sync throughput: 363.4 events/s, max RSS 80.2 MB
 - report: reports/performance_eval.json
 
 ## Accessibility
@@ -118,8 +118,8 @@ Synthetic simulation is never presented as real student improvement.
 | unacknowledged-event loss = 0 | design target | PASS |
 | content audit 100% | controlled internal test | 100% |
 | local policy p95 < 150 ms | controlled internal test | 0.01 ms |
-| PostgreSQL tsvector p95 < 200 ms | controlled internal test | 1.15 ms |
-| session restore p95 < 500 ms | controlled internal test | 2.67 ms |
+| PostgreSQL tsvector p95 < 200 ms | controlled internal test | 1.11 ms |
+| session restore p95 < 500 ms | controlled internal test | 2.42 ms |
 | educational improvement over control | synthetic simulation | +5.7% correctness |
 
 ## Reproduction

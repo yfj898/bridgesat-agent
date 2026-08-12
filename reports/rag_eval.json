@@ -24,7 +24,7 @@
     "restricted_source_hits": 0,
     "explicit_no_result": 0.0,
     "all_expected_found": 0.875,
-    "latency_avg_ms": 1.0,
+    "latency_avg_ms": 0.875,
     "latency_p95_ms": 1
   },
   "dev_set": "evals/retrieval/dev.jsonl",
