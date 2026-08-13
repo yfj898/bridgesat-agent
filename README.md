@@ -2,6 +2,12 @@
 
 Every student deserves a tutor that remembers what actually helps them learn.
 
+## Demo video
+
+Final 2:44 submission demo (English hard subtitles + US-English neural narration):
+
+https://youtu.be/BE-CNibViYk
+
 ## The student continuity problem
 
 Students who do not have a personal tutor, a current device, or a stable internet

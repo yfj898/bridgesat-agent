@@ -14,8 +14,9 @@ diagnostic → `RETRY_SAME_SKILL` → `SHOW_WORKED_EXAMPLE` → different-item t
 validation → Session 2 recall → learning-record evidence → offline learning →
 refresh recovery → reconnect with `pending = 0` and `failed = 0`.
 
-The video production gate is complete. Only external hosting and insertion of the
-final evaluator-accessible URL remain submission-form tasks.
+The video production and hosting gates are complete. The hosted submission video
+is `https://youtu.be/BE-CNibViYk`; verify it once in an anonymous/incognito browser
+before final Devpost submission and use that same URL in the video field.
 
 ## Before recording
 

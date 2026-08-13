@@ -15,12 +15,12 @@ labeled separately.
 | autonomous decisions | READY | persisted action, reason code/text, policy version, Episode IDs | none for demo |
 | cross-session memory changes experience | READY IN BROWSER + VIDEO | Session 1 created a validated `slope_sign_error` + `SHOW_WORKED_EXAMPLE` episode; Session 2 first same error immediately returned `RECALLED_SUCCESSFUL_EPISODE`; the final 2:44 demo captures the recall | none for the recorded demo path |
 | poor-network continuity | READY IN BROWSER + VIDEO | real Chrome: offline answer/hint queued, offline refresh restored item/feedback/hint/queue, reconnect automatically cleared pending events; controlled eval remains 10/10; the final demo captures offline → refresh recovery → reconnect | none for the recorded demo path |
-| working demo | READY IN BROWSER + VIDEO | clean Chrome profile reproduced the full deterministic student path against the FastAPI/PostgreSQL runtime; final cut is 2:44 | upload the verified final cut and provide the hosted submission URL |
+| working demo | READY IN BROWSER + VIDEO | clean Chrome profile reproduced the full deterministic student path against the FastAPI/PostgreSQL runtime; final cut is 2:44; hosted video: `https://youtu.be/BE-CNibViYk` | verify the hosted video once in an anonymous/incognito browser before final submission |
 | real student interaction flow | READY IN BROWSER + VIDEO | runtime route `A/B → A/A/C → A`: diagnostic → retry → worked example → different-item validation → later-session recall; captured in the final cut | none for the recorded demo path |
 | public deployment and working-demo URL | OPTIONAL / OPEN | local FastAPI/PWA working demo is browser-verified; official rules require a working demo but do not make a hosted URL a separate listed artifact | add a hosted URL if available; do not block the code freeze on hosting |
-| three-minute video | READY LOCALLY / HOSTED URL PENDING | `BridgeSAT_Submission_Demo_2m44s_Voiceover.mp4`: 164.000 s, 1920×1080, 30 fps, H.264 video + AAC audio; English hard subtitles and AI English narration are complete | upload to an evaluator-accessible video host, verify playback, and add the final URL to the submission/README |
+| three-minute video | READY / HOSTED | `BridgeSAT_Submission_Demo_2m44s_Voiceover.mp4`: 164.000 s, 1920×1080, 30 fps, H.264 video + AAC audio; English hard subtitles and AI English narration are complete; YouTube: `https://youtu.be/BE-CNibViYk` | verify playback once in an anonymous/incognito browser, then use this URL in Devpost |
 | GitHub repository | READY | public `yfj898/bridgesat-agent`, default branch `main`; anonymous repository/README access verified; frozen core commit `09a4b28` is on `origin/main` | push only final submission-document updates; do not reopen core code |
-| clear README | READY | student-value-first opening, one setup order, PostgreSQL facts, honest limitations | insert final video/demo links after upload |
+| clear README | READY | student-value-first opening, one setup order, PostgreSQL facts, honest limitations, and final YouTube demo link | none |
 | one-page write-up | READY | `docs/ONE_PAGE_WRITEUP.md` | attach or paste into submission form |
 | governed student content | BLOCKED FOR DEPLOYMENT | 1799/1799 automated checks; current reviewer IDs are `sim.*`; pack is 8 math skills, 103 questions, 24 lessons | real humans must sign educational, answer, license, accessibility review |
 | Impact | READY IN NARRATIVE | tutoring-access and continuity value is visible in first 20 seconds | do not claim measured SAT improvement |
@@ -31,11 +31,11 @@ labeled separately.
 
 ## Release blockers
 
-The ≤3-minute demo is **produced and verified locally**. The remaining external
-submission action is to upload `BridgeSAT_Submission_Demo_2m44s_Voiceover.mp4`
-to an evaluator-accessible video host, verify playback, and place that hosted URL
-in Devpost (and in the README once available). The public GitHub repository,
-one-page write-up, and working local demo path are otherwise ready. A hosted
+The ≤3-minute demo is **produced, verified locally, and hosted on YouTube** at
+`https://youtu.be/BE-CNibViYk`. Before the final Devpost submit action, open that
+URL once in an anonymous/incognito browser to confirm evaluator-accessible
+playback, then use the same URL in the Devpost video field. The public GitHub
+repository, one-page write-up, and working local demo path are otherwise ready. A hosted
 working-demo URL remains useful but is treated here as a quality option, not as a
 separate code blocker. A real screen-reader walkthrough remains an Accessibility
 scoring risk. The pack must not be represented as human-approved: its reviewer
