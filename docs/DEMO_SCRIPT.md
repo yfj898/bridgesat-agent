@@ -5,6 +5,18 @@ stuck point, verifies what helps, and brings that help back in the next session.
 Keep the focus on what the student sees. Do not show architecture diagrams,
 internal action labels, episode identifiers, policy versions, or sync queues.
 
+## Final recorded artifact
+
+The final submission cut is `BridgeSAT_Submission_Demo_2m44s_Voiceover.mp4`:
+164.000 seconds (2:44), 1920×1080, 30 fps, H.264 video, AAC stereo audio, English
+hard subtitles, and natural US-English neural narration. The recorded story is:
+diagnostic → `RETRY_SAME_SKILL` → `SHOW_WORKED_EXAMPLE` → different-item transfer
+validation → Session 2 recall → learning-record evidence → offline learning →
+refresh recovery → reconnect with `pending = 0` and `failed = 0`.
+
+The video production gate is complete. Only external hosting and insertion of the
+final evaluator-accessible URL remain submission-form tasks.
+
 ## Before recording
 
 Use the setup and verification path in `README.md`, then open a clean browser

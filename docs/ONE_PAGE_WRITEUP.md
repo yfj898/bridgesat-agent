@@ -45,7 +45,7 @@ Mnemis, an external LLM, or a continuous connection.
 Controlled internal evaluation currently reports 24/24 policy trajectories,
 10/10 offline/sync scenarios, 100% PostgreSQL similarity recall@3 and next-action
 accuracy, 100% retrieval citation/license coverage, and zero restricted-source
-hits. The fresh full-suite baseline is 850 passed Python tests and 55 passed Web
+hits. The fresh full-suite baseline is 850 passed Python tests and 57 passed Web
 tests. The governed pack passes 1799/1799 automated checks. The reported +5.7
 percentage-point correctness delta is a **synthetic simulation — not a real
 student outcome**.
